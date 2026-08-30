@@ -10,6 +10,13 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - Theme changes apply to Personal Hub's dashboard, navigation and settings. Remote
   service pages run in isolated native WebViews and keep their own appearance.
 - Invalid or missing appearance settings always fall back to the bundled default.
+- The dashboard server summary must show server uptime as a duration. This is not
+  a clock, date or visible polling timestamp.
+- Desktop cards are experimental, opt-in and disabled by default. Disabling them
+  must prevent their windows and polling work from being created, not merely hide
+  them after startup.
+- Programmatic API authentication and embedded-page login are separate concerns.
+  Generic password injection into arbitrary service pages is never allowed.
 
 ## Completed foundation
 
@@ -35,9 +42,22 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - Position and size persist per card, with automatic recovery when saved geometry
   no longer intersects an available monitor.
 - Hide-until-restart behavior; persistent visibility and reset controls move to
-  the Phase 8 tray manager.
+  the Phase 7.2 settings and tray manager.
 - No local Windows hardware telemetry, clock/date or credential-dependent
   provider integration.
+
+## Phase 6.2 — Stability and media lifecycle
+
+- Add a clearly visible Glances uptime duration to the dashboard's existing
+  `Server online` summary without adding another dashboard widget.
+- Closing a service tab destroys its child WebView so Jellyfin and other media
+  cannot continue playing invisibly.
+- Switching between still-open tabs may keep their warm WebViews and session
+  state; closing and switching must have intentionally different semantics.
+- Define and test the media behavior used when the main window later hides to the
+  tray. Invisible background playback is off by default.
+- Add regression coverage for service-tab close, media teardown and unavailable
+  uptime data.
 
 ## Phase 7 — Settings and integrations
 
@@ -46,10 +66,37 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - Writable per-user service configuration with validated migration and recovery.
 - Service add, edit, remove, enable and disable flows.
 - Persistent application preferences with an explicit reset path.
-- Windows-backed secret storage for services that require authentication.
+- Windows-backed secret storage for API keys, bearer tokens, HTTP Basic
+  credentials and provider-specific usernames/passwords.
 - Credentials remain outside repository files, URLs, logs and exported settings.
 
-### Phase 7.1 — Appearance and languages
+### Phase 7.1 — Authentication and session providers
+
+- Provider-specific authentication adapters that consume secrets only in Rust;
+  the frontend sees presence, validation state and safe metadata, never the
+  stored secret value.
+- Automatic API authentication for supported services, including Homarr's
+  `ApiKey` header, with validation, rotation and bounded retry/backoff behavior.
+- Persistent WebView profiles remain the primary browser-login mechanism.
+- Exact-origin HTTP Basic handling and narrowly scoped provider adapters may
+  restore an expired browser session when the service supports a documented
+  flow. No universal DOM form filler or arbitrary script-based password entry.
+- Optional OIDC/SSO handoff for services that support it.
+
+### Phase 7.2 — Background runtime and experimental desktop cards
+
+- An `Experimental desktop cards` master switch, disabled by default, plus
+  independent Server, Storage and Service-attention card switches.
+- Disabled cards create no window, WebView, polling claim or background work.
+- Close-to-tray behavior while background features are enabled, with explicit
+  `Open Personal Hub` and `Quit` actions.
+- Tray controls to show/hide cards, reset geometry and open Settings.
+- Supported `always below normal windows` mode as the default card layer.
+- A separate, clearly labeled Explorer desktop-layer experiment may be offered
+  only after Windows-version, Explorer-restart, DPI and multi-monitor testing;
+  it is never the default.
+
+### Phase 7.3 — Appearance and languages
 
 - One versioned theme-token contract shared by every Personal Hub component.
 - Bundled `Default`, `Terminal`, `Translucent` and `Minimal` themes.
@@ -72,15 +119,16 @@ Theme Studio and safe theme packs are part of this phase:
 - Theme packs may contain declarative tokens only: no arbitrary JavaScript, HTML,
   remote fonts or unrestricted CSS.
 
-### Phase 7.2 — Service discovery and icons
+### Phase 7.4 — Service discovery and icons
 
-- Homarr import and read-only Docker/Podman inventory.
+- Authenticated Homarr import using the Phase 7.1 provider plus read-only
+  Docker/Podman inventory.
 - Later mDNS, SSDP and optional narrowly scoped port discovery.
 - Review-before-add flow, duplicate detection and confidence levels.
 - A local Dashboard Icons-based SVG/WebP catalog with dark/light variants.
 - Custom icon import with validated storage and a bounded cache.
 
-### Phase 7.3 — Download Center
+### Phase 7.5 — Download Center
 
 - A read-only qBittorrent provider first: active downloads, progress, speed, ETA,
   state, provider badge, categories and tags.
@@ -91,9 +139,9 @@ Theme Studio and safe theme packs are part of this phase:
 
 ## Phase 8 — Windows desktop integration
 
-- NSIS installer, application/taskbar icons, tray and startup registration.
-- Configurable close-to-tray behavior and window geometry persistence.
-- Tray controls to show, hide and reset the server desktop cards.
+- NSIS installer, application/taskbar icons and startup registration.
+- Signed-release and installed-version visibility so the running build can be
+  identified from an About/update page.
 - Disk, download and service-outage notifications.
 - Desktop cards continue to represent the server, not the local Windows machine.
 - No reboot or shutdown command in this phase.
@@ -107,7 +155,7 @@ Theme Studio and safe theme packs are part of this phase:
 - Local operation history, reboot/offline tracking and return-online notification.
 - Optional later Wake-on-LAN, container/service restart and maintenance status.
 
-## Phase 10 — Linux desktop support (final platform phase)
+## Phase 10 — Linux desktop support
 
 - Linux packaging and startup integration after the Windows experience and
   trusted server-control path are stable.
@@ -115,3 +163,16 @@ Theme Studio and safe theme packs are part of this phase:
   environments without adding local Linux hardware widgets.
 - Platform-specific window-layer behavior documented and tested rather than
   relying on Windows shell or Explorer implementation details.
+
+## Phase 11 — Mobile companion
+
+- Reuse the validated service, monitoring, authentication and server-control
+  contracts in a mobile-first Android/iOS interface.
+- Start with LAN-only operation; remote access requires an explicitly configured
+  trusted VPN path rather than exposing Personal Hub or service ports publicly.
+- Android Keystore and Apple Keychain-backed secrets, with biometric confirmation
+  for reboot, shutdown and other privileged actions.
+- Android first; iOS builds follow when a macOS/Xcode build environment is
+  available.
+- Optional Android/iOS home-screen widgets only after the core mobile app is
+  stable.

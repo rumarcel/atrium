@@ -169,9 +169,10 @@ exceptions remain normal online services rather than false attention items.
 Card position and size are stored per card in physical pixels. Startup validates
 the saved rectangle against the current monitor work areas and safely returns an
 off-screen card to the primary monitor. **Hide** removes a card until Personal
-Hub restarts; a future tray manager in Phase 8 will provide persistent show/hide
-and reset controls. Closing the main window exits the card windows as well until
-tray behavior exists.
+Hub restarts. Phase 7.2 will make the experimental card system opt-in and disabled
+by default, with per-card settings plus persistent tray show/hide and reset
+controls. Closing the main window exits the card windows as well until that tray
+runtime exists.
 
 ## Publishing safely
 
