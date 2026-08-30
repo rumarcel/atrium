@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-ui",
+  "description": "Least-privilege capability for the trusted Personal Hub UI webview",
+  "local": true,
+  "webviews": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-check-service-health",
+    "allow-get-server-metrics",
+    "allow-open-service-webview",
+    "allow-activate-service-webview",
+    "allow-hide-service-webviews",
+    "allow-reconcile-service-webviews",
+    "allow-park-service-webview",
+    "allow-close-service-webview",
+    "allow-open-service-in-system-browser"
+  ]
+}

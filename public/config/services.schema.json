@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://personal-hub.local/schemas/services.schema.json",
+  "title": "Personal Hub service configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "services"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1
+    },
+    "services": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "$ref": "#/$defs/service"
+      }
+    }
+  },
+  "$defs": {
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "url", "icon", "category", "enabled"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://"
+        },
+        "icon": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "accent": {
+          "enum": [
+            "violet",
+            "amber",
+            "blue",
+            "cyan",
+            "green",
+            "orange",
+            "red",
+            "slate"
+          ]
+        },
+        "tlsPolicy": {
+          "description": "Certificate validation policy. The relaxed option is accepted only for HTTPS loopback or private-network targets.",
+          "enum": [
+            "strict",
+            "allow-invalid-local-certificate"
+          ]
+        }
+      }
+    }
+  }
+}

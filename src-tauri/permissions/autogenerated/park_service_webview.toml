@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-park-service-webview"
+description = "Enables the park_service_webview command without any pre-configured scope."
+commands.allow = ["park_service_webview"]
+
+[[permission]]
+identifier = "deny-park-service-webview"
+description = "Denies the park_service_webview command without any pre-configured scope."
+commands.deny = ["park_service_webview"]

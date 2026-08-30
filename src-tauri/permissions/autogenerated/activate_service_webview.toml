@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-activate-service-webview"
+description = "Enables the activate_service_webview command without any pre-configured scope."
+commands.allow = ["activate_service_webview"]
+
+[[permission]]
+identifier = "deny-activate-service-webview"
+description = "Denies the activate_service_webview command without any pre-configured scope."
+commands.deny = ["activate_service_webview"]

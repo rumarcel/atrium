@@ -1,0 +1,36 @@
+# JavaScript dependencies and package-manager caches
+node_modules/
+.pnpm-store/
+
+# Frontend and Rust build output
+dist/
+coverage/
+.vite/
+src-tauri/target/
+
+# Local configuration and environment overrides
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editors and Windows tooling
+.idea/
+.vscode/
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

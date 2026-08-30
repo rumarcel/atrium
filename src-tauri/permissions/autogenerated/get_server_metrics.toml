@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-server-metrics"
+description = "Enables the get_server_metrics command without any pre-configured scope."
+commands.allow = ["get_server_metrics"]
+
+[[permission]]
+identifier = "deny-get-server-metrics"
+description = "Denies the get_server_metrics command without any pre-configured scope."
+commands.deny = ["get_server_metrics"]

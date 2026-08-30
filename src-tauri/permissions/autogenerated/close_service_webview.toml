@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-close-service-webview"
+description = "Enables the close_service_webview command without any pre-configured scope."
+commands.allow = ["close_service_webview"]
+
+[[permission]]
+identifier = "deny-close-service-webview"
+description = "Denies the close_service_webview command without any pre-configured scope."
+commands.deny = ["close_service_webview"]

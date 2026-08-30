@@ -1,0 +1,130 @@
+{
+  "$schema": "./services.schema.json",
+  "version": 1,
+  "services": [
+    {
+      "id": "jellyfin",
+      "name": "Jellyfin",
+      "description": "Movies, series and music",
+      "url": "http://192.168.1.10:8096",
+      "icon": "jellyfin",
+      "category": "Media",
+      "enabled": true,
+      "accent": "violet"
+    },
+    {
+      "id": "radarr",
+      "name": "Radarr",
+      "description": "Movie collection manager",
+      "url": "http://192.168.1.10:7878",
+      "icon": "radarr",
+      "category": "Media",
+      "enabled": true,
+      "accent": "amber"
+    },
+    {
+      "id": "sonarr",
+      "name": "Sonarr",
+      "description": "Series collection manager",
+      "url": "http://192.168.1.10:8989",
+      "icon": "sonarr",
+      "category": "Media",
+      "enabled": true,
+      "accent": "blue"
+    },
+    {
+      "id": "bazarr",
+      "name": "Bazarr",
+      "description": "Subtitle companion",
+      "url": "http://192.168.1.10:6767",
+      "icon": "bazarr",
+      "category": "Media",
+      "enabled": true,
+      "accent": "cyan"
+    },
+    {
+      "id": "qbittorrent",
+      "name": "qBittorrent",
+      "description": "Download client",
+      "url": "http://192.168.1.10:8080",
+      "icon": "qbittorrent",
+      "category": "Downloads",
+      "enabled": true,
+      "accent": "blue"
+    },
+    {
+      "id": "crafty-controller",
+      "name": "Crafty Controller",
+      "description": "Game server control",
+      "url": "https://192.168.1.10:8443",
+      "icon": "crafty",
+      "category": "Game Servers",
+      "enabled": true,
+      "accent": "green",
+      "tlsPolicy": "allow-invalid-local-certificate"
+    },
+    {
+      "id": "portainer",
+      "name": "Portainer",
+      "description": "Container management",
+      "url": "https://192.168.1.10:9443",
+      "icon": "portainer",
+      "category": "System",
+      "enabled": true,
+      "accent": "blue",
+      "tlsPolicy": "allow-invalid-local-certificate"
+    },
+    {
+      "id": "cockpit",
+      "name": "Cockpit",
+      "description": "Server administration",
+      "url": "https://192.168.1.10:9090",
+      "icon": "cockpit",
+      "category": "System",
+      "enabled": true,
+      "accent": "red",
+      "tlsPolicy": "allow-invalid-local-certificate"
+    },
+    {
+      "id": "gerbera",
+      "name": "Gerbera",
+      "description": "UPnP media server",
+      "url": "http://192.168.1.10:49494",
+      "icon": "gerbera",
+      "category": "Media",
+      "enabled": true,
+      "accent": "orange"
+    },
+    {
+      "id": "metube",
+      "name": "MeTube",
+      "description": "Video downloader",
+      "url": "http://192.168.1.10:8081",
+      "icon": "metube",
+      "category": "Downloads",
+      "enabled": true,
+      "accent": "red"
+    },
+    {
+      "id": "server-firefox",
+      "name": "Server Firefox",
+      "description": "Remote browser workspace",
+      "url": "https://192.168.1.10:3001",
+      "icon": "firefox",
+      "category": "Tools",
+      "enabled": true,
+      "accent": "orange",
+      "tlsPolicy": "allow-invalid-local-certificate"
+    },
+    {
+      "id": "glances",
+      "name": "Glances",
+      "description": "System monitoring",
+      "url": "http://192.168.1.10:61208",
+      "icon": "glances",
+      "category": "System",
+      "enabled": true,
+      "accent": "green"
+    }
+  ]
+}
