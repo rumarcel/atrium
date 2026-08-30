@@ -7,8 +7,10 @@ services. Built with Tauri v2, React, TypeScript and Vite.
 
 Phase 1 through Phase 6 are implemented: the desktop shell, responsive
 dashboard, validated service configuration, asynchronous service health checks,
-session-preserving native service tabs and live Glances monitoring. Settings and
-deeper Windows integrations remain intentionally out of scope for this phase.
+session-preserving native service tabs and live Glances monitoring. The dashboard
+keeps its original Phase 6 composition; Phase 6.1 desktop cards will be separate
+Windows surfaces rather than an in-app widget editor. Settings and deeper Windows
+integrations remain intentionally out of scope for this phase.
 Planned settings, themes and later integrations are tracked in
 [`ROADMAP.md`](ROADMAP.md).
 
@@ -19,10 +21,11 @@ Planned settings, themes and later integrations are tracked in
 - `src/features/health`: native health-check client, bounded polling and runtime
   status types.
 - `src/features/monitoring`: validated Glances metrics, visibility-aware polling
-  and dashboard widgets.
+  and the dashboard monitoring panel.
 - `src/features/services`: configuration parsing, loading state and service cards.
 - `src/features/tabs`: tab state, measured native viewport and the serialized
   child-WebView command client.
+- `src/hooks`: shared visibility-aware polling primitives.
 - `src/pages`: application-level pages.
 - `src/styles`: design tokens, global rules and dashboard layout.
 - `src-tauri`: Tauri v2 desktop shell, security configuration, native child
@@ -129,18 +132,30 @@ each response to 1 MiB and uses a 2.5-second request timeout. The frontend canno
 supply or override the monitoring URL.
 
 Glances REST API v4 is detected first, with a v3 fallback only when the v4 API
-is not present. CPU, memory, sensors, network and filesystem plugins are fetched
-concurrently as five small requests. Network units are normalized across API
-versions, loopback and common virtual adapters are excluded when a physical
-adapter is available, CPU-oriented temperature sensors are preferred and
+is not present. CPU, memory, sensors, network, filesystem, uptime and load
+plugins are fetched concurrently as seven small requests. Network units are
+normalized across API versions, loopback and common virtual adapters are
+excluded when a physical adapter is available, CPU-oriented temperature sensors
+are preferred and
 pseudo/bind-mounted filesystems are filtered and deduplicated.
 
 Metrics update every five seconds only while the dashboard is active and the
-document is visible. Requests never overlap. A failed refresh keeps the last
-successful sample marked as stale; an initial failure produces an `Unavailable`
-widget instead of affecting the rest of the dashboard. Authentication secrets
-are not embedded in configuration. If Glances requires credentials, the widget
-reports that secure credential support is planned for Phase 7.
+document is visible. Requests never overlap. Service
+health checks use the same polling lifecycle at their slower interval. A failed
+refresh keeps the last successful sample marked as stale; an initial failure
+produces an `Unavailable` panel instead of affecting the rest of the dashboard.
+Authentication secrets are not embedded in configuration. If Glances requires
+credentials, the monitoring panel reports that secure credential support is planned for
+Phase 7.
+
+## Desktop-card direction
+
+Phase 6.1 is reserved for lightweight cards that live in their own Windows
+desktop surfaces. It does not replace, reorder or resize sections inside the
+Personal Hub dashboard. The monitoring backend already normalizes optional
+uptime and one-, five- and fifteen-minute load averages and keeps a bounded
+in-memory trend window as groundwork for those desktop cards. No sample date or
+clock is rendered.
 
 ## Publishing safely
 

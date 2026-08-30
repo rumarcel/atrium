@@ -66,6 +66,10 @@ pub struct ServerMetrics {
     cpu_temperature_c: Option<f64>,
     network_download_bytes_per_second: Option<f64>,
     network_upload_bytes_per_second: Option<f64>,
+    uptime_seconds: Option<u64>,
+    load_average_1m: Option<f64>,
+    load_average_5m: Option<f64>,
+    load_average_15m: Option<f64>,
     disks: Vec<DiskMetric>,
     message: Option<String>,
 }
@@ -82,6 +86,10 @@ impl ServerMetrics {
             cpu_temperature_c: None,
             network_download_bytes_per_second: None,
             network_upload_bytes_per_second: None,
+            uptime_seconds: None,
+            load_average_1m: None,
+            load_average_5m: None,
+            load_average_15m: None,
             disks: Vec::new(),
             message: Some(message.into()),
         }
@@ -128,6 +136,21 @@ struct FilesystemStats {
     used: Option<u64>,
     size: Option<u64>,
     percent: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum UptimeStats {
+    Text(String),
+    Seconds { seconds: u64 },
+    Number(u64),
+}
+
+#[derive(Debug, Deserialize)]
+struct LoadStats {
+    min1: Option<f64>,
+    min5: Option<f64>,
+    min15: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -258,16 +281,50 @@ async fn fetch_snapshot(
         Ok(url) => url,
         Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
     };
+    let uptime_url = match api_url(base_url, api_version, "uptime") {
+        Ok(url) => url,
+        Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
+    };
+    let load_url = match api_url(base_url, api_version, "load") {
+        Ok(url) => url,
+        Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
+    };
 
-    let (cpu, memory, network, sensors, filesystems) = futures_util::future::join5(
+    let (cpu, memory, network, sensors, filesystems, uptime, load) = futures_util::join!(
         fetch_json::<CpuStats>(client, cpu_url),
         fetch_json::<MemoryStats>(client, memory_url),
         fetch_json::<Vec<NetworkStats>>(client, network_url),
         fetch_json::<Vec<SensorStats>>(client, sensors_url),
         fetch_json::<Vec<FilesystemStats>>(client, filesystems_url),
-    )
-    .await;
+        fetch_json::<UptimeStats>(client, uptime_url),
+        fetch_json::<LoadStats>(client, load_url),
+    );
 
+    assemble_snapshot(
+        sampled_at,
+        api_version,
+        cpu,
+        memory,
+        network,
+        sensors,
+        filesystems,
+        uptime,
+        load,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assemble_snapshot(
+    sampled_at: u64,
+    api_version: u8,
+    cpu: Result<CpuStats, MonitoringError>,
+    memory: Result<MemoryStats, MonitoringError>,
+    network: Result<Vec<NetworkStats>, MonitoringError>,
+    sensors: Result<Vec<SensorStats>, MonitoringError>,
+    filesystems: Result<Vec<FilesystemStats>, MonitoringError>,
+    uptime: Result<UptimeStats, MonitoringError>,
+    load: Result<LoadStats, MonitoringError>,
+) -> ServerMetrics {
     let response_success_count = [
         cpu.is_ok(),
         memory.is_ok(),
@@ -348,6 +405,19 @@ async fn fetch_snapshot(
             .as_ref()
             .ok()
             .and_then(|stats| aggregate_network_rate(stats, api_version, false)),
+        uptime_seconds: uptime.as_ref().ok().and_then(normalize_uptime),
+        load_average_1m: load
+            .as_ref()
+            .ok()
+            .and_then(|stats| valid_non_negative(stats.min1)),
+        load_average_5m: load
+            .as_ref()
+            .ok()
+            .and_then(|stats| valid_non_negative(stats.min5)),
+        load_average_15m: load
+            .as_ref()
+            .ok()
+            .and_then(|stats| valid_non_negative(stats.min15)),
         disks: filesystems
             .as_ref()
             .ok()
@@ -510,6 +580,45 @@ fn valid_percent(value: Option<f64>) -> Option<f64> {
 
 fn valid_non_negative(value: Option<f64>) -> Option<f64> {
     value.filter(|value| value.is_finite() && *value >= 0.0)
+}
+
+fn normalize_uptime(stats: &UptimeStats) -> Option<u64> {
+    match stats {
+        UptimeStats::Text(value) => parse_uptime_text(value),
+        UptimeStats::Seconds { seconds } | UptimeStats::Number(seconds) => Some(*seconds),
+    }
+}
+
+fn parse_uptime_text(value: &str) -> Option<u64> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    let (days, clock) = if let Some((day_part, clock)) = value.split_once(", ") {
+        let mut parts = day_part.split_whitespace();
+        let days = parts.next()?.parse::<u64>().ok()?;
+        let unit = parts.next()?;
+        if parts.next().is_some() || !matches!((days, unit), (1, "day") | (0 | 2.., "days")) {
+            return None;
+        }
+        (days, clock)
+    } else {
+        (0, value)
+    };
+
+    let mut parts = clock.split(':');
+    let hours = parts.next()?.parse::<u64>().ok()?;
+    let minutes = parts.next()?.parse::<u64>().ok()?;
+    let seconds = parts.next()?.parse::<u64>().ok()?;
+    if parts.next().is_some() || hours >= 24 || minutes >= 60 || seconds >= 60 {
+        return None;
+    }
+
+    days.checked_mul(86_400)?
+        .checked_add(hours.checked_mul(3_600)?)?
+        .checked_add(minutes.checked_mul(60)?)?
+        .checked_add(seconds)
 }
 
 fn normalize_memory(stats: &MemoryStats) -> (Option<f64>, Option<u64>, Option<u64>) {
@@ -804,6 +913,113 @@ mod tests {
             }),
             (None, None, None)
         );
+    }
+
+    #[test]
+    fn uptime_accepts_v3_v4_text_and_seconds_payloads() {
+        let cases = [
+            (r#""1:27:01""#, 5_221),
+            (r#""7 days, 20:30:06""#, 678_606),
+            (r#"{"seconds":99691}"#, 99_691),
+            (r#"99691"#, 99_691),
+        ];
+
+        for (payload, expected) in cases {
+            let stats: UptimeStats = serde_json::from_str(payload).unwrap();
+            assert_eq!(normalize_uptime(&stats), Some(expected));
+        }
+    }
+
+    #[test]
+    fn uptime_rejects_malformed_or_overflowing_text() {
+        for value in [
+            "",
+            "1 day, 24:00:00",
+            "1 days, 00:00:00",
+            "2 days, 00:60:00",
+            "18446744073709551615 days, 00:00:00",
+        ] {
+            assert_eq!(
+                parse_uptime_text(value),
+                None,
+                "unexpectedly parsed {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn load_averages_are_independently_sanitized() {
+        let stats: LoadStats =
+            serde_json::from_str(r#"{"min1":0.75,"min5":1.25,"min15":2.5,"cpucore":8}"#).unwrap();
+
+        assert_eq!(valid_non_negative(stats.min1), Some(0.75));
+        assert_eq!(valid_non_negative(stats.min5), Some(1.25));
+        assert_eq!(valid_non_negative(stats.min15), Some(2.5));
+        assert_eq!(valid_non_negative(Some(-0.1)), None);
+        assert_eq!(valid_non_negative(Some(f64::INFINITY)), None);
+    }
+
+    #[test]
+    fn optional_uptime_and_load_failures_do_not_degrade_core_snapshot() {
+        let optional_error = || {
+            MonitoringError::new(
+                MonitoringErrorKind::NotFound,
+                "The optional Glances plugin is unavailable.",
+            )
+        };
+        let snapshot = assemble_snapshot(
+            123,
+            4,
+            Ok(CpuStats { total: Some(20.0) }),
+            Ok(MemoryStats {
+                percent: Some(40.0),
+                used: Some(400),
+                total: Some(1_000),
+                available: Some(600),
+            }),
+            Ok(Vec::new()),
+            Ok(Vec::new()),
+            Ok(Vec::new()),
+            Err(optional_error()),
+            Err(optional_error()),
+        );
+
+        assert_eq!(snapshot.status, MonitoringStatus::Online);
+        assert_eq!(snapshot.message, None);
+        assert_eq!(snapshot.uptime_seconds, None);
+        assert_eq!(snapshot.load_average_1m, None);
+        assert_eq!(snapshot.load_average_5m, None);
+        assert_eq!(snapshot.load_average_15m, None);
+    }
+
+    #[test]
+    fn snapshot_serializes_the_phase_6_1_dto_fields() {
+        let snapshot = assemble_snapshot(
+            123,
+            4,
+            Ok(CpuStats { total: Some(20.0) }),
+            Ok(MemoryStats {
+                percent: Some(40.0),
+                used: Some(400),
+                total: Some(1_000),
+                available: Some(600),
+            }),
+            Ok(Vec::new()),
+            Ok(Vec::new()),
+            Ok(Vec::new()),
+            Ok(UptimeStats::Seconds { seconds: 86_401 }),
+            Ok(LoadStats {
+                min1: Some(0.5),
+                min5: Some(0.75),
+                min15: Some(1.0),
+            }),
+        );
+        let value = serde_json::to_value(snapshot).unwrap();
+
+        assert_eq!(value["uptimeSeconds"], 86_401);
+        assert_eq!(value["loadAverage1m"], 0.5);
+        assert_eq!(value["loadAverage5m"], 0.75);
+        assert_eq!(value["loadAverage15m"], 1.0);
     }
 
     #[test]

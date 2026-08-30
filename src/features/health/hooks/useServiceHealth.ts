@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useVisibilityPolling } from "../../../hooks/useVisibilityPolling";
 import type { DashboardService } from "../../services/service.types";
 import { checkServiceHealth } from "../healthClient";
 import type {
@@ -10,11 +11,6 @@ import type {
 
 export const HEALTH_POLL_INTERVAL_MS = 45_000;
 const MAX_CONCURRENT_CHECKS = 8;
-
-interface InFlightCheck {
-  generation: number;
-  promise: Promise<void>;
-}
 
 const emptySummary: ServiceHealthSummary = {
   online: 0,
@@ -89,11 +85,7 @@ export function useServiceHealth(
   enabled: boolean,
 ) {
   const [healthById, setHealthById] = useState<ServiceHealthById>({});
-  const [isChecking, setIsChecking] = useState(false);
   const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null);
-  const [manualRevision, setManualRevision] = useState(0);
-  const generationRef = useRef(0);
-  const inFlightRef = useRef<InFlightCheck | null>(null);
   const previousFingerprintRef = useRef<string | null>(null);
 
   const configurationFingerprint = useMemo(
@@ -107,19 +99,11 @@ export function useServiceHealth(
     [services],
   );
 
-  const performChecks = useCallback(
-    (serviceSnapshot: readonly DashboardService[], generation: number) => {
-      const currentCheck = inFlightRef.current;
-
-      if (currentCheck?.generation === generation) {
-        return currentCheck.promise;
-      }
-
-      setIsChecking(true);
+  const performChecks = useCallback(() => {
       setHealthById((currentHealth) => {
         const nextHealth: Record<string, ServiceHealth> = {};
 
-        for (const service of serviceSnapshot) {
+        for (const service of services) {
           const existingHealth = currentHealth[service.id];
           nextHealth[service.id] = existingHealth
             ? { ...existingHealth, isChecking: true }
@@ -129,87 +113,51 @@ export function useServiceHealth(
         return nextHealth;
       });
 
-      let task: Promise<void>;
-      task = checkServicesWithLimit(serviceSnapshot)
-        .then((results) => {
-          if (generationRef.current !== generation) {
-            return;
-          }
+      return checkServicesWithLimit(services);
+    }, [services]);
 
-          const nextHealth: Record<string, ServiceHealth> = {};
-          let newestCheck = 0;
+  const applyResults = useCallback((results: readonly HealthCheckResult[]) => {
+    const nextHealth: Record<string, ServiceHealth> = {};
+    let newestCheck = 0;
 
-          for (const result of results) {
-            nextHealth[result.serviceId] = { ...result, isChecking: false };
-            newestCheck = Math.max(newestCheck, result.checkedAtUnixMs);
-          }
+    for (const result of results) {
+      nextHealth[result.serviceId] = { ...result, isChecking: false };
+      newestCheck = Math.max(newestCheck, result.checkedAtUnixMs);
+    }
 
-          setHealthById(nextHealth);
-          setLastCheckedAt(newestCheck || Date.now());
-        })
-        .finally(() => {
-          if (generationRef.current === generation) {
-            setIsChecking(false);
-          }
+    setHealthById(nextHealth);
+    setLastCheckedAt(newestCheck || Date.now());
+  }, []);
 
-          if (inFlightRef.current?.promise === task) {
-            inFlightRef.current = null;
-          }
-        });
+  const handlePollingError = useCallback(() => {
+    setHealthById((currentHealth) =>
+      Object.fromEntries(
+        Object.entries(currentHealth).map(([serviceId, health]) => [
+          serviceId,
+          health ? { ...health, isChecking: false } : health,
+        ]),
+      ),
+    );
+  }, []);
 
-      inFlightRef.current = { generation, promise: task };
-      return task;
-    },
-    [],
-  );
+  const polling = useVisibilityPolling({
+    enabled: enabled && services.length > 0,
+    intervalMs: HEALTH_POLL_INTERVAL_MS,
+    revision: configurationFingerprint,
+    poll: performChecks,
+    onSuccess: applyResults,
+    onError: handlePollingError,
+  });
 
   useEffect(() => {
     const configurationChanged =
       previousFingerprintRef.current !== configurationFingerprint;
     previousFingerprintRef.current = configurationFingerprint;
-    generationRef.current += 1;
-    const generation = generationRef.current;
-
     if (configurationChanged) {
       setHealthById({});
       setLastCheckedAt(null);
     }
-
-    if (!enabled || services.length === 0) {
-      setIsChecking(false);
-      return;
-    }
-
-    let disposed = false;
-    let pollTimer: number | undefined;
-
-    const poll = async () => {
-      await performChecks(services, generation);
-
-      if (!disposed && generationRef.current === generation) {
-        pollTimer = window.setTimeout(poll, HEALTH_POLL_INTERVAL_MS);
-      }
-    };
-
-    const startupTimer = window.setTimeout(() => void poll(), 0);
-
-    return () => {
-      disposed = true;
-      window.clearTimeout(startupTimer);
-
-      if (pollTimer !== undefined) {
-        window.clearTimeout(pollTimer);
-      }
-    };
-  }, [configurationFingerprint, enabled, manualRevision, performChecks, services]);
-
-  const refresh = useCallback(() => {
-    if (inFlightRef.current?.generation === generationRef.current) {
-      return;
-    }
-
-    setManualRevision((current) => current + 1);
-  }, []);
+  }, [configurationFingerprint]);
 
   const summary = useMemo(() => {
     if (services.length === 0) {
@@ -234,9 +182,10 @@ export function useServiceHealth(
 
   return {
     healthById,
-    isChecking,
+    isChecking: polling.isPolling,
+    isPaused: polling.isPaused,
     lastCheckedAt,
-    refresh,
+    refresh: polling.refresh,
     summary,
   };
 }

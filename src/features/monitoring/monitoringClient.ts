@@ -88,6 +88,10 @@ function normalizeResult(value: unknown): ServerMetricsResult {
     networkUploadBytesPerSecond: finiteNumber(
       value.networkUploadBytesPerSecond,
     ),
+    uptimeSeconds: finiteNumber(value.uptimeSeconds),
+    loadAverage1m: finiteNumber(value.loadAverage1m),
+    loadAverage5m: finiteNumber(value.loadAverage5m),
+    loadAverage15m: finiteNumber(value.loadAverage15m),
     disks,
     message: optionalMessage(value.message),
   };
@@ -105,6 +109,10 @@ export async function getServerMetrics(): Promise<ServerMetricsResult> {
       cpuTemperatureC: null,
       networkDownloadBytesPerSecond: null,
       networkUploadBytesPerSecond: null,
+      uptimeSeconds: null,
+      loadAverage1m: null,
+      loadAverage5m: null,
+      loadAverage15m: null,
       disks: [],
       message: "Live monitoring requires the Tauri desktop runtime.",
     };

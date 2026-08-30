@@ -18,8 +18,21 @@ export interface ServerMetricsResult {
   cpuTemperatureC: number | null;
   networkDownloadBytesPerSecond: number | null;
   networkUploadBytesPerSecond: number | null;
+  uptimeSeconds: number | null;
+  loadAverage1m: number | null;
+  loadAverage5m: number | null;
+  loadAverage15m: number | null;
   disks: readonly DiskMetrics[];
   message: string | null;
+}
+
+export interface ServerMetricsTrendSample {
+  sampledAt: number;
+  cpuPercent: number | null;
+  memoryPercent: number | null;
+  networkDownloadBytesPerSecond: number | null;
+  networkUploadBytesPerSecond: number | null;
+  loadAverage1m: number | null;
 }
 
 export type ServerMonitoringStatus =
@@ -30,6 +43,8 @@ export interface ServerMetricsMonitor {
   status: ServerMonitoringStatus;
   /** The newest successful sample. It remains available during a brief outage. */
   snapshot: ServerMetricsResult | null;
+  /** A bounded in-memory window; it is never persisted or rendered as timestamps. */
+  history: readonly ServerMetricsTrendSample[];
   isRefreshing: boolean;
   isPaused: boolean;
   isStale: boolean;
