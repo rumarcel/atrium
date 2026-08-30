@@ -63,6 +63,7 @@ struct BundledService {
 #[derive(Clone, Debug)]
 struct TrustedService {
     id: String,
+    name: String,
     url_text: String,
     url: Url,
     tls_policy: TlsPolicy,
@@ -77,6 +78,13 @@ pub struct ServiceCatalog {
 pub(crate) struct TrustedServiceEndpoint {
     pub url: Url,
     pub allow_invalid_local_certificate: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct TrustedHealthTarget {
+    pub id: String,
+    pub name: String,
+    pub endpoint: TrustedServiceEndpoint,
 }
 
 impl ServiceCatalog {
@@ -135,6 +143,26 @@ impl ServiceCatalog {
                 == TlsPolicy::AllowInvalidLocalCertificate,
         })
     }
+
+    pub(crate) fn enabled_health_targets(&self) -> Vec<TrustedHealthTarget> {
+        let mut targets = self
+            .services
+            .values()
+            .filter(|service| service.enabled)
+            .map(|service| TrustedHealthTarget {
+                id: service.id.clone(),
+                name: service.name.clone(),
+                endpoint: TrustedServiceEndpoint {
+                    url: service.url.clone(),
+                    allow_invalid_local_certificate: service.tls_policy
+                        == TlsPolicy::AllowInvalidLocalCertificate,
+                },
+            })
+            .collect::<Vec<_>>();
+
+        targets.sort_unstable_by(|left, right| left.id.cmp(&right.id));
+        targets
+    }
 }
 
 impl TryFrom<BundledService> for TrustedService {
@@ -176,6 +204,7 @@ impl TryFrom<BundledService> for TrustedService {
 
         Ok(Self {
             id: service.id,
+            name: service.name,
             url_text: service.url,
             url,
             tls_policy: service.tls_policy,

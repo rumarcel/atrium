@@ -18,19 +18,26 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - Phase 5.1: warm WebView pool and persistent per-service profiles.
 - Phase 5.2: service-player fullscreen integration.
 - Phase 6: Glances server monitoring.
+- Phase 6.1: server-only Windows desktop cards.
 
-## Phase 6.1 — Windows desktop cards
+## Phase 6.1 — Windows desktop cards (completed)
 
-- Lightweight companion surfaces that appear as cards on the Windows desktop,
-  outside the Personal Hub dashboard.
+- Three independent companion surfaces for server metrics, server storage and
+  server-service attention, outside the Personal Hub dashboard.
 - The in-app dashboard remains in its Phase 6 layout with no widget editor,
   reordering or card-size controls.
-- Server status, disk-capacity and service-outage cards driven by existing
-  Glances and health-check data.
-- Short-lived Glances trends plus server uptime and load-average cards.
-- Persisted desktop position, size, visibility and a safe reset-to-default path.
-- Shared polling runs only while at least one desktop card surface is visible.
-- No credential-dependent provider integrations yet.
+- Borderless transparent windows stay below ordinary applications, skip the
+  taskbar and never attach to Explorer/WorkerW internals.
+- A single Rust broker shares bounded Glances trends, uptime and load data while
+  keeping each card's IPC response scoped to that card.
+- Metrics and health polling activate independently and only while a visible
+  card needs that data.
+- Position and size persist per card, with automatic recovery when saved geometry
+  no longer intersects an available monitor.
+- Hide-until-restart behavior; persistent visibility and reset controls move to
+  the Phase 8 tray manager.
+- No local Windows hardware telemetry, clock/date or credential-dependent
+  provider integration.
 
 ## Phase 7 — Settings and integrations
 
@@ -86,8 +93,9 @@ Theme Studio and safe theme packs are part of this phase:
 
 - NSIS installer, application/taskbar icons, tray and startup registration.
 - Configurable close-to-tray behavior and window geometry persistence.
+- Tray controls to show, hide and reset the server desktop cards.
 - Disk, download and service-outage notifications.
-- Optional local Windows CPU, RAM, GPU and battery widgets.
+- Desktop cards continue to represent the server, not the local Windows machine.
 - No reboot or shutdown command in this phase.
 
 ## Phase 9 — Trusted server control
@@ -98,3 +106,12 @@ Theme Studio and safe theme packs are part of this phase:
 - No raw root password or unrestricted SSH access.
 - Local operation history, reboot/offline tracking and return-online notification.
 - Optional later Wake-on-LAN, container/service restart and maintenance status.
+
+## Phase 10 — Linux desktop support (final platform phase)
+
+- Linux packaging and startup integration after the Windows experience and
+  trusted server-control path are stable.
+- Server-only companion cards adapted to the supported X11/Wayland desktop
+  environments without adding local Linux hardware widgets.
+- Platform-specific window-layer behavior documented and tested rather than
+  relying on Windows shell or Explorer implementation details.

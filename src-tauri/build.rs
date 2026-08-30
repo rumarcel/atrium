@@ -2,6 +2,8 @@ fn main() {
     const COMMANDS: &[&str] = &[
         "check_service_health",
         "get_server_metrics",
+        "get_desktop_widget_snapshot",
+        "set_desktop_widget_visibility",
         "open_service_webview",
         "activate_service_webview",
         "hide_service_webviews",

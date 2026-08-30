@@ -39,39 +39,39 @@ impl GlancesClients {
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-enum MonitoringStatus {
+pub(crate) enum MonitoringStatus {
     Online,
     Unavailable,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiskMetric {
-    name: String,
-    mount_point: String,
-    used_bytes: u64,
-    total_bytes: u64,
-    percent: Option<f64>,
+    pub(crate) name: String,
+    pub(crate) mount_point: String,
+    pub(crate) used_bytes: u64,
+    pub(crate) total_bytes: u64,
+    pub(crate) percent: Option<f64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerMetrics {
-    status: MonitoringStatus,
-    sampled_at: u64,
-    cpu_percent: Option<f64>,
-    memory_percent: Option<f64>,
-    memory_used_bytes: Option<u64>,
-    memory_total_bytes: Option<u64>,
-    cpu_temperature_c: Option<f64>,
-    network_download_bytes_per_second: Option<f64>,
-    network_upload_bytes_per_second: Option<f64>,
-    uptime_seconds: Option<u64>,
-    load_average_1m: Option<f64>,
-    load_average_5m: Option<f64>,
-    load_average_15m: Option<f64>,
-    disks: Vec<DiskMetric>,
-    message: Option<String>,
+    pub(crate) status: MonitoringStatus,
+    pub(crate) sampled_at: u64,
+    pub(crate) cpu_percent: Option<f64>,
+    pub(crate) memory_percent: Option<f64>,
+    pub(crate) memory_used_bytes: Option<u64>,
+    pub(crate) memory_total_bytes: Option<u64>,
+    pub(crate) cpu_temperature_c: Option<f64>,
+    pub(crate) network_download_bytes_per_second: Option<f64>,
+    pub(crate) network_upload_bytes_per_second: Option<f64>,
+    pub(crate) uptime_seconds: Option<u64>,
+    pub(crate) load_average_1m: Option<f64>,
+    pub(crate) load_average_5m: Option<f64>,
+    pub(crate) load_average_15m: Option<f64>,
+    pub(crate) disks: Vec<DiskMetric>,
+    pub(crate) message: Option<String>,
 }
 
 impl ServerMetrics {
@@ -192,10 +192,17 @@ pub async fn get_server_metrics(
         return Err("Monitoring is available only to the trusted Personal Hub UI.".into());
     }
 
+    Ok(collect_server_metrics(&catalog, &clients).await)
+}
+
+pub(crate) async fn collect_server_metrics(
+    catalog: &ServiceCatalog,
+    clients: &GlancesClients,
+) -> ServerMetrics {
     let sampled_at = unix_time_ms();
     let target = match catalog.resolve_endpoint(GLANCES_SERVICE_ID) {
         Ok(target) => target,
-        Err(error) => return Ok(ServerMetrics::unavailable(sampled_at, error)),
+        Err(error) => return ServerMetrics::unavailable(sampled_at, error),
     };
     let client = clients.select(&target);
     let cached_version = clients.api_version.load(Ordering::Relaxed);
@@ -207,7 +214,7 @@ pub async fn get_server_metrics(
                 clients.api_version.store(version, Ordering::Relaxed);
                 version
             }
-            Err(error) => return Ok(ServerMetrics::unavailable(sampled_at, error.message)),
+            Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
         }
     };
 
@@ -219,7 +226,7 @@ pub async fn get_server_metrics(
         clients.api_version.store(0, Ordering::Relaxed);
     }
 
-    Ok(snapshot)
+    snapshot
 }
 
 async fn discover_api_version(client: &Client, base_url: &Url) -> Result<u8, MonitoringError> {

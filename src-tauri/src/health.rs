@@ -1,3 +1,4 @@
+use crate::service_webviews::TrustedHealthTarget;
 use reqwest::{redirect::Policy, Client, Url};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -70,17 +71,17 @@ pub enum HealthReason {
     Request,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthCheckResult {
-    service_id: String,
-    status: HealthStatus,
-    status_code: Option<u16>,
-    latency_ms: u64,
-    checked_at_unix_ms: u64,
-    reason: Option<HealthReason>,
-    message: Option<String>,
-    tls_exception_used: bool,
+    pub(crate) service_id: String,
+    pub(crate) status: HealthStatus,
+    pub(crate) status_code: Option<u16>,
+    pub(crate) latency_ms: u64,
+    pub(crate) checked_at_unix_ms: u64,
+    pub(crate) reason: Option<HealthReason>,
+    pub(crate) message: Option<String>,
+    pub(crate) tls_exception_used: bool,
 }
 
 #[tauri::command]
@@ -113,9 +114,33 @@ pub async fn check_service_health(
         }
     };
 
+    Ok(perform_health_check(service_id, url, tls_exception_used, &clients).await)
+}
+
+pub(crate) async fn check_trusted_service_health(
+    target: TrustedHealthTarget,
+    clients: &HealthClients,
+) -> HealthCheckResult {
+    perform_health_check(
+        target.id,
+        target.endpoint.url,
+        target.endpoint.allow_invalid_local_certificate,
+        clients,
+    )
+    .await
+}
+
+async fn perform_health_check(
+    service_id: String,
+    url: Url,
+    tls_exception_used: bool,
+    clients: &HealthClients,
+) -> HealthCheckResult {
+    let started_at = Instant::now();
+    let checked_at_unix_ms = unix_time_ms();
     let client = clients.select(tls_exception_used);
 
-    Ok(match client.get(url).send().await {
+    match client.get(url).send().await {
         Ok(response) => {
             let status_code = response.status().as_u16();
             let is_online = (200..=399).contains(&status_code);
@@ -171,7 +196,7 @@ pub async fn check_service_health(
                 tls_exception_used,
             }
         }
-    })
+    }
 }
 
 fn build_client(tls_exception_used: bool) -> Result<Client, reqwest::Error> {

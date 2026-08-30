@@ -5,12 +5,13 @@ services. Built with Tauri v2, React, TypeScript and Vite.
 
 ## Current scope
 
-Phase 1 through Phase 6 are implemented: the desktop shell, responsive
+Phase 1 through Phase 6.1 are implemented: the desktop shell, responsive
 dashboard, validated service configuration, asynchronous service health checks,
-session-preserving native service tabs and live Glances monitoring. The dashboard
-keeps its original Phase 6 composition; Phase 6.1 desktop cards will be separate
-Windows surfaces rather than an in-app widget editor. Settings and deeper Windows
-integrations remain intentionally out of scope for this phase.
+session-preserving native service tabs, live Glances monitoring and three
+server-only Windows desktop cards. The dashboard keeps its original Phase 6
+composition; the desktop cards are separate native surfaces rather than an
+in-app widget editor. Settings and deeper Windows integrations remain
+intentionally out of scope for this phase.
 Planned settings, themes and later integrations are tracked in
 [`ROADMAP.md`](ROADMAP.md).
 
@@ -18,6 +19,8 @@ Planned settings, themes and later integrations are tracked in
 
 - `src/components`: cross-feature React primitives and the error boundary.
 - `src/features/dashboard`: dashboard composition and system preview widgets.
+- `src/features/desktopWidgets`: separate server, storage and service-attention
+  desktop-card surfaces plus safe window-geometry persistence.
 - `src/features/health`: native health-check client, bounded polling and runtime
   status types.
 - `src/features/monitoring`: validated Glances metrics, visibility-aware polling
@@ -29,7 +32,7 @@ Planned settings, themes and later integrations are tracked in
 - `src/pages`: application-level pages.
 - `src/styles`: design tokens, global rules and dashboard layout.
 - `src-tauri`: Tauri v2 desktop shell, security configuration, native child
-  WebView lifecycle and modular Rust HTTP clients.
+  WebView lifecycle, shared desktop-card broker and modular Rust HTTP clients.
 
 ## Service configuration
 
@@ -148,14 +151,27 @@ Authentication secrets are not embedded in configuration. If Glances requires
 credentials, the monitoring panel reports that secure credential support is planned for
 Phase 7.
 
-## Desktop-card direction
+## Windows desktop cards
 
-Phase 6.1 is reserved for lightweight cards that live in their own Windows
-desktop surfaces. It does not replace, reorder or resize sections inside the
-Personal Hub dashboard. The monitoring backend already normalizes optional
-uptime and one-, five- and fifteen-minute load averages and keeps a bounded
-in-memory trend window as groundwork for those desktop cards. No sample date or
-clock is rendered.
+Phase 6.1 adds three lightweight, borderless companion windows: **Server**,
+**Storage** and **Service attention**. Every value describes the configured home
+server; the cards do not read or display local Windows CPU, GPU, memory, battery
+or storage data. They live outside the Personal Hub dashboard, stay below normal
+application windows, do not appear in the taskbar and contain no clock or date.
+
+A single Rust broker owns all polling. Server and storage cards share the same
+five-second Glances sample, while the service-attention card uses the slower
+health-check cycle. Each data path runs only while a card that needs it is
+visible, trends are bounded to 24 in-memory samples, and each card's command
+returns only its authorized data slice. Expected private self-signed TLS
+exceptions remain normal online services rather than false attention items.
+
+Card position and size are stored per card in physical pixels. Startup validates
+the saved rectangle against the current monitor work areas and safely returns an
+off-screen card to the primary monitor. **Hide** removes a card until Personal
+Hub restarts; a future tray manager in Phase 8 will provide persistent show/hide
+and reset controls. Closing the main window exits the card windows as well until
+tray behavior exists.
 
 ## Publishing safely
 

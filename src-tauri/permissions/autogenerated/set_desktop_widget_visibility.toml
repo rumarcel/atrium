@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-desktop-widget-visibility"
+description = "Enables the set_desktop_widget_visibility command without any pre-configured scope."
+commands.allow = ["set_desktop_widget_visibility"]
+
+[[permission]]
+identifier = "deny-set-desktop-widget-visibility"
+description = "Denies the set_desktop_widget_visibility command without any pre-configured scope."
+commands.deny = ["set_desktop_widget_visibility"]
