@@ -5,10 +5,28 @@ import { CatalogRequestGeneration } from "../node_modules/.cache/personal-hub-te
 import { parseServiceConfiguration } from "../node_modules/.cache/personal-hub-tests/features/services/config/serviceConfig.js";
 import {
   isTransientSettingsStartupError,
+  parseServiceAuthenticationStatus,
   parseServiceConfigurationSnapshot,
   parseServiceCredentialStatuses,
   runWithSettingsStartupRetry,
 } from "../node_modules/.cache/personal-hub-tests/features/settings/settingsClient.js";
+
+function authenticationStatus(overrides = {}) {
+  return {
+    serviceId: "homarr",
+    revision: "v1:7:12",
+    apiAdapter: "homarr-api-key",
+    browserAdapter: "none",
+    requiredCredentialKinds: ["api-key"],
+    credentialState: "stored",
+    validationState: "valid",
+    canValidate: true,
+    canClearSession: false,
+    reasonCode: null,
+    retryAfterMs: null,
+    ...overrides,
+  };
+}
 
 function configuration(overrides = {}) {
   return {
@@ -75,6 +93,177 @@ test("credential status parsing canonicalizes kinds and never accepts metadata",
       ]),
     /unexpected response shape/,
   );
+});
+
+test("authentication snapshots accept the exact bounded enum shape", () => {
+  const parsed = parseServiceAuthenticationStatus(authenticationStatus());
+
+  assert.deepEqual(parsed, authenticationStatus());
+  assert.throws(
+    () =>
+      parseServiceAuthenticationStatus(
+        authenticationStatus({ token: "must never be accepted" }),
+      ),
+    /unexpected response shape/,
+  );
+  assert.throws(
+    () =>
+      parseServiceAuthenticationStatus(
+        authenticationStatus({ validationState: "probably-valid" }),
+      ),
+    /invalid value/,
+  );
+  assert.throws(
+    () =>
+      parseServiceAuthenticationStatus(
+        authenticationStatus({ revision: " v1:7:12" }),
+      ),
+    /invalid revision/,
+  );
+});
+
+test("authentication snapshot invariants bind adapters to canonical credentials", () => {
+  assert.deepEqual(
+    parseServiceAuthenticationStatus(
+      authenticationStatus({
+        apiAdapter: "glances-http-basic",
+        browserAdapter: "http-basic",
+        requiredCredentialKinds: ["http-basic"],
+      }),
+    ),
+    authenticationStatus({
+      apiAdapter: "glances-http-basic",
+      browserAdapter: "http-basic",
+      requiredCredentialKinds: ["http-basic"],
+    }),
+  );
+
+  assert.throws(
+    () =>
+      parseServiceAuthenticationStatus(
+        authenticationStatus({ requiredCredentialKinds: ["bearer-token"] }),
+      ),
+    /required credential kinds/,
+  );
+  assert.throws(
+    () =>
+      parseServiceAuthenticationStatus(
+        authenticationStatus({
+          apiAdapter: "homarr-api-key",
+          browserAdapter: "http-basic",
+          requiredCredentialKinds: ["http-basic", "api-key"],
+        }),
+      ),
+    /required credential kinds/,
+  );
+  assert.throws(
+    () =>
+      parseServiceAuthenticationStatus(
+        authenticationStatus({
+          apiAdapter: "glances-bearer",
+          browserAdapter: "http-basic",
+          requiredCredentialKinds: ["bearer-token", "http-basic"],
+        }),
+      ),
+    /inconsistent/,
+  );
+});
+
+test("authentication snapshot invariants reject impossible state combinations", () => {
+  const unsupported = authenticationStatus({
+    apiAdapter: "none",
+    browserAdapter: "none",
+    requiredCredentialKinds: [],
+    credentialState: "not-required",
+    validationState: "unsupported",
+    canValidate: false,
+  });
+  assert.deepEqual(parseServiceAuthenticationStatus(unsupported), unsupported);
+
+  const invalidCases = [
+    authenticationStatus({
+      apiAdapter: "none",
+      browserAdapter: "none",
+      requiredCredentialKinds: [],
+      credentialState: "stored",
+      validationState: "valid",
+    }),
+    authenticationStatus({
+      credentialState: "missing",
+      validationState: "not-validated",
+      reasonCode: "missing-credential",
+      canValidate: true,
+    }),
+    authenticationStatus({
+      credentialState: "needs-rebind",
+      validationState: "valid",
+      reasonCode: "endpoint-changed",
+      canValidate: false,
+    }),
+    authenticationStatus({
+      validationState: "backoff",
+      reasonCode: "rate-limited",
+      retryAfterMs: 0,
+      canValidate: false,
+    }),
+    authenticationStatus({ retryAfterMs: 1_000 }),
+    authenticationStatus({
+      validationState: "invalid",
+      reasonCode: "timeout",
+    }),
+    authenticationStatus({
+      validationState: "temporarily-unavailable",
+      reasonCode: null,
+    }),
+  ];
+
+  for (const value of invalidCases) {
+    assert.throws(
+      () => parseServiceAuthenticationStatus(value),
+      /authentication response was inconsistent/,
+    );
+  }
+});
+
+test("authentication reason codes match their credential and validation states", () => {
+  const validCases = [
+    authenticationStatus({
+      credentialState: "missing",
+      validationState: "not-validated",
+      reasonCode: "missing-credential",
+      canValidate: false,
+    }),
+    authenticationStatus({
+      credentialState: "needs-rebind",
+      validationState: "not-validated",
+      reasonCode: "endpoint-changed",
+      canValidate: false,
+    }),
+    authenticationStatus({
+      validationState: "invalid",
+      reasonCode: "unauthorized",
+    }),
+    authenticationStatus({
+      validationState: "temporarily-unavailable",
+      reasonCode: "insecure-transport",
+    }),
+    authenticationStatus({
+      validationState: "backoff",
+      reasonCode: "rate-limited",
+      retryAfterMs: 2_000,
+      canValidate: false,
+    }),
+    authenticationStatus({
+      validationState: "backoff",
+      reasonCode: "unauthorized",
+      retryAfterMs: 2_000,
+      canValidate: false,
+    }),
+  ];
+
+  for (const value of validCases) {
+    assert.deepEqual(parseServiceAuthenticationStatus(value), value);
+  }
 });
 
 test("service settings reject credentials in JSON fields and URLs", () => {

@@ -5,17 +5,19 @@ services. Built with Tauri v2, React, TypeScript and Vite.
 
 ## Current scope
 
-Phase 1 through Phase 7.0 are implemented: the desktop shell, responsive
+Phase 1 through Phase 7.1 are implemented: the desktop shell, responsive
 dashboard, validated service configuration, asynchronous service health checks,
 session-preserving native service tabs, live Glances monitoring and three
 server-only Windows desktop cards. Phase 7.0 adds a native Settings surface,
-writable per-user service configuration and Windows-backed credential storage.
+writable per-user service configuration and Windows-backed credential storage;
+Phase 7.1 adds explicit, origin-bound authentication adapters and safe native
+validation state.
 The dashboard keeps its original Phase 6
 composition; the desktop cards are separate native surfaces rather than an
 in-app widget editor. The server summary now exposes Glances uptime, and an
 explicit service-tab close tears down its native WebView so media cannot remain
-audible invisibly. Provider-specific authentication, background card controls,
-themes and deeper Windows integrations remain in later phases. The remaining work is tracked in
+audible invisibly. Background card controls, themes and deeper Windows
+integrations remain in later phases. The remaining work is tracked in
 [`ROADMAP.md`](ROADMAP.md).
 
 ## Architecture
@@ -30,14 +32,15 @@ themes and deeper Windows integrations remain in later phases. The remaining wor
   and the dashboard monitoring panel.
 - `src/features/services`: configuration parsing, loading state and service cards.
 - `src/features/settings`: service editing, recovery controls and secret-presence
-  UI backed by native commands.
+  UI plus safe provider-authentication status backed by native commands.
 - `src/features/tabs`: tab state, measured native viewport and the serialized
   child-WebView command client.
 - `src/hooks`: shared visibility-aware polling primitives.
 - `src/pages`: application-level pages.
 - `src/styles`: design tokens, global rules and dashboard layout.
 - `src-tauri`: Tauri v2 desktop shell, security configuration, native child
-  WebView lifecycle, shared desktop-card broker and modular Rust HTTP clients.
+  WebView lifecycle, origin-bound credential adapters, shared desktop-card
+  broker and modular Rust HTTP clients.
 
 ## Service configuration
 
@@ -50,7 +53,8 @@ load the bundled file in read-only mode. The seed's JSON Schema is beside it at
 
 Required service fields are `id`, `name`, `url`, `icon`, `category` and
 `enabled`. `description` defaults to `Local service`, `accent` defaults to
-`slate`, and `tlsPolicy` defaults to `strict`. Categories are user-defined and
+`slate`, `tlsPolicy` defaults to `strict`, and `authentication` defaults to no
+automatic adapter. Categories are user-defined and
 become dashboard filters automatically. Disabled services remain valid
 configuration entries but are hidden from the dashboard and health polling.
 
@@ -65,9 +69,10 @@ to the bundled seed.
 
 Service IDs become immutable after their first save because credential-vault
 entries and isolated WebView profiles are scoped by ID. Names, descriptions,
-URLs, icons, categories, accents, TLS policy and enabled state remain editable.
-Changing a saved URL or TLS policy invalidates its old native child WebView and
-refreshes monitoring against the new trusted catalog.
+URLs, icons, categories, accents, TLS policy, authentication policy and enabled
+state remain editable. Changing a saved URL, TLS policy or browser-authentication
+policy invalidates its old native child WebView and refreshes native consumers
+against the new trusted catalog.
 
 ## Secure credentials
 
@@ -82,11 +87,29 @@ an atomic, non-secret cleanup journal. Failed Credential Manager deletions are
 retried at startup and around later settings changes, produce a recovery notice,
 and prevent the same ID from being re-added until cleanup succeeds.
 
-Phase 7.0 provides storage and lifecycle safety, not generic login automation.
-Phase 7.1 adds narrowly scoped Rust provider adapters (including Homarr API-key
-authentication) that can consume these values without exposing them to React.
-Persistent WebView profiles remain the normal browser-login mechanism; arbitrary
-DOM password injection is not allowed.
+Every newly stored credential is bound to the service's normalized exact origin
+(scheme, host and effective port). A Phase 7.0 credential without that binding,
+or a credential whose service URL later changed, remains visible as stored but
+is never transmitted; Settings asks for a replacement value instead. Provider
+validation returns only closed state/reason enums and an opaque revision. It
+never returns a username, secret, request header, response body or upstream
+error text.
+
+The allowlisted API adapters are Homarr `ApiKey`, Glances HTTP Basic and Glances
+Bearer. Exact-origin HTTP Basic is also available for WebView2's native browser
+challenge flow. Credentials over plaintext HTTP are blocked unless the user
+explicitly enables the local/private-network exception for that service.
+Requests never follow redirects while carrying authentication, invalid attempts
+use bounded backoff, and credential rotation invalidates old validation state.
+Homarr validation calls its protected `/api/info` endpoint and accepts only the
+bounded `{ "version": string }` response shape; Glances authentication is
+applied to API-version discovery and every metrics request.
+
+Persistent WebView profiles remain the normal browser-login mechanism. Homarr's
+API key does not sign into its page, provider username/password values are not
+injected into forms, and arbitrary DOM/script password entry is not allowed.
+OIDC/SSO therefore continues through the service's own persistent browser
+profile; no generic identity-provider credential handoff is enabled.
 
 ## Service health checks
 
@@ -126,6 +149,13 @@ and local storage survive view recreation and application restarts. Session-only
 cookies can still be lost after a view is released, its tab is explicitly
 closed, or the full application exits. Secure integration credentials belong in
 the native vault rather than in the service URL or source code.
+
+When a service explicitly selects the browser HTTP Basic adapter, WebView2's
+native authentication callback starts cancelled and supplies the bound
+credential only for the configured exact origin. A credential replacement or
+deletion closes that service's child view before mutating the vault so WebView2
+cannot keep using cached old credentials. API-only credential changes do not
+disturb the separate browser session.
 
 The React host measures the exact workspace rectangle with `ResizeObserver` and
 sends logical-pixel bounds plus a monitor-scale revision to Rust. This keeps the
@@ -191,9 +221,11 @@ an endpoint that cannot exist. Glances-dependent CPU, memory, storage, network,
 load and uptime values remain unavailable rather than being replaced with local
 Windows data or fabricated placeholders. Ordinary service-health checks remain
 independent and continue to operate for every other enabled service.
-Authentication secrets are not embedded in configuration. Phase 7.0 can store
-them safely; Glances authentication consumption belongs to the Phase 7.1
-provider-adapter work.
+Authentication secrets are not embedded in configuration. When the `glances`
+service explicitly selects its HTTP Basic or Bearer adapter, every version probe
+and plugin request receives the origin-bound credential in Rust. The same
+redirect, transport and backoff rules apply; unauthenticated Glances remains the
+default.
 
 ## Windows desktop cards
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-validate-service-authentication"
+description = "Enables the validate_service_authentication command without any pre-configured scope."
+commands.allow = ["validate_service_authentication"]
+
+[[permission]]
+identifier = "deny-validate-service-authentication"
+description = "Denies the validate_service_authentication command without any pre-configured scope."
+commands.deny = ["validate_service_authentication"]

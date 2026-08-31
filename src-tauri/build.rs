@@ -11,6 +11,8 @@ fn main() {
         "get_service_credential_statuses",
         "set_service_credential",
         "delete_service_credential",
+        "get_service_authentication_status",
+        "validate_service_authentication",
         "open_service_webview",
         "activate_service_webview",
         "hide_service_webviews",

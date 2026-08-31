@@ -35,6 +35,27 @@ export const SERVICE_TLS_POLICIES = [
 
 export type ServiceTlsPolicy = (typeof SERVICE_TLS_POLICIES)[number];
 
+export const SERVICE_API_AUTHENTICATIONS = [
+  "none",
+  "homarr-api-key",
+  "glances-http-basic",
+  "glances-bearer",
+] as const;
+
+export type ServiceApiAuthentication =
+  (typeof SERVICE_API_AUTHENTICATIONS)[number];
+
+export const SERVICE_BROWSER_AUTHENTICATIONS = ["none", "http-basic"] as const;
+
+export type ServiceBrowserAuthentication =
+  (typeof SERVICE_BROWSER_AUTHENTICATIONS)[number];
+
+export interface ServiceAuthentication {
+  api: ServiceApiAuthentication;
+  browser: ServiceBrowserAuthentication;
+  allowInsecureLocalHttp: boolean;
+}
+
 export interface DashboardService {
   id: string;
   name: string;
@@ -45,6 +66,7 @@ export interface DashboardService {
   accent: ServiceAccent;
   enabled: boolean;
   tlsPolicy: ServiceTlsPolicy;
+  authentication: ServiceAuthentication;
 }
 
 export interface ServiceConfiguration {

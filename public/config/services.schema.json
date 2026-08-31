@@ -78,6 +78,35 @@
             "strict",
             "allow-invalid-local-certificate"
           ]
+        },
+        "authentication": {
+          "$ref": "#/$defs/authentication"
+        }
+      }
+    },
+    "authentication": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "api": {
+          "description": "Allowlisted native API authentication adapter.",
+          "enum": [
+            "none",
+            "homarr-api-key",
+            "glances-http-basic",
+            "glances-bearer"
+          ]
+        },
+        "browser": {
+          "description": "Allowlisted embedded-browser authentication adapter. Generic form filling is not supported.",
+          "enum": [
+            "none",
+            "http-basic"
+          ]
+        },
+        "allowInsecureLocalHttp": {
+          "description": "Explicitly permits credentials over plaintext HTTP only for loopback or private-network targets.",
+          "type": "boolean"
         }
       }
     }

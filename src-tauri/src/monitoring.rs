@@ -1,5 +1,9 @@
-use crate::service_webviews::{ServiceCatalog, TrustedServiceEndpoint};
-use reqwest::{redirect::Policy, Client, StatusCode, Url};
+use crate::{
+    provider_auth::{ProviderAuthError, ProviderAuthManager, ProviderAuthMaterial},
+    service_settings::ServiceApiAuthentication,
+    service_webviews::{ServiceCatalog, TrustedAuthenticationTarget},
+};
+use reqwest::{redirect::Policy, Client, RequestBuilder, Response, StatusCode, Url};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -16,24 +20,64 @@ const GLANCES_USER_AGENT: &str = "PersonalHub/0.1 monitoring";
 pub struct GlancesClients {
     strict: Client,
     relaxed_local: Client,
+    authentication: ProviderAuthManager,
     api_version: AtomicU8,
 }
 
 impl GlancesClients {
-    pub fn new() -> Result<Self, reqwest::Error> {
+    pub fn new(authentication: ProviderAuthManager) -> Result<Self, reqwest::Error> {
         Ok(Self {
             strict: build_client(false)?,
             relaxed_local: build_client(true)?,
+            authentication,
             api_version: AtomicU8::new(0),
         })
     }
 
-    fn select(&self, target: &TrustedServiceEndpoint) -> Client {
+    fn select(&self, target: &TrustedAuthenticationTarget) -> Client {
         if target.allow_invalid_local_certificate {
             self.relaxed_local.clone()
         } else {
             self.strict.clone()
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct GlancesAuthentication<'a> {
+    manager: &'a ProviderAuthManager,
+    service_id: &'a str,
+    material: Option<&'a ProviderAuthMaterial>,
+}
+
+impl GlancesAuthentication<'_> {
+    fn apply(
+        &self,
+        request: RequestBuilder,
+        request_url: &Url,
+    ) -> Result<RequestBuilder, MonitoringError> {
+        match self.material {
+            Some(material) => material
+                .apply(request, request_url)
+                .map_err(classify_provider_auth_error),
+            None => Ok(request),
+        }
+    }
+
+    fn report_success(&self) {
+        let Some(material) = self.material else {
+            return;
+        };
+        self.manager
+            .report_success(self.service_id, material.revision());
+    }
+
+    fn report_auth_failure(&self) {
+        let Some(material) = self.material else {
+            return;
+        };
+        self.manager
+            .report_auth_failure(self.service_id, material.revision());
     }
 }
 
@@ -269,7 +313,7 @@ pub(crate) async fn collect_server_metrics(
         );
     }
 
-    let target = match catalog.resolve_endpoint(GLANCES_SERVICE_ID) {
+    let target = match catalog.resolve_authentication_target(GLANCES_SERVICE_ID) {
         Ok(target) => target,
         Err(error) => {
             return ServerMetrics::unavailable(
@@ -280,21 +324,75 @@ pub(crate) async fn collect_server_metrics(
             )
         }
     };
+    if !target.enabled {
+        return ServerMetrics::unavailable(
+            sampled_at,
+            MonitoringProviderState::NotConfigured,
+            MonitoringUnavailableReason::NotConfigured,
+            "Server monitoring is not configured. Enable the Glances service to show system metrics.",
+        );
+    }
+    if !supports_glances_api_authentication(target.authentication.api) {
+        return ServerMetrics::unavailable(
+            sampled_at,
+            MonitoringProviderState::Configured,
+            MonitoringUnavailableReason::ApiUnavailable,
+            "The configured authentication adapter is not supported for Glances.",
+        );
+    }
     let client = clients.select(&target);
+    let authentication_material = if !glances_requires_api_material(target.authentication.api) {
+        // Browser-only Basic auth is consumed solely by WebView2. The
+        // monitoring broker never promotes it into API authentication.
+        None
+    } else {
+        match clients.authentication.resolve_api_authentication(&target) {
+            Ok(material) => material,
+            Err(error) => {
+                return ServerMetrics::unavailable_from_error(
+                    sampled_at,
+                    classify_provider_auth_error(error),
+                )
+            }
+        }
+    };
+    let authentication = GlancesAuthentication {
+        manager: &clients.authentication,
+        service_id: &target.service_id,
+        material: authentication_material.as_ref(),
+    };
     let cached_version = clients.api_version.load(Ordering::Relaxed);
     let api_version = if matches!(cached_version, 3 | 4) {
         cached_version
     } else {
-        match discover_api_version(&client, &target.url).await {
+        match discover_api_version(&client, &target.url, authentication).await {
             Ok(version) => {
                 clients.api_version.store(version, Ordering::Relaxed);
                 version
             }
-            Err(error) => return ServerMetrics::unavailable_from_error(sampled_at, error),
+            Err(error) => {
+                if error.kind == MonitoringErrorKind::Authentication {
+                    authentication.report_auth_failure();
+                }
+                return ServerMetrics::unavailable_from_error(sampled_at, error);
+            }
         }
     };
 
-    let snapshot = fetch_snapshot(&client, &target.url, api_version, sampled_at).await;
+    let snapshot = fetch_snapshot(
+        &client,
+        &target.url,
+        api_version,
+        sampled_at,
+        authentication,
+    )
+    .await;
+
+    if snapshot.status == MonitoringStatus::Online {
+        authentication.report_success();
+    } else if snapshot.reason == Some(MonitoringUnavailableReason::Authentication) {
+        authentication.report_auth_failure();
+    }
 
     if snapshot.rediscover_api_version {
         clients.api_version.store(0, Ordering::Relaxed);
@@ -303,12 +401,32 @@ pub(crate) async fn collect_server_metrics(
     snapshot
 }
 
-async fn discover_api_version(client: &Client, base_url: &Url) -> Result<u8, MonitoringError> {
-    match probe_endpoint(client, api_url(base_url, 4, "status")?).await {
+fn supports_glances_api_authentication(authentication: ServiceApiAuthentication) -> bool {
+    matches!(
+        authentication,
+        ServiceApiAuthentication::None
+            | ServiceApiAuthentication::GlancesHttpBasic
+            | ServiceApiAuthentication::GlancesBearer
+    )
+}
+
+fn glances_requires_api_material(authentication: ServiceApiAuthentication) -> bool {
+    matches!(
+        authentication,
+        ServiceApiAuthentication::GlancesHttpBasic | ServiceApiAuthentication::GlancesBearer
+    )
+}
+
+async fn discover_api_version(
+    client: &Client,
+    base_url: &Url,
+    authentication: GlancesAuthentication<'_>,
+) -> Result<u8, MonitoringError> {
+    match probe_endpoint(client, api_url(base_url, 4, "status")?, authentication).await {
         Ok(()) => return Ok(4),
         Err(error) if error.kind == MonitoringErrorKind::NotFound => {}
         Err(error) if error.kind == MonitoringErrorKind::MethodNotAllowed => {
-            match probe_endpoint(client, api_url(base_url, 4, "version")?).await {
+            match probe_endpoint(client, api_url(base_url, 4, "version")?, authentication).await {
                 Ok(()) => return Ok(4),
                 Err(version_error) if version_error.kind == MonitoringErrorKind::NotFound => {}
                 Err(version_error) => return Err(version_error),
@@ -317,7 +435,7 @@ async fn discover_api_version(client: &Client, base_url: &Url) -> Result<u8, Mon
         Err(error) => return Err(error),
     }
 
-    match probe_endpoint(client, api_url(base_url, 3, "status")?).await {
+    match probe_endpoint(client, api_url(base_url, 3, "status")?, authentication).await {
         Ok(()) => Ok(3),
         Err(error) if error.kind == MonitoringErrorKind::NotFound => Err(MonitoringError::new(
             MonitoringErrorKind::NotFound,
@@ -327,13 +445,41 @@ async fn discover_api_version(client: &Client, base_url: &Url) -> Result<u8, Mon
     }
 }
 
-async fn probe_endpoint(client: &Client, url: Url) -> Result<(), MonitoringError> {
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(classify_request_error)?;
+async fn probe_endpoint(
+    client: &Client,
+    url: Url,
+    authentication: GlancesAuthentication<'_>,
+) -> Result<(), MonitoringError> {
+    let response = send_authenticated_get(client, url, authentication).await?;
     classify_status(response.status())
+}
+
+async fn send_authenticated_get(
+    client: &Client,
+    url: Url,
+    authentication: GlancesAuthentication<'_>,
+) -> Result<Response, MonitoringError> {
+    // Redirects are disabled on both clients. `ProviderAuthMaterial::apply`
+    // independently verifies this exact request URL before adding a header,
+    // so credentials cannot cross an origin boundary even if either layer is
+    // changed later.
+    let request = authentication.apply(client.get(url.clone()), &url)?;
+    let response = request.send().await.map_err(classify_request_error)?;
+    Ok(response)
+}
+
+fn classify_provider_auth_error(error: ProviderAuthError) -> MonitoringError {
+    let retry_hint = error.retry_after_ms().map(|milliseconds| {
+        let seconds = milliseconds.saturating_add(999) / 1_000;
+        format!(" Retry in approximately {seconds} seconds.")
+    });
+    MonitoringError::new(
+        MonitoringErrorKind::Authentication,
+        format!(
+            "Glances authentication is unavailable. {error}{}",
+            retry_hint.as_deref().unwrap_or_default()
+        ),
+    )
 }
 
 async fn fetch_snapshot(
@@ -341,6 +487,7 @@ async fn fetch_snapshot(
     base_url: &Url,
     api_version: u8,
     sampled_at: u64,
+    authentication: GlancesAuthentication<'_>,
 ) -> ServerMetrics {
     let cpu_url = match api_url(base_url, api_version, "cpu") {
         Ok(url) => url,
@@ -372,13 +519,13 @@ async fn fetch_snapshot(
     };
 
     let (cpu, memory, network, sensors, filesystems, uptime, load) = futures_util::join!(
-        fetch_json::<CpuStats>(client, cpu_url),
-        fetch_json::<MemoryStats>(client, memory_url),
-        fetch_json::<Vec<NetworkStats>>(client, network_url),
-        fetch_json::<Vec<SensorStats>>(client, sensors_url),
-        fetch_json::<Vec<FilesystemStats>>(client, filesystems_url),
-        fetch_json::<UptimeStats>(client, uptime_url),
-        fetch_json::<LoadStats>(client, load_url),
+        fetch_json::<CpuStats>(client, cpu_url, authentication),
+        fetch_json::<MemoryStats>(client, memory_url, authentication),
+        fetch_json::<Vec<NetworkStats>>(client, network_url, authentication),
+        fetch_json::<Vec<SensorStats>>(client, sensors_url, authentication),
+        fetch_json::<Vec<FilesystemStats>>(client, filesystems_url, authentication),
+        fetch_json::<UptimeStats>(client, uptime_url, authentication),
+        fetch_json::<LoadStats>(client, load_url, authentication),
     );
 
     assemble_snapshot(
@@ -533,12 +680,12 @@ fn assemble_snapshot(
     }
 }
 
-async fn fetch_json<T: DeserializeOwned>(client: &Client, url: Url) -> Result<T, MonitoringError> {
-    let mut response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(classify_request_error)?;
+async fn fetch_json<T: DeserializeOwned>(
+    client: &Client,
+    url: Url,
+    authentication: GlancesAuthentication<'_>,
+) -> Result<T, MonitoringError> {
+    let mut response = send_authenticated_get(client, url, authentication).await?;
     classify_status(response.status())?;
 
     if response
@@ -601,7 +748,7 @@ fn classify_status(status: StatusCode) -> Result<(), MonitoringError> {
         ),
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => (
             MonitoringErrorKind::Authentication,
-            "Glances authentication is required; credential-backed provider authentication arrives in Phase 7.1."
+            "Glances authentication is required or the configured credential was rejected."
                 .to_string(),
         ),
         _ => (
@@ -941,6 +1088,31 @@ mod tests {
             api_url(&base, 4, "cpu").unwrap().as_str(),
             "http://192.168.1.10:61208/glances/api/4/cpu"
         );
+    }
+
+    #[test]
+    fn glances_consumer_rejects_unrelated_provider_adapters() {
+        assert!(supports_glances_api_authentication(
+            ServiceApiAuthentication::None
+        ));
+        assert!(supports_glances_api_authentication(
+            ServiceApiAuthentication::GlancesHttpBasic
+        ));
+        assert!(supports_glances_api_authentication(
+            ServiceApiAuthentication::GlancesBearer
+        ));
+        assert!(!supports_glances_api_authentication(
+            ServiceApiAuthentication::HomarrApiKey
+        ));
+        assert!(!glances_requires_api_material(
+            ServiceApiAuthentication::None
+        ));
+        assert!(glances_requires_api_material(
+            ServiceApiAuthentication::GlancesHttpBasic
+        ));
+        assert!(glances_requires_api_material(
+            ServiceApiAuthentication::GlancesBearer
+        ));
     }
 
     #[test]

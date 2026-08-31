@@ -15,6 +15,8 @@
     "allow-get-service-credential-statuses",
     "allow-set-service-credential",
     "allow-delete-service-credential",
+    "allow-get-service-authentication-status",
+    "allow-validate-service-authentication",
     "allow-open-service-webview",
     "allow-activate-service-webview",
     "allow-hide-service-webviews",

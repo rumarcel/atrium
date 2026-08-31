@@ -4,7 +4,13 @@ import {
   parseServiceConfiguration,
 } from "../services/config/serviceConfig.js";
 import {
+  SERVICE_AUTHENTICATION_API_ADAPTERS,
+  SERVICE_AUTHENTICATION_BROWSER_ADAPTERS,
+  SERVICE_AUTHENTICATION_CREDENTIAL_STATES,
+  SERVICE_AUTHENTICATION_REASON_CODES,
+  SERVICE_AUTHENTICATION_VALIDATION_STATES,
   SERVICE_CREDENTIAL_KINDS,
+  type ServiceAuthenticationStatusSnapshot,
   type ServiceConfigurationSnapshot,
   type ServiceCredentialKind,
   type ServiceCredentialStatus,
@@ -20,6 +26,8 @@ const RESTORE_CONFIGURATION_COMMAND = "restore_service_configuration_backup";
 const GET_CREDENTIAL_STATUSES_COMMAND = "get_service_credential_statuses";
 const SET_CREDENTIAL_COMMAND = "set_service_credential";
 const DELETE_CREDENTIAL_COMMAND = "delete_service_credential";
+const GET_AUTHENTICATION_STATUS_COMMAND = "get_service_authentication_status";
+const VALIDATE_AUTHENTICATION_COMMAND = "validate_service_authentication";
 const SETTINGS_STARTUP_RETRY_DELAYS_MS = [25, 50, 100, 200, 400, 800] as const;
 
 const SNAPSHOT_KEYS = new Set([
@@ -28,6 +36,19 @@ const SNAPSHOT_KEYS = new Set([
   "backupAvailable",
 ]);
 const CREDENTIAL_STATUS_KEYS = new Set(["kind", "exists"]);
+const AUTHENTICATION_STATUS_KEYS = new Set([
+  "serviceId",
+  "revision",
+  "apiAdapter",
+  "browserAdapter",
+  "requiredCredentialKinds",
+  "credentialState",
+  "validationState",
+  "canValidate",
+  "canClearSession",
+  "reasonCode",
+  "retryAfterMs",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -92,6 +113,272 @@ function parseCredentialKind(value: unknown): ServiceCredentialKind {
   }
 
   return kind;
+}
+
+function parseEnum<const Values extends readonly string[]>(
+  value: unknown,
+  values: Values,
+  context: string,
+): Values[number] {
+  const parsed = values.find((candidate) => candidate === value);
+  if (parsed === undefined) {
+    throw new Error(`${context} had an invalid value.`);
+  }
+
+  return parsed;
+}
+
+function parseAuthenticationString(
+  value: unknown,
+  field: "service ID" | "revision",
+  maximumLength: number,
+): string {
+  if (typeof value !== "string") {
+    throw new Error(`The authentication response had an invalid ${field}.`);
+  }
+
+  const parsed = value.trim();
+  if (parsed.length === 0 || parsed.length > maximumLength || parsed !== value) {
+    throw new Error(`The authentication response had an invalid ${field}.`);
+  }
+
+  return parsed;
+}
+
+function parseRequiredCredentialKinds(
+  value: unknown,
+): readonly ServiceCredentialKind[] {
+  if (!Array.isArray(value) || value.length > SERVICE_CREDENTIAL_KINDS.length) {
+    throw new Error(
+      "The authentication response had invalid required credential kinds.",
+    );
+  }
+
+  const parsed = value.map(parseCredentialKind);
+  if (new Set(parsed).size !== parsed.length) {
+    throw new Error(
+      "The authentication response had invalid required credential kinds.",
+    );
+  }
+
+  return parsed;
+}
+
+export function parseServiceAuthenticationStatus(
+  value: unknown,
+): ServiceAuthenticationStatusSnapshot {
+  if (!isRecord(value)) {
+    throw new Error("The native authentication response was not an object.");
+  }
+
+  assertExactKeys(
+    value,
+    AUTHENTICATION_STATUS_KEYS,
+    "The native authentication response",
+  );
+
+  if (typeof value.canValidate !== "boolean") {
+    throw new Error("The authentication response had invalid validation capability.");
+  }
+  if (typeof value.canClearSession !== "boolean") {
+    throw new Error("The authentication response had invalid session capability.");
+  }
+  if (
+    value.retryAfterMs !== null &&
+    (typeof value.retryAfterMs !== "number" ||
+      !Number.isSafeInteger(value.retryAfterMs) ||
+      value.retryAfterMs < 0)
+  ) {
+    throw new Error("The authentication response had an invalid retry delay.");
+  }
+
+  const snapshot: ServiceAuthenticationStatusSnapshot = {
+    serviceId: parseAuthenticationString(value.serviceId, "service ID", 64),
+    revision: parseAuthenticationString(value.revision, "revision", 512),
+    apiAdapter: parseEnum(
+      value.apiAdapter,
+      SERVICE_AUTHENTICATION_API_ADAPTERS,
+      "The authentication API adapter",
+    ),
+    browserAdapter: parseEnum(
+      value.browserAdapter,
+      SERVICE_AUTHENTICATION_BROWSER_ADAPTERS,
+      "The authentication browser adapter",
+    ),
+    requiredCredentialKinds: parseRequiredCredentialKinds(
+      value.requiredCredentialKinds,
+    ),
+    credentialState: parseEnum(
+      value.credentialState,
+      SERVICE_AUTHENTICATION_CREDENTIAL_STATES,
+      "The authentication credential state",
+    ),
+    validationState: parseEnum(
+      value.validationState,
+      SERVICE_AUTHENTICATION_VALIDATION_STATES,
+      "The authentication validation state",
+    ),
+    canValidate: value.canValidate,
+    canClearSession: value.canClearSession,
+    reasonCode:
+      value.reasonCode === null
+        ? null
+        : parseEnum(
+            value.reasonCode,
+            SERVICE_AUTHENTICATION_REASON_CODES,
+            "The authentication reason code",
+          ),
+    retryAfterMs: value.retryAfterMs,
+  };
+
+  assertServiceAuthenticationStatusInvariants(snapshot);
+  return snapshot;
+}
+
+function expectedAuthenticationCredentialKinds(
+  snapshot: ServiceAuthenticationStatusSnapshot,
+): readonly ServiceCredentialKind[] {
+  const required = new Set<ServiceCredentialKind>();
+  switch (snapshot.apiAdapter) {
+    case "none":
+      break;
+    case "homarr-api-key":
+      required.add("api-key");
+      break;
+    case "glances-http-basic":
+      required.add("http-basic");
+      break;
+    case "glances-bearer":
+      required.add("bearer-token");
+      break;
+  }
+  if (snapshot.browserAdapter === "http-basic") {
+    required.add("http-basic");
+  }
+
+  return SERVICE_CREDENTIAL_KINDS.filter((kind) => required.has(kind));
+}
+
+function authenticationStatusIsInconsistent(message: string): never {
+  throw new Error(`The authentication response was inconsistent: ${message}.`);
+}
+
+export function assertServiceAuthenticationStatusInvariants(
+  snapshot: ServiceAuthenticationStatusSnapshot,
+): void {
+  if (
+    snapshot.apiAdapter === "glances-bearer" &&
+    snapshot.browserAdapter === "http-basic"
+  ) {
+    authenticationStatusIsInconsistent(
+      "Glances bearer and browser HTTP Basic cannot share the Authorization header",
+    );
+  }
+
+  const expectedKinds = expectedAuthenticationCredentialKinds(snapshot);
+  if (
+    expectedKinds.length !== snapshot.requiredCredentialKinds.length ||
+    expectedKinds.some(
+      (kind, index) => snapshot.requiredCredentialKinds[index] !== kind,
+    )
+  ) {
+    authenticationStatusIsInconsistent(
+      "required credential kinds did not match the selected adapters",
+    );
+  }
+
+  const hasAdapter =
+    snapshot.apiAdapter !== "none" || snapshot.browserAdapter !== "none";
+  if (!hasAdapter) {
+    if (
+      snapshot.credentialState !== "not-required" ||
+      snapshot.validationState !== "unsupported" ||
+      snapshot.canValidate
+    ) {
+      authenticationStatusIsInconsistent(
+        "services without adapters must report authentication as unsupported",
+      );
+    }
+  } else if (snapshot.credentialState === "not-required") {
+    authenticationStatusIsInconsistent(
+      "configured adapters must require their mapped credential kinds",
+    );
+  }
+
+  if (
+    snapshot.validationState === "valid" &&
+    (!hasAdapter || snapshot.credentialState !== "stored")
+  ) {
+    authenticationStatusIsInconsistent(
+      "valid authentication requires a configured adapter and stored credentials",
+    );
+  }
+
+  if (
+    ["missing", "needs-rebind", "vault-unavailable"].includes(
+      snapshot.credentialState,
+    ) &&
+    (snapshot.canValidate || snapshot.validationState === "valid")
+  ) {
+    authenticationStatusIsInconsistent(
+      "unavailable credentials cannot be validated",
+    );
+  }
+
+  if (snapshot.validationState === "backoff") {
+    if (snapshot.retryAfterMs === null || snapshot.retryAfterMs <= 0) {
+      authenticationStatusIsInconsistent(
+        "backoff must include a positive retry delay",
+      );
+    }
+  } else if (snapshot.retryAfterMs !== null) {
+    authenticationStatusIsInconsistent(
+      "retry delay is only valid while authentication is in backoff",
+    );
+  }
+
+  const reason = snapshot.reasonCode;
+  const validation = snapshot.validationState;
+  const credential = snapshot.credentialState;
+  const compatibleReason = (() => {
+    switch (reason) {
+      case null:
+        return ["unsupported", "not-validated", "valid"].includes(validation);
+      case "missing-credential":
+        return credential === "missing" && validation === "not-validated";
+      case "endpoint-changed":
+        return credential === "needs-rebind" && validation === "not-validated";
+      case "vault-unavailable":
+        return (
+          credential === "vault-unavailable" &&
+          ["not-validated", "temporarily-unavailable"].includes(validation)
+        );
+      case "insecure-transport":
+        return credential === "stored" && validation === "temporarily-unavailable";
+      case "unauthorized":
+      case "forbidden":
+        return (
+          credential === "stored" &&
+          (validation === "invalid" || validation === "backoff")
+        );
+      case "rate-limited":
+        return credential === "stored" && validation === "backoff";
+      case "validation-in-progress":
+        return credential === "stored" && validation === "validating";
+      case "timeout":
+      case "tls":
+      case "connection":
+      case "api-unavailable":
+      case "invalid-data":
+        return credential === "stored" && validation === "temporarily-unavailable";
+    }
+  })();
+
+  if (!compatibleReason) {
+    authenticationStatusIsInconsistent(
+      "reason code did not match the credential and validation states",
+    );
+  }
 }
 
 function parseCredentialStatusItem(value: unknown): ServiceCredentialStatus {
@@ -244,7 +531,7 @@ export async function getServiceCredentialStatuses(
 
 export async function setServiceCredential(
   request: SetServiceCredentialRequest,
-): Promise<void> {
+): Promise<ServiceCredentialStatus> {
   if (!isTauri()) {
     throw desktopOnlyError("Storing credentials");
   }
@@ -254,12 +541,14 @@ export async function setServiceCredential(
   if (status.kind !== request.kind || !status.exists) {
     throw new Error("The credential update response was inconsistent.");
   }
+
+  return status;
 }
 
 export async function deleteServiceCredential(
   serviceId: string,
   kind: ServiceCredentialKind,
-): Promise<void> {
+): Promise<ServiceCredentialStatus> {
   if (!isTauri()) {
     throw desktopOnlyError("Deleting credentials");
   }
@@ -271,6 +560,64 @@ export async function deleteServiceCredential(
   if (status.kind !== kind || status.exists) {
     throw new Error("The credential deletion response was inconsistent.");
   }
+
+  return status;
+}
+
+function assertAuthenticationServiceId(
+  snapshot: ServiceAuthenticationStatusSnapshot,
+  serviceId: string,
+): ServiceAuthenticationStatusSnapshot {
+  if (snapshot.serviceId !== serviceId) {
+    throw new Error("The authentication response was for a different service.");
+  }
+
+  return snapshot;
+}
+
+export async function getServiceAuthenticationStatus(
+  serviceId: string,
+): Promise<ServiceAuthenticationStatusSnapshot> {
+  if (!isTauri()) {
+    return {
+      serviceId,
+      revision: "preview",
+      apiAdapter: "none",
+      browserAdapter: "none",
+      requiredCredentialKinds: [],
+      credentialState: "not-required",
+      validationState: "unsupported",
+      canValidate: false,
+      canClearSession: false,
+      reasonCode: null,
+      retryAfterMs: null,
+    };
+  }
+
+  const response = await invoke<unknown>(GET_AUTHENTICATION_STATUS_COMMAND, {
+    serviceId,
+  });
+  return assertAuthenticationServiceId(
+    parseServiceAuthenticationStatus(response),
+    serviceId,
+  );
+}
+
+export async function validateServiceAuthentication(
+  serviceId: string,
+  expectedRevision: string | null,
+): Promise<ServiceAuthenticationStatusSnapshot> {
+  if (!isTauri()) {
+    throw desktopOnlyError("Validating automatic authentication");
+  }
+
+  const response = await invoke<unknown>(VALIDATE_AUTHENTICATION_COMMAND, {
+    request: { serviceId, expectedRevision },
+  });
+  return assertAuthenticationServiceId(
+    parseServiceAuthenticationStatus(response),
+    serviceId,
+  );
 }
 
 export const nativeServiceSettingsClient: ServiceSettingsClient = {
@@ -281,6 +628,8 @@ export const nativeServiceSettingsClient: ServiceSettingsClient = {
   getCredentialStatuses: getServiceCredentialStatuses,
   setCredential: setServiceCredential,
   deleteCredential: deleteServiceCredential,
+  getAuthenticationStatus: getServiceAuthenticationStatus,
+  validateAuthentication: validateServiceAuthentication,
 };
 
 export function describeSettingsError(error: unknown): string {

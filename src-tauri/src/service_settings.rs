@@ -50,6 +50,46 @@ pub(crate) enum ServiceTlsPolicy {
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+pub(crate) enum ServiceApiAuthentication {
+    #[default]
+    None,
+    HomarrApiKey,
+    GlancesHttpBasic,
+    GlancesBearer,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum ServiceBrowserAuthentication {
+    #[default]
+    None,
+    HttpBasic,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ServiceAuthentication {
+    #[serde(default)]
+    pub(crate) api: ServiceApiAuthentication,
+    #[serde(default)]
+    pub(crate) browser: ServiceBrowserAuthentication,
+    #[serde(default)]
+    pub(crate) allow_insecure_local_http: bool,
+}
+
+impl ServiceAuthentication {
+    pub(crate) fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub(crate) fn is_configured(&self) -> bool {
+        self.api != ServiceApiAuthentication::None
+            || self.browser != ServiceBrowserAuthentication::None
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
 enum ServiceAccent {
     Violet,
     Amber,
@@ -77,6 +117,8 @@ pub struct ServiceDefinition {
     accent: ServiceAccent,
     #[serde(default)]
     pub(crate) tls_policy: ServiceTlsPolicy,
+    #[serde(default, skip_serializing_if = "ServiceAuthentication::is_default")]
+    pub(crate) authentication: ServiceAuthentication,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -243,6 +285,29 @@ impl ServiceDefinition {
             validate_local_tls_exception(&url, &format!("{path}.tlsPolicy"))?;
         }
 
+        let mut authentication = self.authentication;
+        if authentication.api == ServiceApiAuthentication::GlancesBearer
+            && authentication.browser == ServiceBrowserAuthentication::HttpBasic
+        {
+            return Err(format!(
+                "{path}.authentication cannot combine Glances bearer and HTTP Basic because both require the Authorization header."
+            ));
+        }
+
+        if authentication.allow_insecure_local_http {
+            if url.scheme() == "https" {
+                authentication.allow_insecure_local_http = false;
+            } else if !authentication.is_configured() {
+                return Err(format!(
+                    "{path}.authentication.allowInsecureLocalHttp requires an authentication adapter."
+                ));
+            } else if !is_local_target(&url) {
+                return Err(format!(
+                    "{path}.authentication.allowInsecureLocalHttp is limited to loopback and private-network targets."
+                ));
+            }
+        }
+
         Ok(Self {
             id,
             name,
@@ -253,6 +318,7 @@ impl ServiceDefinition {
             enabled: self.enabled,
             accent: self.accent,
             tls_policy: self.tls_policy,
+            authentication,
         })
     }
 }
@@ -1124,6 +1190,57 @@ mod tests {
         assert_eq!(service.description, "Local service");
         assert_eq!(service.accent, ServiceAccent::Slate);
         assert_eq!(service.tls_policy, ServiceTlsPolicy::Strict);
+        assert_eq!(service.authentication, ServiceAuthentication::default());
+    }
+
+    #[test]
+    fn authentication_is_explicit_allowlisted_and_private_http_requires_opt_in() {
+        let private_http = TEST_SEED.replace(
+            "\"accent\": \"violet\"",
+            "\"accent\": \"violet\", \"authentication\": { \"api\": \"homarr-api-key\", \"allowInsecureLocalHttp\": true }",
+        );
+        let configuration = ServiceConfiguration::parse_document(&private_http).unwrap();
+        assert_eq!(
+            configuration.services[0].authentication,
+            ServiceAuthentication {
+                api: ServiceApiAuthentication::HomarrApiKey,
+                browser: ServiceBrowserAuthentication::None,
+                allow_insecure_local_http: true,
+            }
+        );
+
+        let unknown_adapter = private_http.replace("homarr-api-key", "arbitrary-header");
+        assert!(ServiceConfiguration::parse_document(&unknown_adapter).is_err());
+
+        let public_http = private_http.replace("192.168.1.10", "example.com");
+        assert!(ServiceConfiguration::parse_document(&public_http).is_err());
+
+        let conflicting_authorization = TEST_SEED.replace(
+            "\"accent\": \"violet\"",
+            "\"accent\": \"violet\", \"authentication\": { \"api\": \"glances-bearer\", \"browser\": \"http-basic\" }",
+        );
+        assert!(ServiceConfiguration::parse_document(&conflicting_authorization).is_err());
+    }
+
+    #[test]
+    fn https_authentication_drops_an_irrelevant_plaintext_opt_in() {
+        let document = TEST_SEED
+            .replace("http://192.168.1.10:8096", "https://192.168.1.10:8096")
+            .replace(
+                "\"accent\": \"violet\"",
+                "\"accent\": \"violet\", \"authentication\": { \"browser\": \"http-basic\", \"allowInsecureLocalHttp\": true }",
+            );
+        let configuration = ServiceConfiguration::parse_document(&document).unwrap();
+
+        assert_eq!(
+            configuration.services[0].authentication.browser,
+            ServiceBrowserAuthentication::HttpBasic
+        );
+        assert!(
+            !configuration.services[0]
+                .authentication
+                .allow_insecure_local_http
+        );
     }
 
     #[test]
@@ -1138,6 +1255,9 @@ mod tests {
         assert_eq!(value["configuration"]["version"], 1);
         assert!(value["configuration"].get("$schema").is_none());
         assert_eq!(value["configuration"]["services"][0]["tlsPolicy"], "strict");
+        assert!(value["configuration"]["services"][0]
+            .get("authentication")
+            .is_none());
         assert_eq!(value["recoveryNotice"], "Recovered defaults");
         assert_eq!(value["backupAvailable"], true);
     }

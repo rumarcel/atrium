@@ -1,13 +1,20 @@
+use crate::provider_auth::ProviderAuthManager;
 #[cfg(test)]
 use crate::service_settings::BUNDLED_SERVICE_CONFIG;
-use crate::service_settings::{ServiceConfiguration, ServiceDefinition, ServiceTlsPolicy};
+use crate::service_settings::{
+    ServiceAuthentication, ServiceBrowserAuthentication, ServiceConfiguration, ServiceDefinition,
+    ServiceTlsPolicy,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     net::IpAddr,
     path::PathBuf,
     process::Command,
-    sync::{Mutex, RwLock},
+    sync::{
+        atomic::{AtomicU64, AtomicU8, Ordering},
+        Mutex, RwLock,
+    },
 };
 use tauri::{
     webview::{NewWindowResponse, WebviewBuilder},
@@ -17,8 +24,10 @@ use tauri::{
 const MAX_SERVICE_ID_LENGTH: usize = 64;
 const MAX_SERVICE_NAME_LENGTH: usize = 80;
 const MAX_URL_LENGTH: usize = 2_048;
+const MAX_CANONICAL_ORIGIN_UTF16_UNITS: usize = 512;
 const MAX_WEBVIEW_COORDINATE: f64 = 65_536.0;
 const MAX_LIVE_SERVICE_WEBVIEWS: usize = 6;
+const MAX_BASIC_AUTH_SUBMISSIONS: u8 = 2;
 const MAIN_WEBVIEW_LABEL: &str = "main";
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -44,12 +53,15 @@ struct TrustedService {
     name: String,
     url_text: String,
     url: Url,
+    canonical_origin: String,
     tls_policy: TlsPolicy,
+    authentication: ServiceAuthentication,
     enabled: bool,
 }
 
 pub struct ServiceCatalog {
     services: RwLock<HashMap<String, TrustedService>>,
+    revision: AtomicU64,
 }
 
 #[derive(Clone, Debug)]
@@ -65,6 +77,34 @@ pub(crate) struct TrustedHealthTarget {
     pub endpoint: TrustedServiceEndpoint,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct TrustedAuthenticationTarget {
+    pub(crate) service_id: String,
+    pub(crate) enabled: bool,
+    pub(crate) url: Url,
+    pub(crate) canonical_origin: String,
+    pub(crate) allow_invalid_local_certificate: bool,
+    pub(crate) authentication: ServiceAuthentication,
+    pub(crate) catalog_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BrowserAuthenticationFingerprint {
+    method: ServiceBrowserAuthentication,
+    allow_insecure_local_http: bool,
+}
+
+impl From<ServiceAuthentication> for BrowserAuthenticationFingerprint {
+    fn from(authentication: ServiceAuthentication) -> Self {
+        Self {
+            method: authentication.browser,
+            allow_insecure_local_http: authentication.browser
+                == ServiceBrowserAuthentication::HttpBasic
+                && authentication.allow_insecure_local_http,
+        }
+    }
+}
+
 impl ServiceCatalog {
     #[cfg(test)]
     pub fn from_bundled_config() -> Result<Self, String> {
@@ -76,6 +116,7 @@ impl ServiceCatalog {
     pub fn from_configuration(configuration: &ServiceConfiguration) -> Result<Self, String> {
         Ok(Self {
             services: RwLock::new(Self::trusted_services(configuration)?),
+            revision: AtomicU64::new(1),
         })
     }
 
@@ -84,10 +125,16 @@ impl ServiceCatalog {
         configuration: &ServiceConfiguration,
     ) -> Result<(), String> {
         let services = Self::trusted_services(configuration)?;
-        *self
+        let mut current = self
             .services
             .write()
-            .map_err(|_| "The trusted service catalog is unavailable.".to_string())? = services;
+            .map_err(|_| "The trusted service catalog is unavailable.".to_string())?;
+        *current = services;
+        let _ = self
+            .revision
+            .fetch_update(Ordering::Release, Ordering::Relaxed, |revision| {
+                Some(revision.saturating_add(1))
+            });
         Ok(())
     }
 
@@ -140,6 +187,41 @@ impl ServiceCatalog {
         })
     }
 
+    pub(crate) fn resolve_authentication_target(
+        &self,
+        service_id: &str,
+    ) -> Result<TrustedAuthenticationTarget, String> {
+        let services = self
+            .services
+            .read()
+            .map_err(|_| "The trusted service catalog is unavailable.".to_string())?;
+        let service = services
+            .get(service_id)
+            .ok_or_else(|| "The requested service is not in the trusted catalog.".to_string())?;
+
+        Ok(TrustedAuthenticationTarget {
+            service_id: service.id.clone(),
+            enabled: service.enabled,
+            url: service.url.clone(),
+            canonical_origin: service.canonical_origin.clone(),
+            allow_invalid_local_certificate: service.tls_policy
+                == TlsPolicy::AllowInvalidLocalCertificate,
+            authentication: service.authentication,
+            // The read guard prevents replacement until this target and its
+            // revision have been captured as one coherent catalog snapshot.
+            catalog_revision: self.revision.load(Ordering::Acquire),
+        })
+    }
+
+    pub(crate) fn canonical_origin_for_service(&self, service_id: &str) -> Result<String, String> {
+        self.services
+            .read()
+            .map_err(|_| "The trusted service catalog is unavailable.".to_string())?
+            .get(service_id)
+            .map(|service| service.canonical_origin.clone())
+            .ok_or_else(|| "The requested service is not in the trusted catalog.".to_string())
+    }
+
     pub(crate) fn has_enabled_service(&self, service_id: &str) -> bool {
         self.services
             .read()
@@ -182,10 +264,15 @@ impl ServiceCatalog {
         service_id: &str,
         url: &str,
         tls_policy: TlsPolicy,
+        browser_authentication: BrowserAuthenticationFingerprint,
     ) -> bool {
         self.services.read().ok().is_some_and(|services| {
             services.get(service_id).is_some_and(|service| {
-                service.enabled && service.url_text == url && service.tls_policy == tls_policy
+                service.enabled
+                    && service.url_text == url
+                    && service.tls_policy == tls_policy
+                    && BrowserAuthenticationFingerprint::from(service.authentication)
+                        == browser_authentication
             })
         })
     }
@@ -214,6 +301,7 @@ impl TryFrom<&ServiceDefinition> for TrustedService {
         }
 
         let url = validate_http_url(&service.url)?;
+        let canonical_origin = canonical_origin(&url)?;
 
         if service.tls_policy == ServiceTlsPolicy::AllowInvalidLocalCertificate {
             validate_local_tls_exception(&url)?;
@@ -224,7 +312,9 @@ impl TryFrom<&ServiceDefinition> for TrustedService {
             name: service.name.clone(),
             url_text: service.url.clone(),
             url,
+            canonical_origin,
             tls_policy: service.tls_policy.into(),
+            authentication: service.authentication,
             enabled: service.enabled,
         })
     }
@@ -329,6 +419,7 @@ struct RegistryEntry {
     label: String,
     url: String,
     tls_policy: TlsPolicy,
+    browser_authentication: BrowserAuthenticationFingerprint,
     ready: bool,
     attached_to_tab: bool,
     last_used: u64,
@@ -344,6 +435,63 @@ struct RegistryInner {
 #[derive(Default)]
 pub struct ServiceWebviewRegistry {
     inner: Mutex<RegistryInner>,
+}
+
+/// Runs a browser-credential mutation while the service registry remains
+/// exclusively locked after revoking the old view. An in-flight open uses the
+/// same lock, so it cannot recreate a session with the old credential between
+/// revocation and the vault write/delete.
+pub(crate) fn with_service_webview_revoked<T>(
+    app: &AppHandle,
+    registry: &ServiceWebviewRegistry,
+    service_id: &str,
+    mutation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    if !is_valid_service_id(service_id) {
+        return Err("The service id is invalid.".into());
+    }
+
+    let mut inner = registry
+        .inner
+        .lock()
+        .map_err(|_| "The service webview registry is unavailable.".to_string())?;
+    revoke_service_webview_locked(app, &mut inner, service_id)?;
+    mutation()
+}
+
+fn revoke_service_webview_locked(
+    app: &AppHandle,
+    inner: &mut RegistryInner,
+    service_id: &str,
+) -> Result<bool, String> {
+    let registered_entry = inner.entries.get(service_id).cloned();
+    let label = registered_entry
+        .as_ref()
+        .map(|entry| entry.label.clone())
+        .unwrap_or_else(|| service_webview_label(service_id));
+    let Some(view) = app.get_webview(&label) else {
+        if registered_entry.is_some() {
+            remove_registry_entry(inner, service_id);
+            return Ok(true);
+        }
+        return Ok(false);
+    };
+
+    if let Err(error) = view.close() {
+        // Never leave a view that may hold rotated credentials visible. Keep
+        // the entry for an explicit cleanup retry if native close failed.
+        let _ = view.hide();
+        set_entry_attached(inner, service_id, false);
+        if inner.active_service_id.as_deref() == Some(service_id) {
+            inner.active_service_id = None;
+        }
+        return Err(webview_error(
+            "close the credential-revoked service webview",
+        )(error));
+    }
+
+    remove_registry_entry(inner, service_id);
+    Ok(true)
 }
 
 /// Releases native views whose registered endpoint is no longer trusted by the
@@ -418,6 +566,7 @@ pub async fn open_service_webview(
     request: OpenServiceWebviewRequest,
     catalog: tauri::State<'_, ServiceCatalog>,
     registry: tauri::State<'_, ServiceWebviewRegistry>,
+    authentication: tauri::State<'_, ProviderAuthManager>,
 ) -> Result<OpenServiceWebviewResult, String> {
     ensure_trusted_caller(&caller)?;
     let bounds = request.bounds.validate()?;
@@ -430,14 +579,29 @@ pub async fn open_service_webview(
         .lock()
         .map_err(|_| "The service webview registry is unavailable.".to_string())?;
     let service = catalog.resolve_enabled(&request.service_id)?;
+    let authentication_target = catalog.resolve_authentication_target(&request.service_id)?;
+    if !authentication_target.enabled
+        || authentication_target.url != service.url
+        || authentication_target.canonical_origin != service.canonical_origin
+        || authentication_target.authentication != service.authentication
+        || authentication_target.allow_invalid_local_certificate
+            != (service.tls_policy == TlsPolicy::AllowInvalidLocalCertificate)
+    {
+        return Err(
+            "The service configuration changed while its webview was being opened; try again."
+                .into(),
+        );
+    }
     let label = service_webview_label(&service.id);
+    let browser_authentication = BrowserAuthenticationFingerprint::from(service.authentication);
 
     hide_registered_webviews(&app, &inner, Some(&service.id))?;
     inner.active_service_id = None;
 
     if let Some(entry) = inner.entries.get(&service.id).cloned() {
-        let configuration_matches =
-            entry.url == service.url_text && entry.tls_policy == service.tls_policy;
+        let configuration_matches = entry.url == service.url_text
+            && entry.tls_policy == service.tls_policy
+            && entry.browser_authentication == browser_authentication;
 
         if configuration_matches && entry.ready {
             if let Some(existing) = app.get_webview(&entry.label) {
@@ -486,6 +650,7 @@ pub async fn open_service_webview(
                     label,
                     url: service.url_text,
                     tls_policy: service.tls_policy,
+                    browser_authentication,
                     ready: false,
                     attached_to_tab: false,
                     last_used,
@@ -530,6 +695,7 @@ pub async fn open_service_webview(
             label,
             url: service.url_text,
             tls_policy: service.tls_policy,
+            browser_authentication,
             ready: false,
             attached_to_tab: true,
             last_used,
@@ -537,6 +703,14 @@ pub async fn open_service_webview(
     );
 
     let setup_result = (|| {
+        if browser_authentication.method == ServiceBrowserAuthentication::HttpBasic {
+            install_basic_authentication_handler(
+                &child,
+                authentication_target,
+                authentication.inner().clone(),
+            )?;
+        }
+
         if service.tls_policy == TlsPolicy::AllowInvalidLocalCertificate {
             install_local_certificate_exception(&child, allowed_origin)?;
             clear_cached_certificate_decisions(&child)?;
@@ -607,8 +781,12 @@ pub async fn activate_service_webview(
             "The service webview must be opened before it can be activated.".to_string()
         })?;
 
-    if !catalog.matches_registered_configuration(&request.service_id, &entry.url, entry.tls_policy)
-    {
+    if !catalog.matches_registered_configuration(
+        &request.service_id,
+        &entry.url,
+        entry.tls_policy,
+        entry.browser_authentication,
+    ) {
         return Err(
             "The service configuration changed; the service webview must be reopened.".into(),
         );
@@ -701,7 +879,12 @@ pub async fn reconcile_service_webviews(
 
         if entry.ready
             && enabled_service_ids.contains(&service_id)
-            && catalog.matches_registered_configuration(&service_id, &entry.url, entry.tls_policy)
+            && catalog.matches_registered_configuration(
+                &service_id,
+                &entry.url,
+                entry.tls_policy,
+                entry.browser_authentication,
+            )
         {
             continue;
         }
@@ -857,7 +1040,12 @@ fn stale_catalog_entry_ids(registry: &RegistryInner, catalog: &ServiceCatalog) -
         .entries
         .iter()
         .filter(|(service_id, entry)| {
-            !catalog.matches_registered_configuration(service_id, &entry.url, entry.tls_policy)
+            !catalog.matches_registered_configuration(
+                service_id,
+                &entry.url,
+                entry.tls_policy,
+                entry.browser_authentication,
+            )
         })
         .map(|(service_id, _)| service_id.clone())
         .collect::<Vec<_>>();
@@ -969,6 +1157,39 @@ fn validate_http_url(value: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+fn canonical_origin(url: &Url) -> Result<String, String> {
+    let raw_host = url
+        .host_str()
+        .ok_or_else(|| "The service URL must include a hostname.".to_string())?;
+    let host = raw_host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        return Err("The service URL hostname is invalid.".into());
+    }
+
+    let rendered_host = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host
+    };
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| "The service URL port is invalid.".to_string())?;
+    let origin = format!(
+        "{}://{rendered_host}:{port}",
+        url.scheme().to_ascii_lowercase()
+    );
+
+    if origin.encode_utf16().count() > MAX_CANONICAL_ORIGIN_UTF16_UNITS {
+        return Err("The service authentication origin is too long.".into());
+    }
+
+    Ok(origin)
+}
+
 fn validate_local_tls_exception(url: &Url) -> Result<(), String> {
     if url.scheme() != "https" {
         return Err("A local certificate exception requires an HTTPS URL.".into());
@@ -1077,6 +1298,146 @@ impl AllowedOrigin {
 
 fn webview_error(action: &'static str) -> impl FnOnce(tauri::Error) -> String {
     move |error| format!("Could not {action}: {error}")
+}
+
+fn reserve_basic_auth_submission(submissions: &AtomicU8) -> bool {
+    submissions
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |attempts| {
+            (attempts < MAX_BASIC_AUTH_SUBMISSIONS).then_some(attempts + 1)
+        })
+        .is_ok()
+}
+
+#[cfg(windows)]
+fn install_basic_authentication_handler(
+    webview: &Webview,
+    target: TrustedAuthenticationTarget,
+    authentication: ProviderAuthManager,
+) -> Result<(), String> {
+    use std::{sync::mpsc, time::Duration};
+
+    let (sender, receiver) = mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| {
+            let result =
+                register_basic_authentication_handler(platform_webview, target, authentication);
+            let _ = sender.send(result);
+        })
+        .map_err(webview_error("access the native WebView2 controller"))?;
+
+    receiver
+        .recv_timeout(Duration::from_secs(3))
+        .map_err(|_| "Timed out while configuring HTTP Basic authentication.".to_string())?
+}
+
+#[cfg(not(windows))]
+fn install_basic_authentication_handler(
+    _webview: &Webview,
+    _target: TrustedAuthenticationTarget,
+    _authentication: ProviderAuthManager,
+) -> Result<(), String> {
+    Err("HTTP Basic service-webview authentication is supported on Windows only.".into())
+}
+
+#[cfg(windows)]
+fn register_basic_authentication_handler(
+    platform_webview: tauri::webview::PlatformWebview,
+    target: TrustedAuthenticationTarget,
+    authentication: ProviderAuthManager,
+) -> Result<(), String> {
+    use webview2_com::{
+        take_pwstr, BasicAuthenticationRequestedEventHandler,
+        Microsoft::Web::WebView2::Win32::ICoreWebView2_10,
+    };
+    use windows::core::{Interface, PCWSTR, PWSTR};
+
+    let allowed_origin = AllowedOrigin::from_url(&target.url)?;
+    let submissions = AtomicU8::new(0);
+    let controller = platform_webview.controller();
+    let core = unsafe { controller.CoreWebView2() }
+        .map_err(|error| format!("WebView2 core is unavailable: {error}"))?;
+    let core_10: ICoreWebView2_10 = core.cast().map_err(|error| {
+        format!("This WebView2 runtime lacks HTTP Basic authentication controls: {error}")
+    })?;
+    let mut token = 0_i64;
+
+    let handler =
+        BasicAuthenticationRequestedEventHandler::create(Box::new(move |_sender, arguments| {
+            let Some(arguments) = arguments else {
+                return Ok(());
+            };
+
+            // Every challenge starts cancelled. Only an exact-origin request,
+            // an origin-bound credential and a remaining submission budget can
+            // turn cancellation off.
+            unsafe {
+                arguments.SetCancel(true)?;
+            }
+
+            let mut request_uri = PWSTR::null();
+            unsafe {
+                arguments.Uri(&mut request_uri)?;
+            }
+            let request_uri = take_pwstr(request_uri);
+            let Ok(request_url) = Url::parse(&request_uri) else {
+                return Ok(());
+            };
+            if !allowed_origin.matches(&request_url) {
+                return Ok(());
+            }
+
+            let material = match authentication.resolve_browser_authentication(&target) {
+                Ok(Some(material)) => material,
+                Ok(None) | Err(_) => return Ok(()),
+            };
+            let (username, password) = match material.basic_credentials_for(&request_url) {
+                Ok(credentials) => credentials,
+                Err(_) => return Ok(()),
+            };
+            if username.contains('\0')
+                || password.contains('\0')
+                || !reserve_basic_auth_submission(&submissions)
+            {
+                return Ok(());
+            }
+
+            let mut username_utf16 = username
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect::<Vec<_>>();
+            let mut password_utf16 = password
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect::<Vec<_>>();
+            let set_result = (|| {
+                let response = unsafe { arguments.Response()? };
+                unsafe {
+                    response.SetUserName(PCWSTR::from_raw(username_utf16.as_ptr()))?;
+                    response.SetPassword(PCWSTR::from_raw(password_utf16.as_ptr()))?;
+                }
+                Ok::<(), windows::core::Error>(())
+            })();
+            username_utf16.fill(0);
+            password_utf16.fill(0);
+            set_result?;
+
+            unsafe {
+                arguments.SetCancel(false)?;
+            }
+            Ok(())
+        }));
+
+    unsafe {
+        core_10
+            .add_BasicAuthenticationRequested(&handler, &mut token)
+            .map_err(|error| {
+                format!(
+                    "The WebView2 HTTP Basic authentication policy could not be installed: {error}"
+                )
+            })?;
+    }
+
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -1259,6 +1620,7 @@ mod tests {
             label: format!("service-test-{last_used}"),
             url: "http://192.168.1.10:8080".into(),
             tls_policy: TlsPolicy::Strict,
+            browser_authentication: ServiceAuthentication::default().into(),
             ready: true,
             attached_to_tab,
             last_used,
@@ -1301,7 +1663,8 @@ mod tests {
         assert!(catalog.matches_registered_configuration(
             "jellyfin",
             &original_url_text,
-            TlsPolicy::Strict
+            TlsPolicy::Strict,
+            ServiceAuthentication::default().into(),
         ));
 
         configuration.services[0].url = "http://192.168.0.50:8096".into();
@@ -1314,7 +1677,8 @@ mod tests {
         assert!(!catalog.matches_registered_configuration(
             "jellyfin",
             &original_url_text,
-            TlsPolicy::Strict
+            TlsPolicy::Strict,
+            ServiceAuthentication::default().into(),
         ));
 
         configuration.services[0].url = "https://192.168.0.50:8096".into();
@@ -1323,12 +1687,14 @@ mod tests {
         assert!(!catalog.matches_registered_configuration(
             "jellyfin",
             "https://192.168.0.50:8096",
-            TlsPolicy::Strict
+            TlsPolicy::Strict,
+            ServiceAuthentication::default().into(),
         ));
         assert!(catalog.matches_registered_configuration(
             "jellyfin",
             "https://192.168.0.50:8096",
-            TlsPolicy::AllowInvalidLocalCertificate
+            TlsPolicy::AllowInvalidLocalCertificate,
+            ServiceAuthentication::default().into(),
         ));
 
         configuration.services[0].enabled = false;
@@ -1353,6 +1719,7 @@ mod tests {
                     label: service_webview_label(&service.id),
                     url: service.url.clone(),
                     tls_policy: service.tls_policy.into(),
+                    browser_authentication: service.authentication.into(),
                     // A pending, unchanged open is a warm session too and
                     // must not be selected for revocation.
                     ready: service.id != unchanged.id,
@@ -1367,6 +1734,7 @@ mod tests {
                 label: service_webview_label("removed-service"),
                 url: unchanged.url.clone(),
                 tls_policy: unchanged.tls_policy.into(),
+                browser_authentication: unchanged.authentication.into(),
                 ready: true,
                 attached_to_tab: false,
                 last_used: 0,
@@ -1394,6 +1762,96 @@ mod tests {
         assert!(!origin.matches(&Url::parse("http://192.168.1.10:8443/next").unwrap()));
         assert!(!origin.matches(&Url::parse("https://192.168.1.10.evil.test:8443/next").unwrap()));
         assert!(!origin.matches(&Url::parse("https://192.168.1.10:8443@evil.test/next").unwrap()));
+    }
+
+    #[test]
+    fn authentication_origins_are_canonical_and_always_include_the_effective_port() {
+        assert_eq!(
+            canonical_origin(&Url::parse("https://Example.COM./path").unwrap()).unwrap(),
+            "https://example.com:443"
+        );
+        assert_eq!(
+            canonical_origin(&Url::parse("http://[::1]/status").unwrap()).unwrap(),
+            "http://[::1]:80"
+        );
+        assert_eq!(
+            canonical_origin(&Url::parse("https://192.168.1.10:9443/").unwrap()).unwrap(),
+            "https://192.168.1.10:9443"
+        );
+
+        let oversized_host = std::iter::repeat_n("a", 260).collect::<Vec<_>>().join(".");
+        let oversized_url = Url::parse(&format!("https://{oversized_host}/")).unwrap();
+        assert!(canonical_origin(&oversized_url).is_err());
+    }
+
+    #[test]
+    fn authentication_target_is_available_for_disabled_services_and_is_revisioned() {
+        let mut configuration =
+            ServiceConfiguration::parse_document(BUNDLED_SERVICE_CONFIG).unwrap();
+        configuration
+            .services
+            .retain(|service| service.id == "jellyfin");
+        configuration.services[0].enabled = false;
+        let catalog = ServiceCatalog::from_configuration(&configuration).unwrap();
+
+        let first = catalog.resolve_authentication_target("jellyfin").unwrap();
+        assert!(!first.enabled);
+        assert_eq!(
+            first.canonical_origin,
+            catalog.canonical_origin_for_service("jellyfin").unwrap()
+        );
+
+        configuration.services[0].enabled = true;
+        catalog.replace_configuration(&configuration).unwrap();
+        let second = catalog.resolve_authentication_target("jellyfin").unwrap();
+        assert!(second.enabled);
+        assert!(second.catalog_revision > first.catalog_revision);
+    }
+
+    #[test]
+    fn browser_authentication_changes_invalidate_registered_views() {
+        let mut configuration =
+            ServiceConfiguration::parse_document(BUNDLED_SERVICE_CONFIG).unwrap();
+        configuration
+            .services
+            .retain(|service| service.id == "jellyfin");
+        let original = configuration.services[0].clone();
+        let catalog = ServiceCatalog::from_configuration(&configuration).unwrap();
+        let old_fingerprint = BrowserAuthenticationFingerprint::from(original.authentication);
+
+        configuration.services[0].authentication.browser = ServiceBrowserAuthentication::HttpBasic;
+        configuration.services[0]
+            .authentication
+            .allow_insecure_local_http = true;
+        catalog.replace_configuration(&configuration).unwrap();
+
+        assert!(!catalog.matches_registered_configuration(
+            &original.id,
+            &original.url,
+            original.tls_policy.into(),
+            old_fingerprint,
+        ));
+    }
+
+    #[test]
+    fn api_only_plaintext_opt_in_is_not_part_of_the_browser_fingerprint() {
+        let baseline = BrowserAuthenticationFingerprint::from(ServiceAuthentication::default());
+        let api_only = ServiceAuthentication {
+            api: crate::service_settings::ServiceApiAuthentication::HomarrApiKey,
+            browser: ServiceBrowserAuthentication::None,
+            allow_insecure_local_http: true,
+        };
+
+        assert_eq!(BrowserAuthenticationFingerprint::from(api_only), baseline);
+    }
+
+    #[test]
+    fn browser_basic_submission_budget_is_bounded() {
+        let submissions = AtomicU8::new(0);
+        assert!(reserve_basic_auth_submission(&submissions));
+        assert!(reserve_basic_auth_submission(&submissions));
+        assert!(!reserve_basic_auth_submission(&submissions));
+        assert_eq!(submissions.load(Ordering::Relaxed), 2);
     }
 
     #[test]

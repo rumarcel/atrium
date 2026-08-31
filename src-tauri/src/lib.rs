@@ -2,6 +2,7 @@ mod credential_vault;
 mod desktop_widgets;
 mod health;
 mod monitoring;
+mod provider_auth;
 mod service_settings;
 mod service_webviews;
 
@@ -24,6 +25,8 @@ pub fn run() {
     let catalog = service_webviews::ServiceCatalog::from_configuration(&configuration)
         .expect("the service catalog could not be initialized");
     let desktop_widget_broker = desktop_widgets::DesktopWidgetBroker::new(&catalog);
+    let provider_auth = provider_auth::ProviderAuthManager::new()
+        .expect("the provider-authentication clients could not be initialized");
 
     tauri::Builder::default()
         .manage(
@@ -31,9 +34,10 @@ pub fn run() {
                 .expect("the health-check HTTP clients could not be initialized"),
         )
         .manage(
-            monitoring::GlancesClients::new()
+            monitoring::GlancesClients::new(provider_auth.clone())
                 .expect("the Glances HTTP clients could not be initialized"),
         )
+        .manage(provider_auth)
         .manage(service_webviews::ServiceWebviewRegistry::default())
         .manage(settings)
         .manage(catalog)
@@ -50,6 +54,8 @@ pub fn run() {
             credential_vault::get_service_credential_statuses,
             credential_vault::set_service_credential,
             credential_vault::delete_service_credential,
+            provider_auth::get_service_authentication_status,
+            provider_auth::validate_service_authentication,
             service_webviews::open_service_webview,
             service_webviews::activate_service_webview,
             service_webviews::hide_service_webviews,

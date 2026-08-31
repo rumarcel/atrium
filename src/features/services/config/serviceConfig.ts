@@ -1,8 +1,13 @@
 import {
   SERVICE_ACCENTS,
+  SERVICE_API_AUTHENTICATIONS,
+  SERVICE_BROWSER_AUTHENTICATIONS,
   SERVICE_TLS_POLICIES,
   type DashboardService,
   type ServiceAccent,
+  type ServiceApiAuthentication,
+  type ServiceAuthentication,
+  type ServiceBrowserAuthentication,
   type ServiceConfiguration,
   type ServiceTlsPolicy,
 } from "../service.types.js";
@@ -21,6 +26,12 @@ const SERVICE_KEYS = new Set([
   "enabled",
   "accent",
   "tlsPolicy",
+  "authentication",
+]);
+const AUTHENTICATION_KEYS = new Set([
+  "api",
+  "browser",
+  "allowInsecureLocalHttp",
 ]);
 
 export class ServiceConfigurationError extends Error {
@@ -127,6 +138,81 @@ function optionalTlsPolicy(value: unknown, path: string): ServiceTlsPolicy {
   return policy as ServiceTlsPolicy;
 }
 
+function optionalApiAuthentication(
+  value: unknown,
+  path: string,
+): ServiceApiAuthentication {
+  if (value === undefined) {
+    return "none";
+  }
+
+  const adapter = requireString(value, path, 64);
+  if (!SERVICE_API_AUTHENTICATIONS.some((item) => item === adapter)) {
+    throw new ServiceConfigurationError(
+      `${path} must be one of: ${SERVICE_API_AUTHENTICATIONS.join(", ")}.`,
+    );
+  }
+
+  return adapter as ServiceApiAuthentication;
+}
+
+function optionalBrowserAuthentication(
+  value: unknown,
+  path: string,
+): ServiceBrowserAuthentication {
+  if (value === undefined) {
+    return "none";
+  }
+
+  const adapter = requireString(value, path, 64);
+  if (!SERVICE_BROWSER_AUTHENTICATIONS.some((item) => item === adapter)) {
+    throw new ServiceConfigurationError(
+      `${path} must be one of: ${SERVICE_BROWSER_AUTHENTICATIONS.join(", ")}.`,
+    );
+  }
+
+  return adapter as ServiceBrowserAuthentication;
+}
+
+function optionalAuthentication(value: unknown, path: string): ServiceAuthentication {
+  if (value === undefined) {
+    return {
+      api: "none",
+      browser: "none",
+      allowInsecureLocalHttp: false,
+    };
+  }
+
+  const authentication = requireRecord(value, path);
+  assertKnownKeys(authentication, AUTHENTICATION_KEYS, path);
+  const api = optionalApiAuthentication(authentication.api, `${path}.api`);
+  const browser = optionalBrowserAuthentication(
+    authentication.browser,
+    `${path}.browser`,
+  );
+  const allowInsecureLocalHttp =
+    authentication.allowInsecureLocalHttp === undefined
+      ? false
+      : requireBoolean(
+          authentication.allowInsecureLocalHttp,
+          `${path}.allowInsecureLocalHttp`,
+        );
+
+  if (allowInsecureLocalHttp && api === "none" && browser === "none") {
+    throw new ServiceConfigurationError(
+      `${path}.allowInsecureLocalHttp requires an authentication adapter.`,
+    );
+  }
+
+  if (api === "glances-bearer" && browser === "http-basic") {
+    throw new ServiceConfigurationError(
+      `${path} cannot combine Glances bearer and HTTP Basic because both use the Authorization header.`,
+    );
+  }
+
+  return { api, browser, allowInsecureLocalHttp };
+}
+
 function requireServiceUrl(value: unknown, path: string): string {
   const url = requireString(value, path, 2_048);
   let parsedUrl: URL;
@@ -172,6 +258,10 @@ function parseService(value: unknown, index: number): DashboardService {
     service.tlsPolicy,
     `${path}.tlsPolicy`,
   );
+  const authentication = optionalAuthentication(
+    service.authentication,
+    `${path}.authentication`,
+  );
 
   if (
     tlsPolicy === "allow-invalid-local-certificate" &&
@@ -197,6 +287,13 @@ function parseService(value: unknown, index: number): DashboardService {
     enabled: requireBoolean(service.enabled, `${path}.enabled`),
     accent: optionalAccent(service.accent, `${path}.accent`),
     tlsPolicy,
+    authentication: {
+      ...authentication,
+      allowInsecureLocalHttp:
+        url.toLowerCase().startsWith("https://")
+          ? false
+          : authentication.allowInsecureLocalHttp,
+    },
   };
 }
 

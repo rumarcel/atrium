@@ -30,6 +30,8 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
   service-media teardown.
 - Phase 7.0: writable Settings, validated per-user service configuration and a
   Windows-backed credential vault.
+- Phase 7.1: origin-bound provider authentication, native validation and
+  exact-origin WebView2 HTTP Basic handling.
 
 ## Phase 6.1 — Windows desktop cards (completed)
 
@@ -82,18 +84,25 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - Removed-service credentials use a durable, non-secret cleanup journal with
   startup retry, visible recovery state and safe ID reuse blocking.
 
-### Phase 7.1 — Authentication and session providers
+### Phase 7.1 — Authentication and session providers (completed)
 
-- Provider-specific authentication adapters that consume secrets only in Rust;
-  the frontend sees presence, validation state and safe metadata, never the
-  stored secret value.
-- Automatic API authentication for supported services, including Homarr's
-  `ApiKey` header, with validation, rotation and bounded retry/backoff behavior.
+- Provider-specific adapters consume secrets only in Rust; the frontend sees
+  credential presence, closed validation states and safe metadata, never a
+  stored username or secret value.
+- Homarr `ApiKey`, Glances HTTP Basic and Glances bearer adapters are
+  allowlisted. Homarr validates against its protected `/api/info` endpoint;
+  Glances credentials are applied to version discovery and metric requests.
+- Credentials are bound to normalized scheme, host and effective port. Legacy
+  entries and credentials saved for a previous endpoint must be replaced before
+  they can be transmitted.
+- Validation is single-flight, bounded, redirect-free and protected by capped
+  retry backoff. Credential or catalog revision changes discard stale results.
 - Persistent WebView profiles remain the primary browser-login mechanism.
-- Exact-origin HTTP Basic handling and narrowly scoped provider adapters may
-  restore an expired browser session when the service supports a documented
-  flow. No universal DOM form filler or arbitrary script-based password entry.
-- Optional OIDC/SSO handoff for services that support it.
+  WebView2 HTTP Basic is an explicit, exact-origin adapter with a per-view
+  submission limit; replacing that credential first destroys the old view.
+- No universal DOM form filler or script-based password entry exists. A
+  provider-specific OIDC/SSO handoff remains a dormant extension point until a
+  supported service exposes a documented flow that needs one.
 
 ### Phase 7.2 — Background runtime and experimental desktop cards
 
