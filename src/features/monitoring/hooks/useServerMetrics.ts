@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useVisibilityPolling } from "../../../hooks/useVisibilityPolling";
 import {
   describeMonitoringError,
@@ -8,6 +8,8 @@ import type {
   ServerMetricsMonitor,
   ServerMetricsResult,
   ServerMetricsTrendSample,
+  MonitoringProviderState,
+  MonitoringUnavailableReason,
   UseServerMetricsOptions,
 } from "../monitoring.types";
 
@@ -17,6 +19,8 @@ export const SERVER_METRICS_HISTORY_LIMIT = 24;
 
 interface InternalState {
   status: ServerMetricsMonitor["status"];
+  providerState: MonitoringProviderState;
+  unavailableReason: MonitoringUnavailableReason | null;
   snapshot: ServerMetricsResult | null;
   history: readonly ServerMetricsTrendSample[];
   message: string | null;
@@ -26,6 +30,8 @@ interface InternalState {
 function initialState(enabled: boolean): InternalState {
   return {
     status: enabled ? "loading" : "unavailable",
+    providerState: "configured",
+    unavailableReason: null,
     snapshot: null,
     history: [],
     message: enabled ? null : "Server monitoring is disabled.",
@@ -63,12 +69,15 @@ export function useServerMetrics(
     safeInterval(options.staleAfterMs, SERVER_METRICS_STALE_AFTER_MS),
   );
   const [state, setState] = useState<InternalState>(() => initialState(enabled));
+  const hasEverBeenEnabledRef = useRef(enabled);
 
   const applyResult = useCallback((result: ServerMetricsResult) => {
     if (result.status === "online") {
       const receivedAt = Date.now();
       setState((current) => ({
         status: "online",
+        providerState: result.providerState,
+        unavailableReason: null,
         snapshot: result,
         history: [...current.history, toTrendSample(result)].slice(
           -SERVER_METRICS_HISTORY_LIMIT,
@@ -82,6 +91,8 @@ export function useServerMetrics(
     setState((current) => ({
       ...current,
       status: "unavailable",
+      providerState: result.providerState,
+      unavailableReason: result.reason,
       message: result.message ?? "Glances metrics are currently unavailable.",
     }));
   }, []);
@@ -90,12 +101,14 @@ export function useServerMetrics(
     setState((current) => ({
       ...current,
       status: "unavailable",
+      providerState: "configured",
+      unavailableReason: "api-unavailable",
       message: describeMonitoringError(error),
     }));
   }, []);
 
   const polling = useVisibilityPolling({
-    enabled,
+    enabled: enabled && state.providerState !== "not-configured",
     intervalMs: pollIntervalMs,
     poll: getServerMetrics,
     onSuccess: applyResult,
@@ -103,20 +116,18 @@ export function useServerMetrics(
   });
 
   useEffect(() => {
-    if (!enabled) {
-      setState((current) => ({
-        ...current,
-        status: "unavailable",
-        message: "Server monitoring is disabled.",
-      }));
+    if (!enabled || hasEverBeenEnabledRef.current) {
       return;
     }
 
-    setState((current) =>
-      current.snapshot
-        ? current
-        : { ...current, status: "loading", message: null },
-    );
+    hasEverBeenEnabledRef.current = true;
+    setState((current) => ({
+      ...current,
+      status: "loading",
+      providerState: "configured",
+      unavailableReason: null,
+      message: null,
+    }));
   }, [enabled]);
 
   const isStale =

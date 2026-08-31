@@ -44,6 +44,25 @@ pub(crate) enum MonitoringStatus {
     Unavailable,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum MonitoringProviderState {
+    Configured,
+    NotConfigured,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum MonitoringUnavailableReason {
+    Authentication,
+    Timeout,
+    Tls,
+    Connection,
+    ApiUnavailable,
+    InvalidData,
+    NotConfigured,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiskMetric {
@@ -58,6 +77,10 @@ pub struct DiskMetric {
 #[serde(rename_all = "camelCase")]
 pub struct ServerMetrics {
     pub(crate) status: MonitoringStatus,
+    pub(crate) provider_state: MonitoringProviderState,
+    pub(crate) reason: Option<MonitoringUnavailableReason>,
+    #[serde(skip)]
+    pub(crate) rediscover_api_version: bool,
     pub(crate) sampled_at: u64,
     pub(crate) cpu_percent: Option<f64>,
     pub(crate) memory_percent: Option<f64>,
@@ -75,9 +98,17 @@ pub struct ServerMetrics {
 }
 
 impl ServerMetrics {
-    fn unavailable(sampled_at: u64, message: impl Into<String>) -> Self {
+    fn unavailable(
+        sampled_at: u64,
+        provider_state: MonitoringProviderState,
+        reason: MonitoringUnavailableReason,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             status: MonitoringStatus::Unavailable,
+            provider_state,
+            reason: Some(reason),
+            rediscover_api_version: false,
             sampled_at,
             cpu_percent: None,
             memory_percent: None,
@@ -93,6 +124,18 @@ impl ServerMetrics {
             disks: Vec::new(),
             message: Some(message.into()),
         }
+    }
+
+    fn unavailable_from_error(sampled_at: u64, error: MonitoringError) -> Self {
+        let rediscover_api_version = error.kind == MonitoringErrorKind::NotFound;
+        let mut snapshot = Self::unavailable(
+            sampled_at,
+            MonitoringProviderState::Configured,
+            error.kind.into(),
+            error.message,
+        );
+        snapshot.rediscover_api_version = rediscover_api_version;
+        snapshot
     }
 }
 
@@ -167,6 +210,22 @@ enum MonitoringErrorKind {
     Request,
 }
 
+impl From<MonitoringErrorKind> for MonitoringUnavailableReason {
+    fn from(kind: MonitoringErrorKind) -> Self {
+        match kind {
+            MonitoringErrorKind::Authentication => Self::Authentication,
+            MonitoringErrorKind::Timeout => Self::Timeout,
+            MonitoringErrorKind::Tls => Self::Tls,
+            MonitoringErrorKind::Connection => Self::Connection,
+            MonitoringErrorKind::InvalidData | MonitoringErrorKind::TooLarge => Self::InvalidData,
+            MonitoringErrorKind::NotFound
+            | MonitoringErrorKind::MethodNotAllowed
+            | MonitoringErrorKind::Http
+            | MonitoringErrorKind::Request => Self::ApiUnavailable,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct MonitoringError {
     kind: MonitoringErrorKind,
@@ -200,9 +259,26 @@ pub(crate) async fn collect_server_metrics(
     clients: &GlancesClients,
 ) -> ServerMetrics {
     let sampled_at = unix_time_ms();
+
+    if !catalog.has_enabled_service(GLANCES_SERVICE_ID) {
+        return ServerMetrics::unavailable(
+            sampled_at,
+            MonitoringProviderState::NotConfigured,
+            MonitoringUnavailableReason::NotConfigured,
+            "Server monitoring is not configured. Add and enable a Glances service to show system metrics.",
+        );
+    }
+
     let target = match catalog.resolve_endpoint(GLANCES_SERVICE_ID) {
         Ok(target) => target,
-        Err(error) => return ServerMetrics::unavailable(sampled_at, error),
+        Err(error) => {
+            return ServerMetrics::unavailable(
+                sampled_at,
+                MonitoringProviderState::Configured,
+                MonitoringUnavailableReason::InvalidData,
+                error,
+            )
+        }
     };
     let client = clients.select(&target);
     let cached_version = clients.api_version.load(Ordering::Relaxed);
@@ -214,15 +290,13 @@ pub(crate) async fn collect_server_metrics(
                 clients.api_version.store(version, Ordering::Relaxed);
                 version
             }
-            Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
+            Err(error) => return ServerMetrics::unavailable_from_error(sampled_at, error),
         }
     };
 
     let snapshot = fetch_snapshot(&client, &target.url, api_version, sampled_at).await;
 
-    if snapshot.status == MonitoringStatus::Unavailable
-        && snapshot.message.as_deref() == Some("The Glances API endpoint was not found.")
-    {
+    if snapshot.rediscover_api_version {
         clients.api_version.store(0, Ordering::Relaxed);
     }
 
@@ -270,31 +344,31 @@ async fn fetch_snapshot(
 ) -> ServerMetrics {
     let cpu_url = match api_url(base_url, api_version, "cpu") {
         Ok(url) => url,
-        Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
+        Err(error) => return ServerMetrics::unavailable_from_error(sampled_at, error),
     };
     let memory_url = match api_url(base_url, api_version, "mem") {
         Ok(url) => url,
-        Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
+        Err(error) => return ServerMetrics::unavailable_from_error(sampled_at, error),
     };
     let network_url = match api_url(base_url, api_version, "network") {
         Ok(url) => url,
-        Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
+        Err(error) => return ServerMetrics::unavailable_from_error(sampled_at, error),
     };
     let sensors_url = match api_url(base_url, api_version, "sensors") {
         Ok(url) => url,
-        Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
+        Err(error) => return ServerMetrics::unavailable_from_error(sampled_at, error),
     };
     let filesystems_url = match api_url(base_url, api_version, "fs") {
         Ok(url) => url,
-        Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
+        Err(error) => return ServerMetrics::unavailable_from_error(sampled_at, error),
     };
     let uptime_url = match api_url(base_url, api_version, "uptime") {
         Ok(url) => url,
-        Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
+        Err(error) => return ServerMetrics::unavailable_from_error(sampled_at, error),
     };
     let load_url = match api_url(base_url, api_version, "load") {
         Ok(url) => url,
-        Err(error) => return ServerMetrics::unavailable(sampled_at, error.message),
+        Err(error) => return ServerMetrics::unavailable_from_error(sampled_at, error),
     };
 
     let (cpu, memory, network, sensors, filesystems, uptime, load) = futures_util::join!(
@@ -356,10 +430,21 @@ fn assemble_snapshot(
             .flatten()
             .find(|error| error.kind == MonitoringErrorKind::Authentication)
             .or_else(|| errors.into_iter().flatten().next());
-        let message = selected_error
-            .map(|error| error.message.clone())
-            .unwrap_or_else(|| "Glances metrics are unavailable.".into());
-        return ServerMetrics::unavailable(sampled_at, message);
+        let (kind, reason, message) = selected_error
+            .map(|error| (Some(error.kind), error.kind.into(), error.message.clone()))
+            .unwrap_or((
+                None,
+                MonitoringUnavailableReason::ApiUnavailable,
+                "Glances metrics are unavailable.".into(),
+            ));
+        let mut snapshot = ServerMetrics::unavailable(
+            sampled_at,
+            MonitoringProviderState::Configured,
+            reason,
+            message,
+        );
+        snapshot.rediscover_api_version = kind == Some(MonitoringErrorKind::NotFound);
+        return snapshot;
     }
 
     let cpu_percent = cpu
@@ -377,6 +462,8 @@ fn assemble_snapshot(
     if cpu_percent.is_none() && !memory_is_usable {
         return ServerMetrics::unavailable(
             sampled_at,
+            MonitoringProviderState::Configured,
+            MonitoringUnavailableReason::InvalidData,
             "Glances returned no usable CPU or memory metrics.",
         );
     }
@@ -395,6 +482,9 @@ fn assemble_snapshot(
 
     ServerMetrics {
         status: MonitoringStatus::Online,
+        provider_state: MonitoringProviderState::Configured,
+        reason: None,
+        rediscover_api_version: false,
         sampled_at,
         cpu_percent,
         memory_percent,
@@ -1023,10 +1113,60 @@ mod tests {
         );
         let value = serde_json::to_value(snapshot).unwrap();
 
+        assert_eq!(value["providerState"], "configured");
+        assert_eq!(value["reason"], serde_json::Value::Null);
         assert_eq!(value["uptimeSeconds"], 86_401);
         assert_eq!(value["loadAverage1m"], 0.5);
         assert_eq!(value["loadAverage5m"], 0.75);
         assert_eq!(value["loadAverage15m"], 1.0);
+    }
+
+    #[test]
+    fn unavailable_reasons_map_to_the_stable_frontend_contract() {
+        let cases = [
+            (MonitoringErrorKind::Authentication, "authentication"),
+            (MonitoringErrorKind::Timeout, "timeout"),
+            (MonitoringErrorKind::Tls, "tls"),
+            (MonitoringErrorKind::Connection, "connection"),
+            (MonitoringErrorKind::NotFound, "api-unavailable"),
+            (MonitoringErrorKind::MethodNotAllowed, "api-unavailable"),
+            (MonitoringErrorKind::Http, "api-unavailable"),
+            (MonitoringErrorKind::Request, "api-unavailable"),
+            (MonitoringErrorKind::InvalidData, "invalid-data"),
+            (MonitoringErrorKind::TooLarge, "invalid-data"),
+        ];
+
+        for (kind, expected) in cases {
+            let snapshot = ServerMetrics::unavailable_from_error(
+                123,
+                MonitoringError::new(kind, "Human-readable detail."),
+            );
+            assert_eq!(
+                snapshot.rediscover_api_version,
+                kind == MonitoringErrorKind::NotFound
+            );
+            let value = serde_json::to_value(snapshot).unwrap();
+
+            assert_eq!(value["status"], "unavailable");
+            assert_eq!(value["providerState"], "configured");
+            assert_eq!(value["reason"], expected);
+            assert!(value.get("rediscoverApiVersion").is_none());
+        }
+    }
+
+    #[test]
+    fn not_configured_serializes_without_relying_on_the_human_message() {
+        let snapshot = ServerMetrics::unavailable(
+            123,
+            MonitoringProviderState::NotConfigured,
+            MonitoringUnavailableReason::NotConfigured,
+            "This copy may change without changing application behavior.",
+        );
+        let value = serde_json::to_value(snapshot).unwrap();
+
+        assert_eq!(value["status"], "unavailable");
+        assert_eq!(value["providerState"], "not-configured");
+        assert_eq!(value["reason"], "not-configured");
     }
 
     #[test]

@@ -1,6 +1,8 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
   DiskMetrics,
+  MonitoringProviderState,
+  MonitoringUnavailableReason,
   ServerMetricsResult,
 } from "./monitoring.types";
 
@@ -30,6 +32,25 @@ function optionalMessage(value: unknown): string | null {
 
   const message = value.trim();
   return message.length > 0 ? message.slice(0, 500) : null;
+}
+
+function providerState(value: unknown): MonitoringProviderState | null {
+  return value === "configured" || value === "not-configured" ? value : null;
+}
+
+function unavailableReason(value: unknown): MonitoringUnavailableReason | null {
+  switch (value) {
+    case "authentication":
+    case "timeout":
+    case "tls":
+    case "connection":
+    case "api-unavailable":
+    case "invalid-data":
+    case "not-configured":
+      return value;
+    default:
+      return null;
+  }
 }
 
 function normalizeDisk(value: unknown, index: number): DiskMetrics | null {
@@ -66,6 +87,28 @@ function normalizeResult(value: unknown): ServerMetricsResult {
     throw new Error("The native monitoring response had an invalid status.");
   }
 
+  const normalizedProviderState = providerState(value.providerState);
+  if (normalizedProviderState === null) {
+    throw new Error(
+      "The native monitoring response had an invalid provider state.",
+    );
+  }
+
+  const normalizedReason = unavailableReason(value.reason);
+  if (
+    (value.status === "online" &&
+      (normalizedProviderState !== "configured" || value.reason !== null)) ||
+    (value.status === "unavailable" && normalizedReason === null) ||
+    (normalizedProviderState === "not-configured" &&
+      normalizedReason !== "not-configured") ||
+    (normalizedProviderState === "configured" &&
+      normalizedReason === "not-configured")
+  ) {
+    throw new Error(
+      "The native monitoring response had inconsistent availability metadata.",
+    );
+  }
+
   const sampledAt = finiteNumber(value.sampledAt);
   const disks = Array.isArray(value.disks)
     ? value.disks
@@ -76,6 +119,8 @@ function normalizeResult(value: unknown): ServerMetricsResult {
 
   return {
     status: value.status,
+    providerState: normalizedProviderState,
+    reason: normalizedReason,
     sampledAt: sampledAt && sampledAt > 0 ? sampledAt : Date.now(),
     cpuPercent: percentage(value.cpuPercent),
     memoryPercent: percentage(value.memoryPercent),
@@ -101,6 +146,8 @@ export async function getServerMetrics(): Promise<ServerMetricsResult> {
   if (!isTauri()) {
     return {
       status: "unavailable",
+      providerState: "configured",
+      reason: "api-unavailable",
       sampledAt: Date.now(),
       cpuPercent: null,
       memoryPercent: null,

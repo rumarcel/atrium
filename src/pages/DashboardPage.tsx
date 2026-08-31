@@ -15,11 +15,12 @@ import { TabBar } from "../features/tabs/components/TabBar";
 import { useServiceTabs } from "../features/tabs/hooks/useServiceTabs";
 import { useWindowFullscreen } from "../features/tabs/hooks/useWindowFullscreen";
 import {
+  closeAllServiceWebviews,
+  closeServiceWebview,
   describeNativeError,
   hideServiceWebviews,
   isDesktopRuntime,
   openServiceInSystemBrowser,
-  parkServiceWebview,
   reconcileServiceWebviews,
   showServiceWebview,
   type ServiceWebviewBounds,
@@ -73,6 +74,9 @@ export function DashboardPage() {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [boundsMeasurement, setBoundsMeasurement] =
     useState<BoundsMeasurement | null>(null);
+  const [closingServiceIds, setClosingServiceIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [nativeViewState, setNativeViewState] = useState<NativeViewState>({
     serviceId: null,
     status: "idle",
@@ -80,7 +84,9 @@ export function DashboardPage() {
   });
   const searchInputRef = useRef<HTMLInputElement>(null);
   const nativeRevisionRef = useRef(0);
+  const registryRevisionRef = useRef(0);
   const lastActiveServiceRef = useRef<string | null>(null);
+  const closingServiceIdsRef = useRef(new Set<string>());
   const tabs = useServiceTabs();
   const isWindowFullscreen = useWindowFullscreen();
   const {
@@ -93,6 +99,22 @@ export function DashboardPage() {
   const announce = useCallback(
     (message: string, tone: ToastMessage["tone"] = "neutral") => {
       setToast({ id: Date.now(), message, tone });
+    },
+    [],
+  );
+
+  const setServiceClosing = useCallback(
+    (serviceId: string, isClosing: boolean) => {
+      const nextClosingServiceIds = new Set(closingServiceIdsRef.current);
+
+      if (isClosing) {
+        nextClosingServiceIds.add(serviceId);
+      } else {
+        nextClosingServiceIds.delete(serviceId);
+      }
+
+      closingServiceIdsRef.current = nextClosingServiceIds;
+      setClosingServiceIds(nextClosingServiceIds);
     },
     [],
   );
@@ -139,18 +161,54 @@ export function DashboardPage() {
     () => new Set(enabledServices.map((service) => service.id)),
     [enabledServices],
   );
+  const registeredServiceIds = useMemo(
+    () =>
+      new Set(
+        tabs.openServiceIds.filter((serviceId) =>
+          enabledServiceIds.has(serviceId),
+        ),
+      ),
+    [enabledServiceIds, tabs.openServiceIds],
+  );
 
   useEffect(() => {
     if (catalogStatus !== "ready") {
       return;
     }
 
-    void reconcileServiceWebviews(enabledServiceIds).catch((nativeError) =>
-      announce(describeNativeError(nativeError), "error"),
+    const revision = ++registryRevisionRef.current;
+    // The renderer's open-tab set is authoritative. In particular, a renderer
+    // reload starts with no tabs and must release any native child that survived
+    // it, even when that service remains enabled in the catalog.
+    void reconcileServiceWebviews(registeredServiceIds).catch(
+      async (firstError) => {
+        if (revision !== registryRevisionRef.current) {
+          return;
+        }
+
+        try {
+          // Rust retains failed native closes in the returned registry. Retry
+          // that narrowed remainder once while this tab generation is current.
+          await reconcileServiceWebviews(registeredServiceIds);
+        } catch (retryError) {
+          if (revision === registryRevisionRef.current) {
+            announce(
+              `${describeNativeError(firstError)} Retry: ${describeNativeError(retryError)}`,
+              "error",
+            );
+          }
+        }
+      },
     );
 
     tabs.reconcileServices(enabledServiceIds);
-  }, [announce, catalogStatus, enabledServiceIds, tabs.reconcileServices]);
+  }, [
+    announce,
+    catalogStatus,
+    enabledServiceIds,
+    registeredServiceIds,
+    tabs.reconcileServices,
+  ]);
 
   const openTabServices = useMemo(
     () =>
@@ -163,6 +221,8 @@ export function DashboardPage() {
     tabs.activeTabId === DASHBOARD_TAB_ID
       ? null
       : (enabledServiceById.get(tabs.activeTabId) ?? null);
+  const isActiveServiceClosing =
+    activeService !== null && closingServiceIds.has(activeService.id);
   const isDashboardActive = activeService === null;
   const isServiceFullscreen = activeService !== null && isWindowFullscreen;
 
@@ -193,10 +253,19 @@ export function DashboardPage() {
   useEffect(
     () => () => {
       ++nativeRevisionRef.current;
+      ++registryRevisionRef.current;
       lastActiveServiceRef.current = null;
-      // The native surface is a sibling HWND, so it must be hidden explicitly
-      // if React unmounts (including an ErrorBoundary fallback).
-      void hideServiceWebviews().catch(() => undefined);
+      // Unmount is a lifecycle boundary, not ordinary tab switching. Destroy
+      // every child renderer so an ErrorBoundary or future tray hide cannot
+      // leave invisible media playing in the background.
+      void closeAllServiceWebviews().catch((nativeError) => {
+        // React is already unmounting, so there is no safe surface for a toast.
+        // Keep the terminal diagnostic instead of silently abandoning teardown.
+        console.error(
+          "Could not release all native service views during host teardown.",
+          nativeError,
+        );
+      });
     },
     [],
   );
@@ -211,6 +280,23 @@ export function DashboardPage() {
         if (revision === nativeRevisionRef.current) {
           announce(describeNativeError(nativeError), "error");
         }
+      });
+      return;
+    }
+
+    // A close command intentionally leaves the React tab visible until the
+    // native child confirms destruction. Ignore ResizeObserver/effect work in
+    // that interval so a late bounds update cannot enqueue a fresh open after
+    // the destructive close.
+    if (
+      isActiveServiceClosing ||
+      closingServiceIdsRef.current.has(activeService.id)
+    ) {
+      lastActiveServiceRef.current = null;
+      setNativeViewState({
+        serviceId: activeService.id,
+        status: "loading",
+        error: null,
       });
       return;
     }
@@ -264,7 +350,12 @@ export function DashboardPage() {
           });
         }
       });
-  }, [activeService, announce, boundsMeasurement]);
+  }, [
+    activeService,
+    announce,
+    boundsMeasurement,
+    isActiveServiceClosing,
+  ]);
 
   const handleOpenService = useCallback(
     (service: DashboardService, _openInNewTab = false) => {
@@ -284,13 +375,28 @@ export function DashboardPage() {
 
   const handleCloseTab = useCallback(
     (serviceId: string) => {
-      void parkServiceWebview(serviceId)
-        .then(() => tabs.closeService(serviceId))
-        .catch((nativeError) =>
-          announce(describeNativeError(nativeError), "error"),
-        );
+      if (closingServiceIdsRef.current.has(serviceId)) {
+        return;
+      }
+
+      setServiceClosing(serviceId, true);
+
+      // Closing a tab is an explicit media-lifecycle boundary. Destroy the
+      // child WebView so players such as Jellyfin cannot keep emitting audio
+      // after their tab disappears. Ordinary tab activation still only hides
+      // inactive WebViews, preserving warm sessions while their tabs remain
+      // open.
+      void closeServiceWebview(serviceId)
+        .then(() => {
+          tabs.closeService(serviceId);
+          setServiceClosing(serviceId, false);
+        })
+        .catch((nativeError) => {
+          setServiceClosing(serviceId, false);
+          announce(describeNativeError(nativeError), "error");
+        });
     },
-    [announce, tabs.closeService],
+    [announce, setServiceClosing, tabs.closeService],
   );
 
   const handleCloseContextMenu = useCallback((restoreFocus = true) => {

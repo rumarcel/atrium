@@ -16,6 +16,15 @@ export const DESKTOP_WIDGET_HASHES: Readonly<
 
 export type DesktopWidgetSnapshotStatus = "online" | "unavailable";
 export type DesktopWidgetServiceStatus = "online" | "offline" | "warning";
+export type DesktopWidgetProviderState = "configured" | "not-configured";
+export type DesktopWidgetUnavailableReason =
+  | "authentication"
+  | "timeout"
+  | "tls"
+  | "connection"
+  | "api-unavailable"
+  | "invalid-data"
+  | "not-configured";
 
 export interface DesktopWidgetDisk {
   name: string;
@@ -58,6 +67,8 @@ export interface DesktopWidgetTrendSample {
 
 export interface DesktopWidgetSnapshot {
   status: DesktopWidgetSnapshotStatus;
+  providerState: DesktopWidgetProviderState;
+  reason: DesktopWidgetUnavailableReason | null;
   sampledAt: number;
   serverName: string;
   serverAddress: string;

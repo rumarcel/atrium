@@ -26,6 +26,8 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - Phase 5.2: service-player fullscreen integration.
 - Phase 6: Glances server monitoring.
 - Phase 6.1: server-only Windows desktop cards.
+- Phase 6.2: dashboard uptime, optional-provider handling and deterministic
+  service-media teardown.
 
 ## Phase 6.1 — Windows desktop cards (completed)
 
@@ -46,18 +48,24 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - No local Windows hardware telemetry, clock/date or credential-dependent
   provider integration.
 
-## Phase 6.2 — Stability and media lifecycle
+## Phase 6.2 — Stability and media lifecycle (completed)
 
-- Add a clearly visible Glances uptime duration to the dashboard's existing
+- Added a clearly visible Glances uptime duration to the dashboard's existing
   `Server online` summary without adding another dashboard widget.
 - Closing a service tab destroys its child WebView so Jellyfin and other media
   cannot continue playing invisibly.
 - Switching between still-open tabs may keep their warm WebViews and session
   state; closing and switching must have intentionally different semantics.
-- Define and test the media behavior used when the main window later hides to the
-  tray. Invisible background playback is off by default.
-- Add regression coverage for service-tab close, media teardown and unavailable
-  uptime data.
+- A definitively missing or disabled Glances provider produces an explicit
+  not-configured state and no continuous monitoring poll. It never produces fake
+  uptime or other server telemetry, while independent service health continues.
+- Glances-dependent Server and Storage desktop cards are unavailable or omitted
+  when that provider is absent; Service attention remains independent.
+- The lifecycle contract for the later tray runtime closes all service child
+  WebViews before hiding the main window. Invisible background playback is off
+  by default.
+- Regression coverage protects service-tab close, media teardown, unavailable
+  uptime and optional-provider behavior.
 
 ## Phase 7 — Settings and integrations
 

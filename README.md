@@ -5,12 +5,14 @@ services. Built with Tauri v2, React, TypeScript and Vite.
 
 ## Current scope
 
-Phase 1 through Phase 6.1 are implemented: the desktop shell, responsive
+Phase 1 through Phase 6.2 are implemented: the desktop shell, responsive
 dashboard, validated service configuration, asynchronous service health checks,
 session-preserving native service tabs, live Glances monitoring and three
 server-only Windows desktop cards. The dashboard keeps its original Phase 6
 composition; the desktop cards are separate native surfaces rather than an
-in-app widget editor. Settings and deeper Windows integrations remain
+in-app widget editor. The server summary now exposes Glances uptime, and an
+explicit service-tab close tears down its native WebView so media cannot remain
+audible invisibly. Settings and deeper Windows integrations remain
 intentionally out of scope for this phase.
 Planned settings, themes and later integrations are tracked in
 [`ROADMAP.md`](ROADMAP.md).
@@ -79,18 +81,20 @@ available when the frontend runs inside Tauri.
 
 Selecting a service creates a real WebView2 child surface inside the Tauri
 window. Dashboard is a permanent first tab and each service has at most one open
-tab. Switching tabs and closing a tab use native `hide`/`show` rather than
-reloading or immediately destroying the child. This preserves the page, login
-state, cookies and in-memory session when the service is reopened.
+tab. Switching away from a still-open tab uses native `hide`/`show` rather than
+reloading it, preserving that view's page, login state, cookies and in-memory
+session. Explicitly closing a tab has different semantics: it closes and removes
+the child WebView immediately. Reopening that service creates a new child view,
+so a Jellyfin player or other media source cannot continue running after close.
 
-Phase 5.1 keeps up to six service WebViews warm. When capacity is reached, the
-least-recently-used inactive view is released, preferring already closed tabs;
-the active view is never selected. Each service also uses a persistent,
-isolated WebView2 profile under the app's local-data directory, so ordinary
-persistent cookies and local storage survive view recreation and application
-restarts. Session-only cookies can still be lost after an LRU release or full
-application exit. Securely stored HTTP/basic-auth credentials belong in Phase 7
-rather than in the service URL or source code.
+Phase 5.1 keeps up to six still-open service WebViews warm. When capacity is
+reached, the least-recently-used inactive view may be released; the active view
+is never selected. Each service also uses a persistent, isolated WebView2
+profile under the app's local-data directory, so ordinary persistent cookies
+and local storage survive view recreation and application restarts. Session-only
+cookies can still be lost after a view is released, its tab is explicitly
+closed, or the full application exits. Securely stored HTTP/basic-auth
+credentials belong in Phase 7 rather than in the service URL or source code.
 
 The React host measures the exact workspace rectangle with `ResizeObserver` and
 sends logical-pixel bounds plus a monitor-scale revision to Rust. This keeps the
@@ -147,6 +151,15 @@ document is visible. Requests never overlap. Service
 health checks use the same polling lifecycle at their slower interval. A failed
 refresh keeps the last successful sample marked as stale; an initial failure
 produces an `Unavailable` panel instead of affecting the rest of the dashboard.
+The existing server summary shows the validated Glances uptime as a human-readable
+duration; it does not synthesize an uptime value when the provider is absent.
+
+Glances is optional. If there is no enabled `glances` catalog entry, the app
+reports that server monitoring is not configured and does not continuously poll
+an endpoint that cannot exist. Glances-dependent CPU, memory, storage, network,
+load and uptime values remain unavailable rather than being replaced with local
+Windows data or fabricated placeholders. Ordinary service-health checks remain
+independent and continue to operate for every other enabled service.
 Authentication secrets are not embedded in configuration. If Glances requires
 credentials, the monitoring panel reports that secure credential support is planned for
 Phase 7.
@@ -171,8 +184,16 @@ the saved rectangle against the current monitor work areas and safely returns an
 off-screen card to the primary monitor. **Hide** removes a card until Personal
 Hub restarts. Phase 7.2 will make the experimental card system opt-in and disabled
 by default, with per-card settings plus persistent tray show/hide and reset
-controls. Closing the main window exits the card windows as well until that tray
-runtime exists.
+controls. Without Glances, the Server and Storage cards have no server telemetry
+to display and therefore remain unavailable or are omitted by the relevant card
+manager; Service attention remains usable because it depends on the independent
+health-check pipeline. No card substitutes local-machine or invented values.
+
+Closing the main window exits the card windows as well until the Phase 7.2 tray
+runtime exists. That future hide-to-tray path must first close every service child
+WebView and only then hide the main window. Invisible/background service media is
+off by default; keeping a service player alive will require a separate explicit
+product decision rather than inheriting tab-switch behavior accidentally.
 
 ## Publishing safely
 
@@ -187,6 +208,7 @@ will move the user's real catalog into the per-user application-data directory.
 ```powershell
 pnpm install
 pnpm typecheck
+pnpm test
 pnpm build
 cd src-tauri
 cargo test

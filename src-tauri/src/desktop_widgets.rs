@@ -1,6 +1,9 @@
 use crate::{
     health::{self, HealthCheckResult, HealthClients, HealthReason, HealthStatus},
-    monitoring::{self, DiskMetric, GlancesClients, MonitoringStatus, ServerMetrics},
+    monitoring::{
+        self, DiskMetric, GlancesClients, MonitoringProviderState, MonitoringStatus,
+        MonitoringUnavailableReason, ServerMetrics,
+    },
     service_webviews::ServiceCatalog,
 };
 use futures_util::{stream, StreamExt};
@@ -111,6 +114,8 @@ impl From<&ServerMetrics> for DesktopWidgetTrend {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopWidgetSnapshot {
     status: MonitoringStatus,
+    provider_state: MonitoringProviderState,
+    reason: Option<MonitoringUnavailableReason>,
     sampled_at: u64,
     server_name: String,
     server_address: String,
@@ -124,6 +129,7 @@ struct BrokerInner {
     visible_widgets: HashSet<DesktopWidgetKind>,
     scheduler_running: bool,
     metrics_in_flight: bool,
+    metrics_polling_enabled: bool,
     health_in_flight: bool,
     next_metrics_due: Instant,
     next_health_due: Instant,
@@ -145,6 +151,7 @@ struct PollClaims {
 impl DesktopWidgetBroker {
     pub fn new(catalog: &ServiceCatalog) -> Self {
         let sampled_at = unix_time_ms();
+        let metrics_polling_enabled = catalog.has_enabled_service("glances");
         let server_address = catalog
             .resolve_endpoint("glances")
             .ok()
@@ -157,18 +164,31 @@ impl DesktopWidgetBroker {
                 visible_widgets: HashSet::new(),
                 scheduler_running: false,
                 metrics_in_flight: false,
+                metrics_polling_enabled,
                 health_in_flight: false,
                 next_metrics_due: now,
                 next_health_due: now,
                 snapshot: DesktopWidgetSnapshot {
                     status: MonitoringStatus::Unavailable,
+                    provider_state: if metrics_polling_enabled {
+                        MonitoringProviderState::Configured
+                    } else {
+                        MonitoringProviderState::NotConfigured
+                    },
+                    reason: (!metrics_polling_enabled)
+                        .then_some(MonitoringUnavailableReason::NotConfigured),
                     sampled_at,
                     server_name: SERVER_NAME.to_owned(),
                     server_address,
                     metrics: DesktopWidgetMetrics::default(),
                     services: Vec::new(),
                     trends: Vec::new(),
-                    message: Some("Waiting for a visible desktop card.".into()),
+                    message: Some(if metrics_polling_enabled {
+                        "Waiting for a visible desktop card.".into()
+                    } else {
+                        "Server monitoring is not configured. Add and enable a Glances service to show system metrics."
+                            .into()
+                    }),
                 },
                 trends: VecDeque::with_capacity(MAX_TREND_SAMPLES),
                 health_sampled_at: None,
@@ -233,6 +253,7 @@ impl DesktopWidgetBroker {
                 snapshot.sampled_at = inner.health_sampled_at.unwrap_or(snapshot.sampled_at);
                 snapshot.metrics = DesktopWidgetMetrics::default();
                 snapshot.trends.clear();
+                snapshot.reason = None;
                 snapshot.message = inner
                     .health_sampled_at
                     .is_none()
@@ -254,11 +275,17 @@ impl DesktopWidgetBroker {
             return Ok(None);
         }
 
-        let needs_metrics = inner
-            .visible_widgets
-            .iter()
-            .any(|kind| matches!(kind, DesktopWidgetKind::Server | DesktopWidgetKind::Storage));
+        let needs_metrics = inner.metrics_polling_enabled
+            && inner
+                .visible_widgets
+                .iter()
+                .any(|kind| matches!(kind, DesktopWidgetKind::Server | DesktopWidgetKind::Storage));
         let needs_health = inner.visible_widgets.contains(&DesktopWidgetKind::Services);
+
+        if !needs_metrics && !needs_health {
+            inner.scheduler_running = false;
+            return Ok(None);
+        }
 
         let mut claims = PollClaims::default();
         if needs_metrics && !inner.metrics_in_flight && now >= inner.next_metrics_due {
@@ -280,17 +307,22 @@ impl DesktopWidgetBroker {
             return;
         };
 
-        let trend = DesktopWidgetTrend::from(&metrics);
-        if inner.trends.len() == MAX_TREND_SAMPLES {
-            inner.trends.pop_front();
-        }
-        inner.trends.push_back(trend);
-
         inner.snapshot.status = metrics.status;
+        inner.snapshot.provider_state = metrics.provider_state;
+        inner.snapshot.reason = metrics.reason;
         inner.snapshot.sampled_at = metrics.sampled_at;
-        inner.snapshot.metrics = DesktopWidgetMetrics::from(&metrics);
-        inner.snapshot.trends = inner.trends.iter().cloned().collect();
+        if metrics.status == MonitoringStatus::Online {
+            let trend = DesktopWidgetTrend::from(&metrics);
+            if inner.trends.len() == MAX_TREND_SAMPLES {
+                inner.trends.pop_front();
+            }
+            inner.trends.push_back(trend);
+            inner.snapshot.metrics = DesktopWidgetMetrics::from(&metrics);
+            inner.snapshot.trends = inner.trends.iter().cloned().collect();
+        }
         inner.snapshot.message = metrics.message;
+        inner.metrics_polling_enabled =
+            metrics.provider_state != MonitoringProviderState::NotConfigured;
         inner.metrics_in_flight = false;
     }
 
@@ -431,6 +463,9 @@ mod tests {
     fn sample(sampled_at: u64) -> ServerMetrics {
         ServerMetrics {
             status: MonitoringStatus::Online,
+            provider_state: MonitoringProviderState::Configured,
+            reason: None,
+            rediscover_api_version: false,
             sampled_at,
             cpu_percent: Some(25.0),
             memory_percent: Some(50.0),
@@ -445,6 +480,29 @@ mod tests {
             load_average_15m: Some(0.3),
             disks: Vec::new(),
             message: None,
+        }
+    }
+
+    fn not_configured_sample(sampled_at: u64) -> ServerMetrics {
+        ServerMetrics {
+            status: MonitoringStatus::Unavailable,
+            provider_state: MonitoringProviderState::NotConfigured,
+            reason: Some(MonitoringUnavailableReason::NotConfigured),
+            rediscover_api_version: false,
+            sampled_at,
+            cpu_percent: None,
+            memory_percent: None,
+            memory_used_bytes: None,
+            memory_total_bytes: None,
+            cpu_temperature_c: None,
+            network_download_bytes_per_second: None,
+            network_upload_bytes_per_second: None,
+            uptime_seconds: None,
+            load_average_1m: None,
+            load_average_5m: None,
+            load_average_15m: None,
+            disks: Vec::new(),
+            message: Some("Server monitoring is not configured.".into()),
         }
     }
 
@@ -550,6 +608,54 @@ mod tests {
     }
 
     #[test]
+    fn definite_no_provider_stops_metric_polls_without_stopping_health() {
+        let broker = broker();
+        assert!(broker
+            .set_visibility(DesktopWidgetKind::Server, true)
+            .unwrap());
+        assert!(!broker
+            .set_visibility(DesktopWidgetKind::Services, true)
+            .unwrap());
+
+        let first = broker
+            .claim_due_polls(Instant::now() + Duration::from_millis(1))
+            .unwrap()
+            .unwrap();
+        assert!(first.metrics);
+        assert!(first.health);
+
+        broker.update_metrics(not_configured_sample(123));
+        broker.update_services(Vec::new(), 124);
+        let later = broker
+            .claim_due_polls(Instant::now() + HEALTH_CADENCE + Duration::from_millis(1))
+            .unwrap()
+            .unwrap();
+
+        assert!(!later.metrics);
+        assert!(later.health);
+    }
+
+    #[test]
+    fn definite_no_provider_stops_a_metrics_only_scheduler() {
+        let broker = broker();
+        assert!(broker
+            .set_visibility(DesktopWidgetKind::Storage, true)
+            .unwrap());
+        let _ = broker
+            .claim_due_polls(Instant::now() + Duration::from_millis(1))
+            .unwrap();
+
+        broker.update_metrics(not_configured_sample(123));
+
+        assert_eq!(
+            broker
+                .claim_due_polls(Instant::now() + METRICS_CADENCE)
+                .unwrap(),
+            None
+        );
+    }
+
+    #[test]
     fn expected_local_tls_exceptions_do_not_create_attention_alerts() {
         let service = desktop_service_from_health(
             "Cockpit".into(),
@@ -603,6 +709,8 @@ mod tests {
             serde_json::to_value(broker.snapshot(DesktopWidgetKind::Server).unwrap()).unwrap();
 
         assert_eq!(value["status"], "online");
+        assert_eq!(value["providerState"], "configured");
+        assert_eq!(value["reason"], serde_json::Value::Null);
         assert_eq!(value["sampledAt"], 123);
         assert_eq!(value["serverName"], SERVER_NAME);
         assert_eq!(value["serverAddress"], FALLBACK_SERVER_ADDRESS);

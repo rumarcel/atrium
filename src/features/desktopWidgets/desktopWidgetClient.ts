@@ -4,10 +4,12 @@ import type {
   DesktopWidgetDisk,
   DesktopWidgetKind,
   DesktopWidgetMetrics,
+  DesktopWidgetProviderState,
   DesktopWidgetService,
   DesktopWidgetServiceStatus,
   DesktopWidgetSnapshot,
   DesktopWidgetTrendSample,
+  DesktopWidgetUnavailableReason,
 } from "./desktopWidget.types";
 
 const SNAPSHOT_COMMAND = "get_desktop_widget_snapshot";
@@ -55,6 +57,27 @@ function optionalMessage(value: unknown): string | null {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized.slice(0, 500) : null;
+}
+
+function providerState(value: unknown): DesktopWidgetProviderState | null {
+  return value === "configured" || value === "not-configured" ? value : null;
+}
+
+function unavailableReason(
+  value: unknown,
+): DesktopWidgetUnavailableReason | null {
+  switch (value) {
+    case "authentication":
+    case "timeout":
+    case "tls":
+    case "connection":
+    case "api-unavailable":
+    case "invalid-data":
+    case "not-configured":
+      return value;
+    default:
+      return null;
+  }
 }
 
 function normalizeDisk(value: unknown, index: number): DesktopWidgetDisk | null {
@@ -189,6 +212,25 @@ function normalizeSnapshot(value: unknown): DesktopWidgetSnapshot {
     throw new Error("The desktop widget snapshot had an invalid status.");
   }
 
+  const normalizedProviderState = providerState(value.providerState);
+  if (normalizedProviderState === null) {
+    throw new Error("The desktop widget snapshot had an invalid provider state.");
+  }
+
+  const normalizedReason = unavailableReason(value.reason);
+  if (
+    (value.reason !== null && normalizedReason === null) ||
+    (normalizedProviderState === "not-configured" &&
+      normalizedReason !== null &&
+      normalizedReason !== "not-configured") ||
+    (normalizedProviderState === "configured" &&
+      normalizedReason === "not-configured")
+  ) {
+    throw new Error(
+      "The desktop widget snapshot had inconsistent availability metadata.",
+    );
+  }
+
   const sampledAt = finiteNumber(value.sampledAt);
   const services = Array.isArray(value.services)
     ? value.services
@@ -207,6 +249,8 @@ function normalizeSnapshot(value: unknown): DesktopWidgetSnapshot {
 
   return {
     status: value.status,
+    providerState: normalizedProviderState,
+    reason: normalizedReason,
     sampledAt: sampledAt && sampledAt > 0 ? sampledAt : Date.now(),
     serverName: boundedString(value.serverName, "Home Server", 80),
     serverAddress: boundedString(value.serverAddress, "192.168.1.10", 255),
@@ -220,6 +264,8 @@ function normalizeSnapshot(value: unknown): DesktopWidgetSnapshot {
 function browserFallback(): DesktopWidgetSnapshot {
   return {
     status: "unavailable",
+    providerState: "configured",
+    reason: "api-unavailable",
     sampledAt: Date.now(),
     serverName: "Home Server",
     serverAddress: "192.168.1.10",

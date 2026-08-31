@@ -8,6 +8,7 @@ import {
   StorageIcon,
 } from "../../../components/icons/AppIcons";
 import { useServerMetrics } from "../hooks/useServerMetrics";
+import { formatUptime } from "../monitoringFormatters";
 import type {
   DiskMetrics,
   ServerMetricsMonitor,
@@ -143,6 +144,16 @@ function connectionCopy(monitor: ServerMetricsMonitor) {
     } as const;
   }
 
+  if (monitor.providerState === "not-configured") {
+    return {
+      tone: "inactive",
+      eyebrow: "Optional",
+      title: "Monitoring not configured",
+      description:
+        "Add a compatible monitoring provider to show CPU, memory, storage, and uptime.",
+    } as const;
+  }
+
   if (monitor.status === "online" && !monitor.isStale) {
     if (monitor.message) {
       return {
@@ -173,8 +184,10 @@ function connectionCopy(monitor: ServerMetricsMonitor) {
   return {
     tone: "unavailable",
     eyebrow: "Unavailable",
-    title: "Monitoring unavailable",
-    description: monitor.message ?? "Glances did not return server metrics.",
+    title: "Monitoring provider unavailable",
+    description:
+      monitor.message ??
+      "No monitoring sample is available. Service availability is checked separately.",
   } as const;
 }
 
@@ -203,8 +216,14 @@ export function ServerMonitoring({
       )
     : null;
   const connection = connectionCopy(monitor);
+  const uptime = formatUptime(snapshot?.uptimeSeconds ?? null);
+  const hasUptime = snapshot?.uptimeSeconds != null;
+  const uptimeLabel = monitor.isStale && hasUptime
+    ? "Last known uptime"
+    : "Server uptime";
   const classes = [
     "server-monitoring",
+    snapshot === null ? "server-monitoring--summary-only" : null,
     monitor.isStale ? "server-monitoring--stale" : null,
     className,
   ]
@@ -225,7 +244,12 @@ export function ServerMonitoring({
             className="monitoring-summary__refresh"
             type="button"
             onClick={monitor.refresh}
-            disabled={monitor.isRefreshing || monitor.isPaused || enabled === false}
+            disabled={
+              monitor.isRefreshing ||
+              monitor.isPaused ||
+              monitor.providerState === "not-configured" ||
+              enabled === false
+            }
             aria-label="Refresh server metrics"
             title="Refresh server metrics"
           >
@@ -253,62 +277,67 @@ export function ServerMonitoring({
           <p title={connection.description}>{connection.description}</p>
         </div>
 
+        <div
+          className={`monitoring-summary__uptime monitoring-summary__uptime--${connection.tone}`}
+          aria-label={`${uptimeLabel}: ${uptime}`}
+        >
+          <span>{uptimeLabel}</span>
+          <strong>{uptime}</strong>
+        </div>
       </article>
 
-      <div
-        className="monitoring-metrics"
-        aria-label={monitor.isStale ? "Last known server metrics" : "Live server metrics"}
-        aria-busy={monitor.isRefreshing}
-      >
-        <MetricShell
-          Icon={CpuIcon}
-          label="CPU"
-          value={formatPercent(cpuPercent)}
-          detail={
-            snapshot?.cpuTemperatureC === null || !snapshot
-              ? "Temperature unavailable"
-              : `${Math.round(snapshot.cpuTemperatureC)} °C temperature`
-          }
-          percent={cpuPercent}
-        />
-
-        <MetricShell
-          Icon={MemoryIcon}
-          label="Memory"
-          value={formatPercent(memoryPercent)}
-          detail={
-            snapshot
-              ? `${formatBytes(snapshot.memoryUsedBytes)} of ${formatBytes(snapshot.memoryTotalBytes)}`
-              : "Used and total unavailable"
-          }
-          percent={memoryPercent}
-        />
-
-        <MetricShell
-          Icon={NetworkIcon}
-          label="Network"
-          value={formatRate(snapshot?.networkDownloadBytesPerSecond ?? null)}
-          detail={`Down · ${formatRate(snapshot?.networkUploadBytesPerSecond ?? null)} up`}
-        />
-
-        <MetricShell
-          Icon={StorageIcon}
-          label="Storage"
-          value={formatPercent(fullestDiskPercent)}
-          detail={
-            fullestDisk === null
-              ? "Disk data unavailable"
-              : `${fullestDisk.name} · ${formatBytes(fullestDisk.usedBytes)} of ${formatBytes(fullestDisk.totalBytes)}`
-          }
-          percent={fullestDiskPercent}
+      {snapshot ? (
+        <div
+          className="monitoring-metrics"
+          aria-label={monitor.isStale ? "Last known server metrics" : "Live server metrics"}
+          aria-busy={monitor.isRefreshing}
         >
-          {disks.length > 0 ? (
-            <span className="monitoring-metric__disk-count">
-              {disks.length} {disks.length === 1 ? "volume" : "volumes"}
-            </span>
-          ) : null}
-        </MetricShell>
-      </div>
+          <MetricShell
+            Icon={CpuIcon}
+            label="CPU"
+            value={formatPercent(cpuPercent)}
+            detail={
+              snapshot.cpuTemperatureC === null
+                ? "Temperature unavailable"
+                : `${Math.round(snapshot.cpuTemperatureC)} °C temperature`
+            }
+            percent={cpuPercent}
+          />
+
+          <MetricShell
+            Icon={MemoryIcon}
+            label="Memory"
+            value={formatPercent(memoryPercent)}
+            detail={`${formatBytes(snapshot.memoryUsedBytes)} of ${formatBytes(snapshot.memoryTotalBytes)}`}
+            percent={memoryPercent}
+          />
+
+          <MetricShell
+            Icon={NetworkIcon}
+            label="Network"
+            value={formatRate(snapshot.networkDownloadBytesPerSecond)}
+            detail={`Down · ${formatRate(snapshot.networkUploadBytesPerSecond)} up`}
+          />
+
+          <MetricShell
+            Icon={StorageIcon}
+            label="Storage"
+            value={formatPercent(fullestDiskPercent)}
+            detail={
+              fullestDisk === null
+                ? "Disk data unavailable"
+                : `${fullestDisk.name} · ${formatBytes(fullestDisk.usedBytes)} of ${formatBytes(fullestDisk.totalBytes)}`
+            }
+            percent={fullestDiskPercent}
+          >
+            {disks.length > 0 ? (
+              <span className="monitoring-metric__disk-count">
+                {disks.length} {disks.length === 1 ? "volume" : "volumes"}
+              </span>
+            ) : null}
+          </MetricShell>
+        </div>
+      ) : null}
     </section>
   );
 }

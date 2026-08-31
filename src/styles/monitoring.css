@@ -5,6 +5,10 @@
   gap: 12px;
 }
 
+.server-monitoring--summary-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .monitoring-summary,
 .monitoring-metric {
   border: 1px solid var(--color-border);
@@ -15,7 +19,7 @@
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: 140px;
+  min-height: 158px;
   padding: 20px 21px 17px;
   flex-direction: column;
   overflow: hidden;
@@ -65,6 +69,12 @@
   border-color: rgba(255, 69, 58, 0.18);
   color: #e87973;
   background: rgba(255, 69, 58, 0.07);
+}
+
+.monitoring-summary__icon--inactive {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-secondary);
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .monitoring-summary__refresh {
@@ -146,6 +156,11 @@
   box-shadow: 0 0 0 3px rgba(255, 69, 58, 0.07);
 }
 
+.monitoring-summary__eyebrow--inactive .monitoring-status-dot {
+  background: var(--color-text-tertiary);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.045);
+}
+
 .monitoring-summary h2 {
   margin: 0;
   overflow: hidden;
@@ -165,6 +180,46 @@
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.monitoring-summary__uptime {
+  position: absolute;
+  right: 21px;
+  bottom: 16px;
+  left: 21px;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  padding-top: 11px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.monitoring-summary__uptime span {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitoring-summary__uptime strong {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 0.82rem;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitoring-summary__uptime--inactive strong,
+.monitoring-summary__uptime--loading strong {
+  color: var(--color-text-tertiary);
 }
 
 .monitoring-metrics {

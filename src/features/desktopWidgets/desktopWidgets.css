@@ -71,6 +71,10 @@ body.desktop-widget-document #root {
   border-color: rgba(255, 96, 88, 0.2);
 }
 
+.desktop-widget-card--inactive {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
 .desktop-widget-header {
   position: relative;
   z-index: 1;
@@ -223,6 +227,11 @@ body.desktop-widget-document #root {
 .desktop-widget-status-dot--unavailable {
   background: #ff5a52;
   box-shadow: 0 0 0 3px rgba(255, 90, 82, 0.09);
+}
+
+.desktop-widget-status-dot--inactive {
+  background: rgba(235, 237, 244, 0.45);
+  box-shadow: 0 0 0 3px rgba(235, 237, 244, 0.06);
 }
 
 .desktop-widget-content {

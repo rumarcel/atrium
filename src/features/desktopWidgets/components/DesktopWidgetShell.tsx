@@ -82,24 +82,39 @@ export function DesktopWidgetShell({
     });
   }, []);
 
-  const connectionTone =
-    monitor.snapshot?.status === "online" && !monitor.isStale
+  const monitoringNotConfigured =
+    kind !== "services" &&
+    monitor.snapshot?.providerState === "not-configured";
+  const connectionTone = monitoringNotConfigured
+    ? "inactive"
+    : monitor.snapshot?.status === "online" && !monitor.isStale
       ? "online"
       : monitor.isLoading
         ? "loading"
         : "unavailable";
-  const connectionLabel =
-    kind === "services"
-      ? connectionTone === "online"
-        ? "Health checks complete"
-        : connectionTone === "loading"
-          ? "Checking server services"
-          : "Service data unavailable"
-      : connectionTone === "online"
-        ? "Server online"
-        : connectionTone === "loading"
-          ? "Connecting to server"
-          : "Server data unavailable";
+  const connectionLabel = (() => {
+    if (kind === "services") {
+      if (connectionTone === "online") {
+        return "Health checks complete";
+      }
+
+      return connectionTone === "loading"
+        ? "Checking server services"
+        : "Service data unavailable";
+    }
+
+    if (monitoringNotConfigured) {
+      return "Monitoring not configured";
+    }
+
+    if (connectionTone === "online") {
+      return "Server online";
+    }
+
+    return connectionTone === "loading"
+      ? "Connecting to server"
+      : "Server data unavailable";
+  })();
 
   return (
     <main className={`desktop-widget-root desktop-widget-root--${kind}`}>
@@ -126,7 +141,11 @@ export function DesktopWidgetShell({
             <button
               type="button"
               onClick={monitor.refresh}
-              disabled={monitor.isRefreshing || monitor.isPaused}
+              disabled={
+                monitor.isRefreshing ||
+                monitor.isPaused ||
+                monitoringNotConfigured
+              }
               aria-label={`Refresh ${title}`}
               title="Refresh server data"
             >

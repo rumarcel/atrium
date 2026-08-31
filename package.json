@@ -11,6 +11,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
+    "test": "pnpm test:frontend",
+    "test:frontend": "tsc -p tsconfig.tests.json && node --test tests/nativeServiceWebviews.test.mjs tests/monitoringFormatters.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

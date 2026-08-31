@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": false,
+    "composite": false,
+    "declaration": false,
+    "incremental": false,
+    "module": "ES2022",
+    "noEmit": false,
+    "outDir": "./node_modules/.cache/personal-hub-tests",
+    "rootDir": "./src",
+    "target": "ES2022"
+  },
+  "include": [
+    "src/features/monitoring/monitoringFormatters.ts",
+    "src/features/tabs/nativeServiceWebviewClient.ts"
+  ],
+  "references": []
+}

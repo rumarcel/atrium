@@ -32,7 +32,6 @@ pub fn run() {
             service_webviews::activate_service_webview,
             service_webviews::hide_service_webviews,
             service_webviews::reconcile_service_webviews,
-            service_webviews::park_service_webview,
             service_webviews::close_service_webview,
             service_webviews::open_service_in_system_browser,
         ])

@@ -1,4 +1,13 @@
 export type ServerMetricsBackendStatus = "online" | "unavailable";
+export type MonitoringProviderState = "configured" | "not-configured";
+export type MonitoringUnavailableReason =
+  | "authentication"
+  | "timeout"
+  | "tls"
+  | "connection"
+  | "api-unavailable"
+  | "invalid-data"
+  | "not-configured";
 
 export interface DiskMetrics {
   name: string;
@@ -10,6 +19,8 @@ export interface DiskMetrics {
 
 export interface ServerMetricsResult {
   status: ServerMetricsBackendStatus;
+  providerState: MonitoringProviderState;
+  reason: MonitoringUnavailableReason | null;
   sampledAt: number;
   cpuPercent: number | null;
   memoryPercent: number | null;
@@ -41,6 +52,8 @@ export type ServerMonitoringStatus =
 
 export interface ServerMetricsMonitor {
   status: ServerMonitoringStatus;
+  providerState: MonitoringProviderState;
+  unavailableReason: MonitoringUnavailableReason | null;
   /** The newest successful sample. It remains available during a brief outage. */
   snapshot: ServerMetricsResult | null;
   /** A bounded in-memory window; it is never persisted or rendered as timestamps. */

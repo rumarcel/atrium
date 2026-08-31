@@ -144,6 +144,12 @@ impl ServiceCatalog {
         })
     }
 
+    pub(crate) fn has_enabled_service(&self, service_id: &str) -> bool {
+        self.services
+            .get(service_id)
+            .is_some_and(|service| service.enabled)
+    }
+
     pub(crate) fn enabled_health_targets(&self) -> Vec<TrustedHealthTarget> {
         let mut targets = self
             .services
@@ -289,13 +295,6 @@ pub struct ReconcileServiceWebviewsRequest {
 #[serde(rename_all = "camelCase")]
 pub struct OpenServiceWebviewResult {
     created: bool,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum ParkServiceWebviewResult {
-    Retained,
-    Closed,
 }
 
 #[derive(Debug, Serialize)]
@@ -599,7 +598,7 @@ pub async fn reconcile_service_webviews(
 
     for (service_id, entry) in entries {
         let Some(view) = app.get_webview(&entry.label) else {
-            inner.entries.remove(&service_id);
+            finalize_registry_close(&mut inner, &service_id, Ok(()))?;
             continue;
         };
 
@@ -607,13 +606,11 @@ pub async fn reconcile_service_webviews(
             continue;
         }
 
-        match view.close() {
-            Ok(()) => {
-                inner.entries.remove(&service_id);
-            }
-            Err(_) => {
-                failed_close_count += 1;
-            }
+        let close_result = view
+            .close()
+            .map_err(webview_error("close a reconciled service webview"));
+        if finalize_registry_close(&mut inner, &service_id, close_result).is_err() {
+            failed_close_count += 1;
         }
     }
 
@@ -644,58 +641,6 @@ pub async fn reconcile_service_webviews(
 }
 
 #[tauri::command]
-pub async fn park_service_webview(
-    caller: Webview,
-    app: AppHandle,
-    service_id: String,
-    registry: tauri::State<'_, ServiceWebviewRegistry>,
-) -> Result<ParkServiceWebviewResult, String> {
-    ensure_trusted_caller(&caller)?;
-
-    if !is_valid_service_id(&service_id) {
-        return Err("The service id is invalid.".into());
-    }
-
-    let mut inner = registry
-        .inner
-        .lock()
-        .map_err(|_| "The service webview registry is unavailable.".to_string())?;
-
-    let mut result = ParkServiceWebviewResult::Closed;
-
-    if let Some(entry) = inner.entries.get(&service_id).cloned() {
-        if let Some(view) = app.get_webview(&entry.label) {
-            if let Err(hide_error) = view.hide() {
-                if let Err(close_error) = view.close() {
-                    return Err(format!(
-                        "Could not hide the service view: {hide_error}. Closing it also failed: {close_error}"
-                    ));
-                }
-
-                inner.entries.remove(&service_id);
-                if inner.active_service_id.as_deref() == Some(service_id.as_str()) {
-                    inner.active_service_id = None;
-                }
-                trim_service_webview_pool(&app, &mut inner, None)?;
-                return Ok(ParkServiceWebviewResult::Closed);
-            }
-
-            set_entry_attached(&mut inner, &service_id, false);
-            result = ParkServiceWebviewResult::Retained;
-        } else {
-            inner.entries.remove(&service_id);
-        }
-    }
-
-    if inner.active_service_id.as_deref() == Some(service_id.as_str()) {
-        inner.active_service_id = None;
-    }
-
-    trim_service_webview_pool(&app, &mut inner, None)?;
-    Ok(result)
-}
-
-#[tauri::command]
 pub async fn close_service_webview(
     caller: Webview,
     app: AppHandle,
@@ -713,20 +658,16 @@ pub async fn close_service_webview(
         .lock()
         .map_err(|_| "The service webview registry is unavailable.".to_string())?;
 
-    if let Some(entry) = inner.entries.get(&service_id).cloned() {
-        if let Some(view) = app.get_webview(&entry.label) {
+    let close_result = inner
+        .entries
+        .get(&service_id)
+        .and_then(|entry| app.get_webview(&entry.label))
+        .map_or(Ok(()), |view| {
             view.close()
-                .map_err(webview_error("close the service webview"))?;
-        }
+                .map_err(webview_error("close the service webview"))
+        });
 
-        inner.entries.remove(&service_id);
-    }
-
-    if inner.active_service_id.as_deref() == Some(service_id.as_str()) {
-        inner.active_service_id = None;
-    }
-
-    Ok(())
+    finalize_registry_close(&mut inner, &service_id, close_result)
 }
 
 #[tauri::command]
@@ -791,6 +732,24 @@ fn set_entry_attached(registry: &mut RegistryInner, service_id: &str, attached: 
     if let Some(entry) = registry.entries.get_mut(service_id) {
         entry.attached_to_tab = attached;
     }
+}
+
+fn remove_registry_entry(registry: &mut RegistryInner, service_id: &str) {
+    registry.entries.remove(service_id);
+
+    if registry.active_service_id.as_deref() == Some(service_id) {
+        registry.active_service_id = None;
+    }
+}
+
+fn finalize_registry_close(
+    registry: &mut RegistryInner,
+    service_id: &str,
+    close_result: Result<(), String>,
+) -> Result<(), String> {
+    close_result?;
+    remove_registry_entry(registry, service_id);
+    Ok(())
 }
 
 fn pool_eviction_candidates(
@@ -1201,6 +1160,8 @@ mod tests {
         let catalog = ServiceCatalog::from_bundled_config().unwrap();
         assert!(catalog.services.len() >= 12);
         assert!(catalog.resolve_enabled("jellyfin").is_ok());
+        assert!(catalog.has_enabled_service("glances"));
+        assert!(!catalog.has_enabled_service("missing-provider"));
     }
 
     #[test]
@@ -1298,6 +1259,65 @@ mod tests {
             pool_eviction_candidates(&registry, Some("reserved")),
             vec!["dormant-old", "dormant-new", "attached-old", "attached-new"]
         );
+    }
+
+    #[test]
+    fn explicit_close_forgets_the_warm_view_and_clears_active_state() {
+        let mut registry = RegistryInner {
+            active_service_id: Some("jellyfin".into()),
+            ..RegistryInner::default()
+        };
+        registry
+            .entries
+            .insert("jellyfin".into(), registry_entry(true, 1));
+        registry
+            .entries
+            .insert("sonarr".into(), registry_entry(true, 2));
+
+        finalize_registry_close(&mut registry, "jellyfin", Ok(())).unwrap();
+
+        assert!(!registry.entries.contains_key("jellyfin"));
+        assert!(registry.entries.contains_key("sonarr"));
+        assert_eq!(registry.active_service_id, None);
+    }
+
+    #[test]
+    fn closing_an_inactive_view_preserves_the_active_warm_view() {
+        let mut registry = RegistryInner {
+            active_service_id: Some("jellyfin".into()),
+            ..RegistryInner::default()
+        };
+        registry
+            .entries
+            .insert("jellyfin".into(), registry_entry(true, 1));
+        registry
+            .entries
+            .insert("sonarr".into(), registry_entry(true, 2));
+
+        finalize_registry_close(&mut registry, "sonarr", Ok(())).unwrap();
+
+        assert!(registry.entries.contains_key("jellyfin"));
+        assert!(!registry.entries.contains_key("sonarr"));
+        assert_eq!(registry.active_service_id.as_deref(), Some("jellyfin"));
+    }
+
+    #[test]
+    fn failed_native_close_preserves_the_registry_and_active_state() {
+        let mut registry = RegistryInner {
+            active_service_id: Some("jellyfin".into()),
+            ..RegistryInner::default()
+        };
+        registry
+            .entries
+            .insert("jellyfin".into(), registry_entry(true, 1));
+
+        let error =
+            finalize_registry_close(&mut registry, "jellyfin", Err("native close failed".into()))
+                .unwrap_err();
+
+        assert_eq!(error, "native close failed");
+        assert!(registry.entries.contains_key("jellyfin"));
+        assert_eq!(registry.active_service_id.as_deref(), Some("jellyfin"));
     }
 
     #[test]
