@@ -177,10 +177,17 @@
   border-radius: 12px;
   color: var(--color-text-secondary);
   background: var(--color-surface);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
 }
 
-.icon-button:disabled {
-  opacity: 0.62;
+.icon-button:hover {
+  border-color: rgba(10, 132, 255, 0.34);
+  color: #70b4ff;
+  background: rgba(10, 132, 255, 0.1);
 }
 
 .dashboard {
@@ -857,10 +864,6 @@
 
   .search-field {
     width: 100%;
-  }
-
-  .icon-button {
-    display: none;
   }
 
   .dashboard-intro h1 {

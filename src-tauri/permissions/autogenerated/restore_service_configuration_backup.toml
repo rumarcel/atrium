@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-restore-service-configuration-backup"
+description = "Enables the restore_service_configuration_backup command without any pre-configured scope."
+commands.allow = ["restore_service_configuration_backup"]
+
+[[permission]]
+identifier = "deny-restore-service-configuration-backup"
+description = "Denies the restore_service_configuration_backup command without any pre-configured scope."
+commands.deny = ["restore_service_configuration_backup"]

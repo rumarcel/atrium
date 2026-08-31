@@ -601,7 +601,7 @@ fn classify_status(status: StatusCode) -> Result<(), MonitoringError> {
         ),
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => (
             MonitoringErrorKind::Authentication,
-            "Glances authentication is required; secure credential support is planned for Phase 7."
+            "Glances authentication is required; credential-backed provider authentication arrives in Phase 7.1."
                 .to_string(),
         ),
         _ => (
@@ -1090,7 +1090,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_serializes_the_phase_6_1_dto_fields() {
+    fn snapshot_serializes_the_current_monitoring_dto_fields() {
         let snapshot = assemble_snapshot(
             123,
             4,

@@ -13,6 +13,8 @@
   },
   "include": [
     "src/features/monitoring/monitoringFormatters.ts",
+    "src/features/services/hooks/catalogRequestGeneration.ts",
+    "src/features/settings/settingsClient.ts",
     "src/features/tabs/nativeServiceWebviewClient.ts"
   ],
   "references": []

@@ -3,13 +3,17 @@ import { RefreshIcon } from "../components/icons/AppIcons";
 import { AppHeader } from "../features/dashboard/components/AppHeader";
 import { useServiceHealth } from "../features/health/hooks/useServiceHealth";
 import { ServerMonitoring } from "../features/monitoring";
+import { SettingsPage } from "../features/settings";
 import {
   ServiceContextMenu,
   type ServiceContextMenuState,
 } from "../features/services/components/ServiceContextMenu";
 import { ServiceGrid } from "../features/services/components/ServiceGrid";
 import { useServiceCatalog } from "../features/services/hooks/useServiceCatalog";
-import type { DashboardService } from "../features/services/service.types";
+import type {
+  DashboardService,
+  ServiceConfiguration,
+} from "../features/services/service.types";
 import { ServiceWebviewHost } from "../features/tabs/components/ServiceWebviewHost";
 import { TabBar } from "../features/tabs/components/TabBar";
 import { useServiceTabs } from "../features/tabs/hooks/useServiceTabs";
@@ -45,6 +49,10 @@ interface ToastMessage {
   tone: "neutral" | "error";
 }
 
+interface SettingsViewState {
+  initialServiceId: string | null;
+}
+
 async function copyText(value: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -72,6 +80,9 @@ export function DashboardPage() {
   const [contextMenu, setContextMenu] =
     useState<ServiceContextMenuState | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [settingsView, setSettingsView] = useState<SettingsViewState | null>(
+    null,
+  );
   const [boundsMeasurement, setBoundsMeasurement] =
     useState<BoundsMeasurement | null>(null);
   const [closingServiceIds, setClosingServiceIds] = useState<ReadonlySet<string>>(
@@ -94,6 +105,8 @@ export function DashboardPage() {
     services,
     error,
     reload,
+    recoveryNotice,
+    applyConfiguration,
   } = useServiceCatalog();
 
   const announce = useCallback(
@@ -130,7 +143,11 @@ export function DashboardPage() {
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      if (
+        settingsView === null &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "k"
+      ) {
         event.preventDefault();
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
@@ -147,7 +164,7 @@ export function DashboardPage() {
 
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, []);
+  }, [settingsView]);
 
   const enabledServices = useMemo(
     () => services.filter((service) => service.enabled),
@@ -217,14 +234,19 @@ export function DashboardPage() {
         .filter((service): service is DashboardService => Boolean(service)),
     [enabledServiceById, tabs.openServiceIds],
   );
-  const activeService =
+  const activeTabService =
     tabs.activeTabId === DASHBOARD_TAB_ID
       ? null
       : (enabledServiceById.get(tabs.activeTabId) ?? null);
+  const activeService = settingsView === null ? activeTabService : null;
   const isActiveServiceClosing =
     activeService !== null && closingServiceIds.has(activeService.id);
-  const isDashboardActive = activeService === null;
+  const isDashboardActive = settingsView === null && activeService === null;
   const isServiceFullscreen = activeService !== null && isWindowFullscreen;
+  const currentConfiguration = useMemo<ServiceConfiguration>(
+    () => ({ version: 1, services }),
+    [services],
+  );
 
   const handleBoundsChange = useCallback(
     (
@@ -409,6 +431,20 @@ export function DashboardPage() {
     });
   }, []);
 
+  const handleOpenSettings = useCallback((service?: DashboardService) => {
+    setContextMenu(null);
+    setSettingsView({ initialServiceId: service?.id ?? null });
+  }, []);
+
+  const handleCloseSettings = useCallback(() => {
+    setSettingsView(null);
+  }, []);
+
+  const handleDashboardClick = useCallback(() => {
+    setSettingsView(null);
+    tabs.activateTab(DASHBOARD_TAB_ID);
+  }, [tabs.activateTab]);
+
   const handleSystemBrowser = useCallback(
     (service: DashboardService) => {
       void openServiceInSystemBrowser(service)
@@ -529,22 +565,39 @@ export function DashboardPage() {
           : "app-shell"
       }
     >
-      <AppHeader
-        searchValue={searchValue}
-        onSearchChange={setSearchValue}
-        searchInputRef={searchInputRef}
-        isDashboardActive={isDashboardActive}
-        onDashboardClick={() => tabs.activateTab(DASHBOARD_TAB_ID)}
-      />
+      {settingsView === null ? (
+        <AppHeader
+          searchValue={searchValue}
+          onSearchChange={setSearchValue}
+          searchInputRef={searchInputRef}
+          isDashboardActive={isDashboardActive}
+          onDashboardClick={handleDashboardClick}
+          onSettingsClick={() => handleOpenSettings()}
+        />
+      ) : null}
 
-      <TabBar
-        activeTabId={tabs.activeTabId}
-        services={openTabServices}
-        onActivate={tabs.activateTab}
-        onClose={handleCloseTab}
-      />
+      {settingsView === null ? (
+        <TabBar
+          activeTabId={tabs.activeTabId}
+          services={openTabServices}
+          onActivate={tabs.activateTab}
+          onClose={handleCloseTab}
+        />
+      ) : null}
 
       <div className="app-workspace">
+        {settingsView ? (
+          <SettingsPage
+            key={settingsView.initialServiceId ?? "settings"}
+            initialConfiguration={
+              catalogStatus === "ready" ? currentConfiguration : undefined
+            }
+            initialServiceId={settingsView.initialServiceId ?? undefined}
+            onConfigurationApplied={applyConfiguration}
+            onClose={handleCloseSettings}
+          />
+        ) : null}
+
         <div
           id="dashboard-panel"
           className="dashboard-panel"
@@ -565,8 +618,8 @@ export function DashboardPage() {
                 className="phase-note phase-note--ready"
                 aria-label="Current implementation phase"
               >
-                <span>Phase 6</span>
-                <p>Live server metrics</p>
+                <span>Phase 7</span>
+                <p>Settings &amp; secure vault</p>
               </div>
             </section>
 
@@ -580,6 +633,18 @@ export function DashboardPage() {
                 </div>
                 <button type="button" onClick={reload}>
                   Try again
+                </button>
+              </div>
+            ) : null}
+
+            {recoveryNotice ? (
+              <div className="configuration-alert" role="status">
+                <div>
+                  <strong>Service settings notice</strong>
+                  <p>{recoveryNotice}</p>
+                </div>
+                <button type="button" onClick={() => handleOpenSettings()}>
+                  Review settings
                 </button>
               </div>
             ) : null}
@@ -599,9 +664,9 @@ export function DashboardPage() {
                       aria-hidden="true"
                     />
                     {catalogStatus === "ready"
-                      ? "Loaded from config/services.json"
+                      ? "Loaded from your saved service settings"
                       : catalogStatus === "loading"
-                        ? "Loading config/services.json"
+                        ? "Loading saved service settings"
                         : "Configuration unavailable"}
                     {healthSummaryText ? (
                       <>
@@ -644,6 +709,7 @@ export function DashboardPage() {
                 <>
                   <div
                     className="category-filter"
+                    role="group"
                     aria-label="Filter services by category"
                   >
                     {serviceCategories.map((category) => (
@@ -674,7 +740,7 @@ export function DashboardPage() {
                     emptyDescription={
                       hasEnabledServices
                         ? "Try another name or category."
-                        : "Enable or add a service in config/services.json."
+                        : "Enable or add a service in Settings."
                     }
                     onOpenService={handleOpenService}
                     onOpenContextMenu={setContextMenu}
@@ -715,6 +781,7 @@ export function DashboardPage() {
           onOpenInNewTab={(service) => handleOpenService(service, true)}
           onOpenInSystemBrowser={handleSystemBrowser}
           onCopyUrl={handleCopyUrl}
+          onEdit={handleOpenSettings}
         />
       ) : null}
 

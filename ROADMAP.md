@@ -28,6 +28,8 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - Phase 6.1: server-only Windows desktop cards.
 - Phase 6.2: dashboard uptime, optional-provider handling and deterministic
   service-media teardown.
+- Phase 7.0: writable Settings, validated per-user service configuration and a
+  Windows-backed credential vault.
 
 ## Phase 6.1 — Windows desktop cards (completed)
 
@@ -69,14 +71,16 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 
 ## Phase 7 — Settings and integrations
 
-### Phase 7.0 — Settings and credential vault
+### Phase 7.0 — Settings and credential vault (completed)
 
-- Writable per-user service configuration with validated migration and recovery.
+- Writable per-user service configuration with validated recovery.
 - Service add, edit, remove, enable and disable flows.
-- Persistent application preferences with an explicit reset path.
+- Persistent service preferences with explicit backup, restore and reset paths.
 - Windows-backed secret storage for API keys, bearer tokens, HTTP Basic
   credentials and provider-specific usernames/passwords.
 - Credentials remain outside repository files, URLs, logs and exported settings.
+- Removed-service credentials use a durable, non-secret cleanup journal with
+  startup retry, visible recovery state and safe ID reuse blocking.
 
 ### Phase 7.1 — Authentication and session providers
 

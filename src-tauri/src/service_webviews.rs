@@ -1,17 +1,19 @@
+#[cfg(test)]
+use crate::service_settings::BUNDLED_SERVICE_CONFIG;
+use crate::service_settings::{ServiceConfiguration, ServiceDefinition, ServiceTlsPolicy};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     net::IpAddr,
     path::PathBuf,
     process::Command,
-    sync::Mutex,
+    sync::{Mutex, RwLock},
 };
 use tauri::{
     webview::{NewWindowResponse, WebviewBuilder},
     AppHandle, LogicalPosition, LogicalSize, Manager, Rect, Url, Webview, WebviewUrl,
 };
 
-const BUNDLED_SERVICE_CONFIG: &str = include_str!("../../public/config/services.json");
 const MAX_SERVICE_ID_LENGTH: usize = 64;
 const MAX_SERVICE_NAME_LENGTH: usize = 80;
 const MAX_URL_LENGTH: usize = 2_048;
@@ -36,30 +38,6 @@ impl TlsPolicy {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BundledServiceConfiguration {
-    #[serde(rename = "$schema")]
-    schema: Option<String>,
-    version: u8,
-    services: Vec<BundledService>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct BundledService {
-    id: String,
-    name: String,
-    description: Option<String>,
-    url: String,
-    icon: String,
-    category: String,
-    enabled: bool,
-    accent: Option<String>,
-    #[serde(default)]
-    tls_policy: TlsPolicy,
-}
-
 #[derive(Clone, Debug)]
 struct TrustedService {
     id: String,
@@ -71,7 +49,7 @@ struct TrustedService {
 }
 
 pub struct ServiceCatalog {
-    services: HashMap<String, TrustedService>,
+    services: RwLock<HashMap<String, TrustedService>>,
 }
 
 #[derive(Clone, Debug)]
@@ -88,23 +66,39 @@ pub(crate) struct TrustedHealthTarget {
 }
 
 impl ServiceCatalog {
+    #[cfg(test)]
     pub fn from_bundled_config() -> Result<Self, String> {
-        let configuration: BundledServiceConfiguration =
-            serde_json::from_str(BUNDLED_SERVICE_CONFIG)
-                .map_err(|error| format!("services.json is invalid: {error}"))?;
+        let configuration = ServiceConfiguration::parse_document(BUNDLED_SERVICE_CONFIG)
+            .map_err(|error| format!("services.json is invalid: {error}"))?;
+        Self::from_configuration(&configuration)
+    }
 
-        if configuration.version != 1 {
-            return Err("services.json uses an unsupported version.".into());
-        }
+    pub fn from_configuration(configuration: &ServiceConfiguration) -> Result<Self, String> {
+        Ok(Self {
+            services: RwLock::new(Self::trusted_services(configuration)?),
+        })
+    }
 
-        if configuration.services.len() > 500 {
-            return Err("services.json contains too many services.".into());
-        }
+    pub fn replace_configuration(
+        &self,
+        configuration: &ServiceConfiguration,
+    ) -> Result<(), String> {
+        let services = Self::trusted_services(configuration)?;
+        *self
+            .services
+            .write()
+            .map_err(|_| "The trusted service catalog is unavailable.".to_string())? = services;
+        Ok(())
+    }
 
-        let mut services = HashMap::with_capacity(configuration.services.len());
+    fn trusted_services(
+        configuration: &ServiceConfiguration,
+    ) -> Result<HashMap<String, TrustedService>, String> {
+        let configuration = configuration.normalized()?;
+        let mut services = HashMap::with_capacity(configuration.services().len());
 
-        for bundled in configuration.services {
-            let trusted = TrustedService::try_from(bundled)?;
+        for configured in configuration.services() {
+            let trusted = TrustedService::try_from(configured)?;
             let service_id = trusted.id.clone();
 
             if services.insert(service_id.clone(), trusted).is_some() {
@@ -114,13 +108,15 @@ impl ServiceCatalog {
             }
         }
 
-        let _ = configuration.schema;
-        Ok(Self { services })
+        Ok(services)
     }
 
-    fn resolve_enabled(&self, service_id: &str) -> Result<&TrustedService, String> {
-        let service = self
+    fn resolve_enabled(&self, service_id: &str) -> Result<TrustedService, String> {
+        let services = self
             .services
+            .read()
+            .map_err(|_| "The trusted service catalog is unavailable.".to_string())?;
+        let service = services
             .get(service_id)
             .ok_or_else(|| "The requested service is not in the trusted catalog.".to_string())?;
 
@@ -128,7 +124,7 @@ impl ServiceCatalog {
             return Err("The requested service is disabled.".into());
         }
 
-        Ok(service)
+        Ok(service.clone())
     }
 
     pub(crate) fn resolve_endpoint(
@@ -146,13 +142,24 @@ impl ServiceCatalog {
 
     pub(crate) fn has_enabled_service(&self, service_id: &str) -> bool {
         self.services
-            .get(service_id)
-            .is_some_and(|service| service.enabled)
+            .read()
+            .ok()
+            .and_then(|services| services.get(service_id).map(|service| service.enabled))
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn contains_service(&self, service_id: &str) -> bool {
+        self.services
+            .read()
+            .ok()
+            .is_some_and(|services| services.contains_key(service_id))
     }
 
     pub(crate) fn enabled_health_targets(&self) -> Vec<TrustedHealthTarget> {
-        let mut targets = self
-            .services
+        let Ok(services) = self.services.read() else {
+            return Vec::new();
+        };
+        let mut targets = services
             .values()
             .filter(|service| service.enabled)
             .map(|service| TrustedHealthTarget {
@@ -169,19 +176,32 @@ impl ServiceCatalog {
         targets.sort_unstable_by(|left, right| left.id.cmp(&right.id));
         targets
     }
+
+    fn matches_registered_configuration(
+        &self,
+        service_id: &str,
+        url: &str,
+        tls_policy: TlsPolicy,
+    ) -> bool {
+        self.services.read().ok().is_some_and(|services| {
+            services.get(service_id).is_some_and(|service| {
+                service.enabled && service.url_text == url && service.tls_policy == tls_policy
+            })
+        })
+    }
 }
 
-impl TryFrom<BundledService> for TrustedService {
+impl TryFrom<&ServiceDefinition> for TrustedService {
     type Error = String;
 
-    fn try_from(service: BundledService) -> Result<Self, Self::Error> {
+    fn try_from(service: &ServiceDefinition) -> Result<Self, Self::Error> {
         if !is_valid_service_id(&service.id) {
             return Err(format!("Service id \"{}\" is invalid.", service.id));
         }
 
         if service.name.trim().is_empty()
             || service.name.trim() != service.name
-            || service.name.len() > MAX_SERVICE_NAME_LENGTH
+            || service.name.chars().count() > MAX_SERVICE_NAME_LENGTH
         {
             return Err(format!("Service name for \"{}\" is invalid.", service.id));
         }
@@ -195,27 +215,27 @@ impl TryFrom<BundledService> for TrustedService {
 
         let url = validate_http_url(&service.url)?;
 
-        if service.tls_policy == TlsPolicy::AllowInvalidLocalCertificate {
+        if service.tls_policy == ServiceTlsPolicy::AllowInvalidLocalCertificate {
             validate_local_tls_exception(&url)?;
         }
 
-        // These fields are parsed to keep Rust's trust source as strict as the
-        // frontend configuration loader, even though Phase 5 does not render them.
-        let _ = (
-            service.description,
-            service.icon,
-            service.category,
-            service.accent,
-        );
-
         Ok(Self {
-            id: service.id,
-            name: service.name,
-            url_text: service.url,
+            id: service.id.clone(),
+            name: service.name.clone(),
+            url_text: service.url.clone(),
             url,
-            tls_policy: service.tls_policy,
+            tls_policy: service.tls_policy.into(),
             enabled: service.enabled,
         })
+    }
+}
+
+impl From<ServiceTlsPolicy> for TlsPolicy {
+    fn from(policy: ServiceTlsPolicy) -> Self {
+        match policy {
+            ServiceTlsPolicy::Strict => Self::Strict,
+            ServiceTlsPolicy::AllowInvalidLocalCertificate => Self::AllowInvalidLocalCertificate,
+        }
     }
 }
 
@@ -326,6 +346,71 @@ pub struct ServiceWebviewRegistry {
     inner: Mutex<RegistryInner>,
 }
 
+/// Releases native views whose registered endpoint is no longer trusted by the
+/// current catalog.  Call this immediately after replacing the catalog, while
+/// the settings operation is still serialized.
+///
+/// The registry lock also serializes this work with an in-flight open. An open
+/// which resolved its service before a catalog replacement re-resolves it once
+/// it owns this same lock, so it cannot recreate an endpoint this function has
+/// just revoked.
+pub(crate) fn revoke_stale_service_webviews(
+    app: &AppHandle,
+    catalog: &ServiceCatalog,
+    registry: &ServiceWebviewRegistry,
+) -> Result<usize, String> {
+    let mut inner = registry
+        .inner
+        .lock()
+        .map_err(|_| "The service webview registry is unavailable.".to_string())?;
+    let stale_service_ids = stale_catalog_entry_ids(&inner, catalog);
+    let mut released_count = 0_usize;
+    let mut failures = Vec::new();
+
+    for service_id in stale_service_ids {
+        let Some(entry) = inner.entries.get(&service_id).cloned() else {
+            continue;
+        };
+
+        let close_result = match app.get_webview(&entry.label) {
+            Some(view) => match view.close() {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    // A failed close must not leave a revoked view visible.
+                    // Keep its registry record for an explicit later retry.
+                    let _ = view.hide();
+                    Err(webview_error("close the revoked service webview")(error))
+                }
+            },
+            None => Ok(()),
+        };
+
+        match finalize_registry_close(&mut inner, &service_id, close_result) {
+            Ok(()) => released_count += 1,
+            Err(error) => {
+                // `close` failed, so retain the entry for cleanup retry but
+                // detach it from the active tab after the best-effort hide.
+                set_entry_attached(&mut inner, &service_id, false);
+                if inner.active_service_id.as_deref() == Some(service_id.as_str()) {
+                    inner.active_service_id = None;
+                }
+                failures.push(error);
+            }
+        }
+    }
+
+    if failures.is_empty() {
+        Ok(released_count)
+    } else {
+        Err(format!(
+            "Could not release {} revoked native service {}: {}",
+            failures.len(),
+            if failures.len() == 1 { "view" } else { "views" },
+            failures.join(" ")
+        ))
+    }
+}
+
 #[tauri::command]
 pub async fn open_service_webview(
     caller: Webview,
@@ -336,12 +421,16 @@ pub async fn open_service_webview(
 ) -> Result<OpenServiceWebviewResult, String> {
     ensure_trusted_caller(&caller)?;
     let bounds = request.bounds.validate()?;
-    let service = catalog.resolve_enabled(&request.service_id)?.clone();
-    let label = service_webview_label(&service.id);
+    // Keep the inexpensive early validation, then resolve again once opening
+    // owns the registry sequence below. The second resolution prevents an old
+    // pre-commit catalog snapshot from creating a view after revocation.
+    catalog.resolve_enabled(&request.service_id)?;
     let mut inner = registry
         .inner
         .lock()
         .map_err(|_| "The service webview registry is unavailable.".to_string())?;
+    let service = catalog.resolve_enabled(&request.service_id)?;
+    let label = service_webview_label(&service.id);
 
     hide_registered_webviews(&app, &inner, Some(&service.id))?;
     inner.active_service_id = None;
@@ -518,6 +607,13 @@ pub async fn activate_service_webview(
             "The service webview must be opened before it can be activated.".to_string()
         })?;
 
+    if !catalog.matches_registered_configuration(&request.service_id, &entry.url, entry.tls_policy)
+    {
+        return Err(
+            "The service configuration changed; the service webview must be reopened.".into(),
+        );
+    }
+
     if !entry.ready {
         return Err("The service webview did not finish opening and must be recreated.".into());
     }
@@ -581,6 +677,7 @@ pub async fn reconcile_service_webviews(
     caller: Webview,
     app: AppHandle,
     request: ReconcileServiceWebviewsRequest,
+    catalog: tauri::State<'_, ServiceCatalog>,
     registry: tauri::State<'_, ServiceWebviewRegistry>,
 ) -> Result<ReconcileServiceWebviewsResult, String> {
     ensure_trusted_caller(&caller)?;
@@ -602,7 +699,10 @@ pub async fn reconcile_service_webviews(
             continue;
         };
 
-        if entry.ready && enabled_service_ids.contains(&service_id) {
+        if entry.ready
+            && enabled_service_ids.contains(&service_id)
+            && catalog.matches_registered_configuration(&service_id, &entry.url, entry.tls_policy)
+        {
             continue;
         }
 
@@ -752,6 +852,19 @@ fn finalize_registry_close(
     Ok(())
 }
 
+fn stale_catalog_entry_ids(registry: &RegistryInner, catalog: &ServiceCatalog) -> Vec<String> {
+    let mut service_ids = registry
+        .entries
+        .iter()
+        .filter(|(service_id, entry)| {
+            !catalog.matches_registered_configuration(service_id, &entry.url, entry.tls_policy)
+        })
+        .map(|(service_id, _)| service_id.clone())
+        .collect::<Vec<_>>();
+    service_ids.sort();
+    service_ids
+}
+
 fn pool_eviction_candidates(
     registry: &RegistryInner,
     reserved_service_id: Option<&str>,
@@ -835,7 +948,7 @@ fn service_profile_directory(app: &AppHandle, service: &TrustedService) -> Resul
 }
 
 fn validate_http_url(value: &str) -> Result<Url, String> {
-    if value.is_empty() || value.len() > MAX_URL_LENGTH {
+    if value.is_empty() || value.chars().count() > MAX_URL_LENGTH {
         return Err("The service URL length is invalid.".into());
     }
 
@@ -1130,18 +1243,15 @@ fn register_certificate_handler(
 mod tests {
     use super::*;
 
-    fn bundled_service(name: &str, url: &str) -> BundledService {
-        BundledService {
-            id: "test-service".into(),
-            name: name.into(),
-            description: None,
-            url: url.into(),
-            icon: "server".into(),
-            category: "System".into(),
-            enabled: true,
-            accent: None,
-            tls_policy: TlsPolicy::Strict,
-        }
+    fn configured_service(name: &str, url: &str) -> ServiceDefinition {
+        let mut configuration =
+            ServiceConfiguration::parse_document(BUNDLED_SERVICE_CONFIG).unwrap();
+        let mut service = configuration.services.remove(0);
+        service.id = "test-service".into();
+        service.name = name.into();
+        service.url = url.into();
+        service.tls_policy = ServiceTlsPolicy::Strict;
+        service
     }
 
     fn registry_entry(attached_to_tab: bool, last_used: u64) -> RegistryEntry {
@@ -1158,7 +1268,7 @@ mod tests {
     #[test]
     fn bundled_catalog_is_valid_and_contains_enabled_services() {
         let catalog = ServiceCatalog::from_bundled_config().unwrap();
-        assert!(catalog.services.len() >= 12);
+        assert!(catalog.services.read().unwrap().len() >= 12);
         assert!(catalog.resolve_enabled("jellyfin").is_ok());
         assert!(catalog.has_enabled_service("glances"));
         assert!(!catalog.has_enabled_service("missing-provider"));
@@ -1166,16 +1276,112 @@ mod tests {
 
     #[test]
     fn trusted_catalog_rejects_edge_whitespace() {
-        assert!(TrustedService::try_from(bundled_service(
+        assert!(TrustedService::try_from(&configured_service(
             "Test Service ",
             "http://192.168.1.10:8080"
         ))
         .is_err());
-        assert!(TrustedService::try_from(bundled_service(
+        assert!(TrustedService::try_from(&configured_service(
             "Test Service",
             "http://192.168.1.10:8080 "
         ))
         .is_err());
+    }
+
+    #[test]
+    fn catalog_replacement_updates_endpoints_and_invalidates_old_registry_metadata() {
+        let mut configuration =
+            ServiceConfiguration::parse_document(BUNDLED_SERVICE_CONFIG).unwrap();
+        configuration
+            .services
+            .retain(|service| service.id == "jellyfin");
+        let original_url_text = configuration.services[0].url.clone();
+        let catalog = ServiceCatalog::from_configuration(&configuration).unwrap();
+
+        assert!(catalog.matches_registered_configuration(
+            "jellyfin",
+            &original_url_text,
+            TlsPolicy::Strict
+        ));
+
+        configuration.services[0].url = "http://192.168.0.50:8096".into();
+        catalog.replace_configuration(&configuration).unwrap();
+
+        assert_eq!(
+            catalog.resolve_endpoint("jellyfin").unwrap().url.as_str(),
+            "http://192.168.0.50:8096/"
+        );
+        assert!(!catalog.matches_registered_configuration(
+            "jellyfin",
+            &original_url_text,
+            TlsPolicy::Strict
+        ));
+
+        configuration.services[0].url = "https://192.168.0.50:8096".into();
+        configuration.services[0].tls_policy = ServiceTlsPolicy::AllowInvalidLocalCertificate;
+        catalog.replace_configuration(&configuration).unwrap();
+        assert!(!catalog.matches_registered_configuration(
+            "jellyfin",
+            "https://192.168.0.50:8096",
+            TlsPolicy::Strict
+        ));
+        assert!(catalog.matches_registered_configuration(
+            "jellyfin",
+            "https://192.168.0.50:8096",
+            TlsPolicy::AllowInvalidLocalCertificate
+        ));
+
+        configuration.services[0].enabled = false;
+        catalog.replace_configuration(&configuration).unwrap();
+        assert!(!catalog.has_enabled_service("jellyfin"));
+    }
+
+    #[test]
+    fn catalog_revocation_selects_only_removed_disabled_or_changed_entries() {
+        let mut configuration =
+            ServiceConfiguration::parse_document(BUNDLED_SERVICE_CONFIG).unwrap();
+        configuration.services.truncate(3);
+        let unchanged = configuration.services[0].clone();
+        let mut disabled = configuration.services[1].clone();
+        let changed = configuration.services[2].clone();
+
+        let mut registry = RegistryInner::default();
+        for service in [&unchanged, &disabled, &changed] {
+            registry.entries.insert(
+                service.id.clone(),
+                RegistryEntry {
+                    label: service_webview_label(&service.id),
+                    url: service.url.clone(),
+                    tls_policy: service.tls_policy.into(),
+                    // A pending, unchanged open is a warm session too and
+                    // must not be selected for revocation.
+                    ready: service.id != unchanged.id,
+                    attached_to_tab: false,
+                    last_used: 0,
+                },
+            );
+        }
+        registry.entries.insert(
+            "removed-service".into(),
+            RegistryEntry {
+                label: service_webview_label("removed-service"),
+                url: unchanged.url.clone(),
+                tls_policy: unchanged.tls_policy.into(),
+                ready: true,
+                attached_to_tab: false,
+                last_used: 0,
+            },
+        );
+
+        disabled.enabled = false;
+        configuration.services[1] = disabled.clone();
+        configuration.services[2].url = "http://192.168.0.42:8888".into();
+        let catalog = ServiceCatalog::from_configuration(&configuration).unwrap();
+
+        let mut expected = vec![disabled.id, changed.id, "removed-service".into()];
+        expected.sort();
+        assert_eq!(stale_catalog_entry_ids(&registry, &catalog), expected);
+        assert!(!stale_catalog_entry_ids(&registry, &catalog).contains(&unchanged.id));
     }
 
     #[test]

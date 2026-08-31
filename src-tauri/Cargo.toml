@@ -18,6 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+dirs = "6"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }

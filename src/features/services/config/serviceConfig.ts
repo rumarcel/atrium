@@ -5,7 +5,7 @@ import {
   type ServiceAccent,
   type ServiceConfiguration,
   type ServiceTlsPolicy,
-} from "../service.types";
+} from "../service.types.js";
 
 const CONFIG_URL = "/config/services.json";
 const SERVICE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

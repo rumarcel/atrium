@@ -5,16 +5,17 @@ services. Built with Tauri v2, React, TypeScript and Vite.
 
 ## Current scope
 
-Phase 1 through Phase 6.2 are implemented: the desktop shell, responsive
+Phase 1 through Phase 7.0 are implemented: the desktop shell, responsive
 dashboard, validated service configuration, asynchronous service health checks,
 session-preserving native service tabs, live Glances monitoring and three
-server-only Windows desktop cards. The dashboard keeps its original Phase 6
+server-only Windows desktop cards. Phase 7.0 adds a native Settings surface,
+writable per-user service configuration and Windows-backed credential storage.
+The dashboard keeps its original Phase 6
 composition; the desktop cards are separate native surfaces rather than an
 in-app widget editor. The server summary now exposes Glances uptime, and an
 explicit service-tab close tears down its native WebView so media cannot remain
-audible invisibly. Settings and deeper Windows integrations remain
-intentionally out of scope for this phase.
-Planned settings, themes and later integrations are tracked in
+audible invisibly. Provider-specific authentication, background card controls,
+themes and deeper Windows integrations remain in later phases. The remaining work is tracked in
 [`ROADMAP.md`](ROADMAP.md).
 
 ## Architecture
@@ -28,6 +29,8 @@ Planned settings, themes and later integrations are tracked in
 - `src/features/monitoring`: validated Glances metrics, visibility-aware polling
   and the dashboard monitoring panel.
 - `src/features/services`: configuration parsing, loading state and service cards.
+- `src/features/settings`: service editing, recovery controls and secret-presence
+  UI backed by native commands.
 - `src/features/tabs`: tab state, measured native viewport and the serialized
   child-WebView command client.
 - `src/hooks`: shared visibility-aware polling primitives.
@@ -38,9 +41,11 @@ Planned settings, themes and later integrations are tracked in
 
 ## Service configuration
 
-The bundled service catalog lives at `public/config/services.json`. Vite copies
-it to `dist/config/services.json`, and the dashboard loads it at runtime instead
-of embedding host addresses in TypeScript. Its JSON Schema is beside it at
+The bundled service catalog lives at `public/config/services.json` and acts as
+the validated first-run/default seed. The desktop app copies normalized settings
+to its per-user Tauri application-config directory; that writable copy becomes
+the source of truth on later launches. Browser-only Vite previews continue to
+load the bundled file in read-only mode. The seed's JSON Schema is beside it at
 `public/config/services.schema.json`.
 
 Required service fields are `id`, `name`, `url`, `icon`, `category` and
@@ -49,13 +54,39 @@ Required service fields are `id`, `name`, `url`, `icon`, `category` and
 become dashboard filters automatically. Disabled services remain valid
 configuration entries but are hidden from the dashboard and health polling.
 
-The loader rejects unknown fields, invalid HTTP/HTTPS URLs, embedded URL
+Both Rust and TypeScript reject unknown fields, invalid HTTP/HTTPS URLs, embedded URL
 credentials, duplicate IDs and unsupported configuration versions. A malformed
-file produces a recoverable error panel instead of crashing the app.
+saved file is replaced with the known-good bundled seed and produces a visible
+recovery notice instead of crashing the app. Settings supports add, edit,
+enable/disable and draft deletion. Saves use a same-directory temporary file and
+an atomic Windows replacement; the previous valid configuration is retained as
+`services.json.bak` for one-step restore. **Reset defaults** explicitly returns
+to the bundled seed.
 
-This file is currently an application-bundled seed. Editing it changes the next
-development or production build. Phase 7 will seed a writable per-user copy in
-the Tauri application config directory for Settings persistence.
+Service IDs become immutable after their first save because credential-vault
+entries and isolated WebView profiles are scoped by ID. Names, descriptions,
+URLs, icons, categories, accents, TLS policy and enabled state remain editable.
+Changing a saved URL or TLS policy invalidates its old native child WebView and
+refreshes monitoring against the new trusted catalog.
+
+## Secure credentials
+
+Settings can store API keys, bearer tokens, exact-origin HTTP Basic credentials
+and provider username/password pairs in Windows Credential Manager. Repository
+files, service URLs, settings backups and exports never contain those values.
+The frontend receives only `{ kind, exists }`; stored usernames and secrets are
+never returned or prefilled. Replacing a credential requires entering the full
+new value, and deleting a service queues cleanup of all credential kinds owned
+by that service. Before the service removal is committed, its ID is written to
+an atomic, non-secret cleanup journal. Failed Credential Manager deletions are
+retried at startup and around later settings changes, produce a recovery notice,
+and prevent the same ID from being re-added until cleanup succeeds.
+
+Phase 7.0 provides storage and lifecycle safety, not generic login automation.
+Phase 7.1 adds narrowly scoped Rust provider adapters (including Homarr API-key
+authentication) that can consume these values without exposing them to React.
+Persistent WebView profiles remain the normal browser-login mechanism; arbitrary
+DOM password injection is not allowed.
 
 ## Service health checks
 
@@ -93,8 +124,8 @@ is never selected. Each service also uses a persistent, isolated WebView2
 profile under the app's local-data directory, so ordinary persistent cookies
 and local storage survive view recreation and application restarts. Session-only
 cookies can still be lost after a view is released, its tab is explicitly
-closed, or the full application exits. Securely stored HTTP/basic-auth
-credentials belong in Phase 7 rather than in the service URL or source code.
+closed, or the full application exits. Secure integration credentials belong in
+the native vault rather than in the service URL or source code.
 
 The React host measures the exact workspace rectangle with `ResizeObserver` and
 sends logical-pixel bounds plus a monitor-scale revision to Rust. This keeps the
@@ -102,8 +133,8 @@ native surface below the header and tab bar during window resize and per-monitor
 DPI changes. Top-level service navigation is restricted to the exact configured
 origin; popups, downloads, protocol changes, lookalike hosts and wrong ports are
 denied. The context menu provides in-app
-open, deduplicated new-tab open, validated system-browser open and URL copy.
-Service editing remains disabled until Phase 7.
+open, deduplicated service-tab open, validated system-browser open and URL copy.
+Service editing opens Settings directly on the selected service.
 
 Phase 5.2 follows WebView2's native HTML fullscreen transition through the
 parent Tauri window. While an active service is fullscreen, the application
@@ -116,7 +147,7 @@ Only the trusted `main` UI WebView receives Tauri capabilities. Remote
 `service-*` WebViews receive no IPC capability or remote URL grant, and each
 privileged command also verifies the caller label. Native open/browser commands
 accept only a service id; Rust resolves the name, URL and TLS policy from the
-bundled trusted catalog and never accepts an arbitrary frontend URL.
+dynamic trusted catalog and never accepts an arbitrary frontend URL.
 
 For explicitly opted-in private HTTPS targets, Windows attaches a per-child
 WebView2 certificate-error handler before navigation. It starts every callback
@@ -127,13 +158,13 @@ WebView2 caches an allow by host + certificate for the current session, so the
 app clears those cached decisions on child creation and each tab activation;
 each service/TLS policy also has its own isolated profile. This is a scoped,
 explicit local-host exception—not a global certificate-ignore switch. A pinned
-certificate fingerprint can tighten this further when editable trust settings
-are introduced in Phase 7.
+certificate fingerprint can tighten this further in a future dedicated trust
+settings revision.
 
 ## Server monitoring
 
 The dashboard reads Glances through the Rust backend, never directly from the
-browser UI. Rust resolves the trusted `glances` entry from the bundled service
+browser UI. Rust resolves the trusted `glances` entry from the saved service
 catalog, applies the same explicit local TLS policy, rejects redirects, limits
 each response to 1 MiB and uses a 2.5-second request timeout. The frontend cannot
 supply or override the monitoring URL.
@@ -160,9 +191,9 @@ an endpoint that cannot exist. Glances-dependent CPU, memory, storage, network,
 load and uptime values remain unavailable rather than being replaced with local
 Windows data or fabricated placeholders. Ordinary service-health checks remain
 independent and continue to operate for every other enabled service.
-Authentication secrets are not embedded in configuration. If Glances requires
-credentials, the monitoring panel reports that secure credential support is planned for
-Phase 7.
+Authentication secrets are not embedded in configuration. Phase 7.0 can store
+them safely; Glances authentication consumption belongs to the Phase 7.1
+provider-adapter work.
 
 ## Windows desktop cards
 
@@ -198,10 +229,10 @@ product decision rather than inheriting tab-switch behavior accidentally.
 ## Publishing safely
 
 Never place passwords, tokens or URL-embedded credentials in repository files.
-The bundled `public/config/services.json` currently acts as a build-time seed and
+The bundled `public/config/services.json` acts as a first-run/default seed and
 can reveal local host addresses even though they are not Internet-routable. Before
-publishing a reusable release, replace that seed with a sanitized example. Phase 7
-will move the user's real catalog into the per-user application-data directory.
+publishing a reusable release, replace that seed with a sanitized example. The
+user's real catalog and Credential Manager entries remain outside the repository.
 
 ## Development
 

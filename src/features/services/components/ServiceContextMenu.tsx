@@ -28,6 +28,7 @@ interface ServiceContextMenuProps {
   onOpenInNewTab: (service: DashboardService) => void;
   onOpenInSystemBrowser: (service: DashboardService) => void;
   onCopyUrl: (service: DashboardService) => void;
+  onEdit: (service: DashboardService) => void;
 }
 
 export function ServiceContextMenu({
@@ -37,6 +38,7 @@ export function ServiceContextMenu({
   onOpenInNewTab,
   onOpenInSystemBrowser,
   onCopyUrl,
+  onEdit,
 }: ServiceContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: state.x, top: state.y });
@@ -169,12 +171,10 @@ export function ServiceContextMenu({
       <button
         type="button"
         role="menuitem"
-        title="Service editing will be available in Phase 7"
-        disabled
+        onClick={() => runAction(() => onEdit(state.service))}
       >
         <EditIcon width={16} height={16} />
         Edit service
-        <span className="service-context-menu__phase">Phase 7</span>
       </button>
     </div>,
     document.body,

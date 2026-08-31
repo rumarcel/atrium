@@ -11,6 +11,7 @@ interface AppHeaderProps {
   searchInputRef: RefObject<HTMLInputElement | null>;
   isDashboardActive: boolean;
   onDashboardClick: () => void;
+  onSettingsClick: () => void;
 }
 
 export function AppHeader({
@@ -19,6 +20,7 @@ export function AppHeader({
   searchInputRef,
   isDashboardActive,
   onDashboardClick,
+  onSettingsClick,
 }: AppHeaderProps) {
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     onSearchChange(event.currentTarget.value);
@@ -73,9 +75,9 @@ export function AppHeader({
         <button
           className="icon-button"
           type="button"
-          aria-label="Settings will be available in Phase 7"
-          title="Settings — Phase 7"
-          disabled
+          aria-label="Open settings"
+          title="Settings"
+          onClick={onSettingsClick}
         >
           <SettingsIcon width={19} height={19} />
         </button>

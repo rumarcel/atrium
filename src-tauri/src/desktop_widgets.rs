@@ -129,8 +129,13 @@ struct BrokerInner {
     visible_widgets: HashSet<DesktopWidgetKind>,
     scheduler_running: bool,
     metrics_in_flight: bool,
+    /// Changes whenever a catalog refresh invalidates a metrics request.
+    metrics_generation: u64,
     metrics_polling_enabled: bool,
+    metrics_source_key: Option<String>,
     health_in_flight: bool,
+    /// Changes whenever a catalog refresh invalidates a health request.
+    health_generation: u64,
     next_metrics_due: Instant,
     next_health_due: Instant,
     snapshot: DesktopWidgetSnapshot,
@@ -144,17 +149,23 @@ pub struct DesktopWidgetBroker {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct PollClaims {
-    metrics: bool,
-    health: bool,
+    metrics: Option<u64>,
+    health: Option<u64>,
 }
 
 impl DesktopWidgetBroker {
     pub fn new(catalog: &ServiceCatalog) -> Self {
         let sampled_at = unix_time_ms();
-        let metrics_polling_enabled = catalog.has_enabled_service("glances");
-        let server_address = catalog
-            .resolve_endpoint("glances")
-            .ok()
+        let metrics_endpoint = catalog.resolve_endpoint("glances").ok();
+        let metrics_polling_enabled = metrics_endpoint.is_some();
+        let metrics_source_key = metrics_endpoint.as_ref().map(|endpoint| {
+            format!(
+                "{}|{}",
+                endpoint.url, endpoint.allow_invalid_local_certificate
+            )
+        });
+        let server_address = metrics_endpoint
+            .as_ref()
             .and_then(|endpoint| endpoint.url.host_str().map(str::to_owned))
             .unwrap_or_else(|| FALLBACK_SERVER_ADDRESS.to_owned());
         let now = Instant::now();
@@ -164,8 +175,11 @@ impl DesktopWidgetBroker {
                 visible_widgets: HashSet::new(),
                 scheduler_running: false,
                 metrics_in_flight: false,
+                metrics_generation: 0,
                 metrics_polling_enabled,
+                metrics_source_key,
                 health_in_flight: false,
+                health_generation: 0,
                 next_metrics_due: now,
                 next_health_due: now,
                 snapshot: DesktopWidgetSnapshot {
@@ -216,6 +230,77 @@ impl DesktopWidgetBroker {
         }
 
         if !inner.visible_widgets.is_empty() && !inner.scheduler_running {
+            inner.scheduler_running = true;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    pub(crate) fn refresh_catalog(&self, catalog: &ServiceCatalog) -> Result<bool, String> {
+        let metrics_endpoint = catalog.resolve_endpoint("glances").ok();
+        let metrics_polling_enabled = metrics_endpoint.is_some();
+        let metrics_source_key = metrics_endpoint.as_ref().map(|endpoint| {
+            format!(
+                "{}|{}",
+                endpoint.url, endpoint.allow_invalid_local_certificate
+            )
+        });
+        let server_address = metrics_endpoint
+            .as_ref()
+            .and_then(|endpoint| endpoint.url.host_str().map(str::to_owned))
+            .unwrap_or_else(|| FALLBACK_SERVER_ADDRESS.to_owned());
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| "The desktop widget broker is unavailable.".to_string())?;
+        inner.metrics_polling_enabled = metrics_polling_enabled;
+        inner.metrics_source_key = metrics_source_key;
+        inner.snapshot.server_address = server_address;
+
+        // A catalog refresh changes the trusted input set for both request
+        // types. Invalidate all older work, including work for an unchanged
+        // Glances endpoint, because the service list may have changed.
+        inner.metrics_generation = inner.metrics_generation.wrapping_add(1);
+        inner.health_generation = inner.health_generation.wrapping_add(1);
+        inner.metrics_in_flight = false;
+        inner.health_in_flight = false;
+
+        let now = Instant::now();
+        inner.next_metrics_due = now;
+        inner.next_health_due = now;
+        inner.trends.clear();
+        inner.snapshot.trends.clear();
+        inner.snapshot.metrics = DesktopWidgetMetrics::default();
+        inner.snapshot.status = MonitoringStatus::Unavailable;
+        inner.snapshot.sampled_at = unix_time_ms();
+        inner.snapshot.provider_state = if metrics_polling_enabled {
+            MonitoringProviderState::Configured
+        } else {
+            MonitoringProviderState::NotConfigured
+        };
+        inner.snapshot.reason = if metrics_polling_enabled {
+            None
+        } else {
+            Some(MonitoringUnavailableReason::NotConfigured)
+        };
+        inner.snapshot.message = Some(if metrics_polling_enabled {
+            "Waiting for server monitoring after the catalog changed.".into()
+        } else {
+            "Server monitoring is not configured. Add and enable a Glances service to show system metrics."
+                .into()
+        });
+        inner.snapshot.services.clear();
+        inner.health_sampled_at = None;
+
+        let needs_metrics = metrics_polling_enabled
+            && inner
+                .visible_widgets
+                .iter()
+                .any(|kind| matches!(kind, DesktopWidgetKind::Server | DesktopWidgetKind::Storage));
+        let needs_health = inner.visible_widgets.contains(&DesktopWidgetKind::Services);
+
+        if (needs_metrics || needs_health) && !inner.scheduler_running {
             inner.scheduler_running = true;
             return Ok(true);
         }
@@ -291,21 +376,36 @@ impl DesktopWidgetBroker {
         if needs_metrics && !inner.metrics_in_flight && now >= inner.next_metrics_due {
             inner.metrics_in_flight = true;
             inner.next_metrics_due = now + METRICS_CADENCE;
-            claims.metrics = true;
+            claims.metrics = Some(inner.metrics_generation);
         }
         if needs_health && !inner.health_in_flight && now >= inner.next_health_due {
             inner.health_in_flight = true;
             inner.next_health_due = now + HEALTH_CADENCE;
-            claims.health = true;
+            claims.health = Some(inner.health_generation);
         }
 
         Ok(Some(claims))
     }
 
-    fn update_metrics(&self, metrics: ServerMetrics) {
+    fn update_metrics(&self, generation: u64, metrics: ServerMetrics) {
         let Ok(mut inner) = self.inner.lock() else {
             return;
         };
+
+        if generation != inner.metrics_generation {
+            // Do not clear metrics_in_flight here: a newer generation may
+            // already own the shared poll slot.
+            return;
+        }
+
+        if metrics.provider_state == MonitoringProviderState::NotConfigured {
+            inner.metrics_polling_enabled = false;
+        } else if !inner.metrics_polling_enabled {
+            // A request that started before Settings disabled or replaced the
+            // provider must not resurrect stale telemetry or restart polling.
+            inner.metrics_in_flight = false;
+            return;
+        }
 
         inner.snapshot.status = metrics.status;
         inner.snapshot.provider_state = metrics.provider_state;
@@ -321,15 +421,24 @@ impl DesktopWidgetBroker {
             inner.snapshot.trends = inner.trends.iter().cloned().collect();
         }
         inner.snapshot.message = metrics.message;
-        inner.metrics_polling_enabled =
-            metrics.provider_state != MonitoringProviderState::NotConfigured;
         inner.metrics_in_flight = false;
     }
 
-    fn update_services(&self, services: Vec<DesktopWidgetService>, sampled_at: u64) {
+    fn update_services(
+        &self,
+        generation: u64,
+        services: Vec<DesktopWidgetService>,
+        sampled_at: u64,
+    ) {
         let Ok(mut inner) = self.inner.lock() else {
             return;
         };
+
+        if generation != inner.health_generation {
+            // Do not clear health_in_flight here: a newer generation may
+            // already own the shared poll slot.
+            return;
+        }
 
         inner.snapshot.services = services;
         inner.health_sampled_at = Some(sampled_at);
@@ -362,6 +471,17 @@ pub fn set_desktop_widget_visibility(
     Ok(())
 }
 
+pub(crate) fn refresh_after_catalog_change(
+    app: &AppHandle,
+    catalog: &ServiceCatalog,
+    broker: &DesktopWidgetBroker,
+) -> Result<(), String> {
+    if broker.refresh_catalog(catalog)? {
+        start_scheduler(app.clone());
+    }
+    Ok(())
+}
+
 fn authorize_widget(caller_label: &str, kind: DesktopWidgetKind) -> Result<(), String> {
     if caller_label == kind.window_label() {
         Ok(())
@@ -380,11 +500,11 @@ fn start_scheduler(app: AppHandle) {
                 Ok(None) | Err(_) => return,
             };
 
-            if claims.metrics {
-                spawn_metrics_poll(app.clone());
+            if let Some(generation) = claims.metrics {
+                spawn_metrics_poll(app.clone(), generation);
             }
-            if claims.health {
-                spawn_health_poll(app.clone());
+            if let Some(generation) = claims.health {
+                spawn_health_poll(app.clone(), generation);
             }
 
             std::thread::sleep(SCHEDULER_TICK);
@@ -392,18 +512,19 @@ fn start_scheduler(app: AppHandle) {
         .expect("the desktop widget broker scheduler could not be started");
 }
 
-fn spawn_metrics_poll(app: AppHandle) {
+fn spawn_metrics_poll(app: AppHandle, generation: u64) {
     tauri::async_runtime::spawn(async move {
         let metrics = {
             let catalog = app.state::<ServiceCatalog>();
             let clients = app.state::<GlancesClients>();
             monitoring::collect_server_metrics(&catalog, &clients).await
         };
-        app.state::<DesktopWidgetBroker>().update_metrics(metrics);
+        app.state::<DesktopWidgetBroker>()
+            .update_metrics(generation, metrics);
     });
 }
 
-fn spawn_health_poll(app: AppHandle) {
+fn spawn_health_poll(app: AppHandle, generation: u64) {
     tauri::async_runtime::spawn(async move {
         let targets = app.state::<ServiceCatalog>().enabled_health_targets();
         let clients = app.state::<HealthClients>();
@@ -420,7 +541,7 @@ fn spawn_health_poll(app: AppHandle) {
         .await;
         services.sort_unstable_by(|left, right| left.id.cmp(&right.id));
         app.state::<DesktopWidgetBroker>()
-            .update_services(services, unix_time_ms());
+            .update_services(generation, services, unix_time_ms());
     });
 }
 
@@ -454,10 +575,24 @@ fn unix_time_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service_settings::{ServiceConfiguration, BUNDLED_SERVICE_CONFIG};
 
     fn broker() -> DesktopWidgetBroker {
         let catalog = ServiceCatalog::from_bundled_config().unwrap();
         DesktopWidgetBroker::new(&catalog)
+    }
+
+    fn bundled_configuration() -> ServiceConfiguration {
+        ServiceConfiguration::parse_document(BUNDLED_SERVICE_CONFIG).unwrap()
+    }
+
+    fn service(id: &str, status: HealthStatus) -> DesktopWidgetService {
+        DesktopWidgetService {
+            id: id.into(),
+            name: id.into(),
+            status,
+            message: None,
+        }
     }
 
     fn sample(sampled_at: u64) -> ServerMetrics {
@@ -548,8 +683,8 @@ mod tests {
         assert_eq!(
             claims,
             PollClaims {
-                metrics: true,
-                health: false
+                metrics: Some(0),
+                health: None
             }
         );
 
@@ -580,8 +715,8 @@ mod tests {
         assert_eq!(
             first,
             PollClaims {
-                metrics: true,
-                health: false
+                metrics: Some(0),
+                health: None
             }
         );
         assert_eq!(duplicate, PollClaims::default());
@@ -601,8 +736,8 @@ mod tests {
         assert_eq!(
             claims,
             PollClaims {
-                metrics: false,
-                health: true
+                metrics: None,
+                health: Some(0)
             }
         );
     }
@@ -621,18 +756,18 @@ mod tests {
             .claim_due_polls(Instant::now() + Duration::from_millis(1))
             .unwrap()
             .unwrap();
-        assert!(first.metrics);
-        assert!(first.health);
+        assert_eq!(first.metrics, Some(0));
+        assert_eq!(first.health, Some(0));
 
-        broker.update_metrics(not_configured_sample(123));
-        broker.update_services(Vec::new(), 124);
+        broker.update_metrics(0, not_configured_sample(123));
+        broker.update_services(0, Vec::new(), 124);
         let later = broker
             .claim_due_polls(Instant::now() + HEALTH_CADENCE + Duration::from_millis(1))
             .unwrap()
             .unwrap();
 
-        assert!(!later.metrics);
-        assert!(later.health);
+        assert_eq!(later.metrics, None);
+        assert_eq!(later.health, Some(0));
     }
 
     #[test]
@@ -645,7 +780,7 @@ mod tests {
             .claim_due_polls(Instant::now() + Duration::from_millis(1))
             .unwrap();
 
-        broker.update_metrics(not_configured_sample(123));
+        broker.update_metrics(0, not_configured_sample(123));
 
         assert_eq!(
             broker
@@ -653,6 +788,139 @@ mod tests {
                 .unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn catalog_refresh_rejects_an_in_flight_metrics_result_from_the_old_endpoint() {
+        let catalog = ServiceCatalog::from_bundled_config().unwrap();
+        let broker = DesktopWidgetBroker::new(&catalog);
+        assert!(broker
+            .set_visibility(DesktopWidgetKind::Server, true)
+            .unwrap());
+        let old_generation = broker
+            .claim_due_polls(Instant::now() + Duration::from_millis(1))
+            .unwrap()
+            .unwrap()
+            .metrics
+            .unwrap();
+
+        let mut replacement = bundled_configuration();
+        replacement
+            .services
+            .iter_mut()
+            .find(|service| service.id == "glances")
+            .unwrap()
+            .url = "http://192.168.0.42:61208".into();
+        catalog.replace_configuration(&replacement).unwrap();
+        assert!(!broker.refresh_catalog(&catalog).unwrap());
+
+        let new_generation = broker
+            .claim_due_polls(Instant::now() + Duration::from_millis(2))
+            .unwrap()
+            .unwrap()
+            .metrics
+            .unwrap();
+        assert_ne!(old_generation, new_generation);
+
+        broker.update_metrics(old_generation, sample(123));
+        let inner = broker.inner.lock().unwrap();
+        assert!(inner.metrics_in_flight);
+        assert_eq!(inner.snapshot.metrics.cpu_percent, None);
+        drop(inner);
+
+        broker.update_metrics(new_generation, sample(456));
+        let snapshot = broker.snapshot(DesktopWidgetKind::Server).unwrap();
+        assert_eq!(snapshot.server_address, "192.168.0.42");
+        assert_eq!(snapshot.metrics.cpu_percent, Some(25.0));
+        assert_eq!(snapshot.sampled_at, 456);
+    }
+
+    #[test]
+    fn catalog_refresh_prevents_disabled_glances_from_receiving_an_old_result() {
+        let catalog = ServiceCatalog::from_bundled_config().unwrap();
+        let broker = DesktopWidgetBroker::new(&catalog);
+        assert!(broker
+            .set_visibility(DesktopWidgetKind::Storage, true)
+            .unwrap());
+        let old_generation = broker
+            .claim_due_polls(Instant::now() + Duration::from_millis(1))
+            .unwrap()
+            .unwrap()
+            .metrics
+            .unwrap();
+
+        let mut replacement = bundled_configuration();
+        replacement
+            .services
+            .iter_mut()
+            .find(|service| service.id == "glances")
+            .unwrap()
+            .enabled = false;
+        catalog.replace_configuration(&replacement).unwrap();
+        broker.refresh_catalog(&catalog).unwrap();
+        broker.update_metrics(old_generation, sample(123));
+
+        let snapshot = broker.snapshot(DesktopWidgetKind::Server).unwrap();
+        assert_eq!(
+            snapshot.provider_state,
+            MonitoringProviderState::NotConfigured
+        );
+        assert_eq!(snapshot.metrics.cpu_percent, None);
+        assert_eq!(
+            broker
+                .claim_due_polls(Instant::now() + METRICS_CADENCE)
+                .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn catalog_refresh_clears_service_attention_and_rejects_old_service_results() {
+        let catalog = ServiceCatalog::from_bundled_config().unwrap();
+        let broker = DesktopWidgetBroker::new(&catalog);
+        broker.update_services(
+            0,
+            vec![service("removed-service", HealthStatus::Offline)],
+            123,
+        );
+        assert!(broker
+            .set_visibility(DesktopWidgetKind::Services, true)
+            .unwrap());
+
+        let mut replacement = bundled_configuration();
+        replacement
+            .services
+            .retain(|service| service.id != "jellyfin");
+        catalog.replace_configuration(&replacement).unwrap();
+        assert!(!broker.refresh_catalog(&catalog).unwrap());
+
+        let cleared = broker.snapshot(DesktopWidgetKind::Services).unwrap();
+        assert_eq!(cleared.status, MonitoringStatus::Unavailable);
+        assert!(cleared.services.is_empty());
+
+        let new_generation = broker
+            .claim_due_polls(Instant::now() + Duration::from_millis(1))
+            .unwrap()
+            .unwrap()
+            .health
+            .unwrap();
+        assert_eq!(new_generation, 1);
+        broker.update_services(0, vec![service("jellyfin", HealthStatus::Offline)], 456);
+        assert!(broker
+            .snapshot(DesktopWidgetKind::Services)
+            .unwrap()
+            .services
+            .is_empty());
+        assert!(broker.inner.lock().unwrap().health_in_flight);
+
+        broker.update_services(
+            new_generation,
+            vec![service("cockpit", HealthStatus::Online)],
+            789,
+        );
+        let updated = broker.snapshot(DesktopWidgetKind::Services).unwrap();
+        assert_eq!(updated.sampled_at, 789);
+        assert_eq!(updated.services[0].id, "cockpit");
     }
 
     #[test]
@@ -692,7 +960,7 @@ mod tests {
     fn metric_history_is_bounded_to_the_latest_24_samples() {
         let broker = broker();
         for sampled_at in 0..30 {
-            broker.update_metrics(sample(sampled_at));
+            broker.update_metrics(0, sample(sampled_at));
         }
 
         let snapshot = broker.snapshot(DesktopWidgetKind::Server).unwrap();
@@ -704,7 +972,7 @@ mod tests {
     #[test]
     fn snapshot_matches_the_frontend_camel_case_contract() {
         let broker = broker();
-        broker.update_metrics(sample(123));
+        broker.update_metrics(0, sample(123));
         let value =
             serde_json::to_value(broker.snapshot(DesktopWidgetKind::Server).unwrap()).unwrap();
 
@@ -722,8 +990,9 @@ mod tests {
     #[test]
     fn snapshots_are_scoped_to_the_authorized_card() {
         let broker = broker();
-        broker.update_metrics(sample(123));
+        broker.update_metrics(0, sample(123));
         broker.update_services(
+            0,
             vec![DesktopWidgetService {
                 id: "jellyfin".into(),
                 name: "Jellyfin".into(),

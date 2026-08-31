@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reset-service-configuration"
+description = "Enables the reset_service_configuration command without any pre-configured scope."
+commands.allow = ["reset_service_configuration"]
+
+[[permission]]
+identifier = "deny-reset-service-configuration"
+description = "Denies the reset_service_configuration command without any pre-configured scope."
+commands.deny = ["reset_service_configuration"]
