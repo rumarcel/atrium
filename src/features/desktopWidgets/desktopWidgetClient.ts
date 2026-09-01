@@ -5,6 +5,7 @@ import type {
   DesktopWidgetKind,
   DesktopWidgetMetrics,
   DesktopWidgetProviderState,
+  DesktopWidgetRuntimeState,
   DesktopWidgetService,
   DesktopWidgetServiceStatus,
   DesktopWidgetSnapshot,
@@ -14,12 +15,38 @@ import type {
 
 const SNAPSHOT_COMMAND = "get_desktop_widget_snapshot";
 const SET_VISIBILITY_COMMAND = "set_desktop_widget_visibility";
+const GET_RUNTIME_STATE_COMMAND = "get_desktop_widget_runtime_state";
+const DISABLE_WIDGET_COMMAND = "disable_desktop_widget";
 const MAX_SERVICES = 500;
 const MAX_DISKS = 64;
 const MAX_TREND_SAMPLES = 24;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function parseDesktopWidgetRuntimeState(
+  value: unknown,
+): DesktopWidgetRuntimeState {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== 1 ||
+    !Object.prototype.hasOwnProperty.call(value, "geometryRevision") ||
+    typeof value.geometryRevision !== "string"
+  ) {
+    throw new Error("The desktop widget runtime state had an unexpected shape.");
+  }
+
+  const geometryRevision = value.geometryRevision.trim();
+  if (
+    geometryRevision.length === 0 ||
+    geometryRevision.length > 256 ||
+    geometryRevision !== value.geometryRevision
+  ) {
+    throw new Error("The desktop widget runtime state had an invalid revision.");
+  }
+
+  return { geometryRevision };
 }
 
 function finiteNumber(value: unknown, minimum = 0): number | null {
@@ -298,15 +325,25 @@ export async function setDesktopWidgetVisibility(
   await invoke(SET_VISIBILITY_COMMAND, { kind, visible });
 }
 
-export async function hideDesktopWidget(
+export async function getDesktopWidgetRuntimeState(
+  kind: DesktopWidgetKind,
+): Promise<DesktopWidgetRuntimeState> {
+  if (!isTauri()) {
+    return { geometryRevision: "preview" };
+  }
+
+  const response = await invoke<unknown>(GET_RUNTIME_STATE_COMMAND, { kind });
+  return parseDesktopWidgetRuntimeState(response);
+}
+
+export async function disableDesktopWidget(
   kind: DesktopWidgetKind,
 ): Promise<void> {
   if (!isTauri()) {
     return;
   }
 
-  await setDesktopWidgetVisibility(kind, false);
-  await getCurrentWindow().hide();
+  await invoke(DISABLE_WIDGET_COMMAND, { kind });
 }
 
 export async function startDesktopWidgetDrag(): Promise<void> {

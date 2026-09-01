@@ -1,5 +1,10 @@
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshIcon } from "../components/icons/AppIcons";
+import {
+  MAIN_RESUMED_EVENT,
+  OPEN_SETTINGS_EVENT,
+} from "../features/backgroundRuntime";
 import { AppHeader } from "../features/dashboard/components/AppHeader";
 import { useServiceHealth } from "../features/health/hooks/useServiceHealth";
 import { ServerMonitoring } from "../features/monitoring";
@@ -93,6 +98,7 @@ export function DashboardPage() {
     status: "idle",
     error: null,
   });
+  const [runtimeResumeRevision, setRuntimeResumeRevision] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const nativeRevisionRef = useRef(0);
   const registryRevisionRef = useRef(0);
@@ -377,6 +383,7 @@ export function DashboardPage() {
     announce,
     boundsMeasurement,
     isActiveServiceClosing,
+    runtimeResumeRevision,
   ]);
 
   const handleOpenService = useCallback(
@@ -435,6 +442,50 @@ export function DashboardPage() {
     setContextMenu(null);
     setSettingsView({ initialServiceId: service?.id ?? null });
   }, []);
+
+  useEffect(() => {
+    if (!isDesktopRuntime()) {
+      return;
+    }
+
+    let disposed = false;
+    const unlisteners: UnlistenFn[] = [];
+
+    const attachRuntimeListeners = async () => {
+      const removeOpenSettings = await listen(OPEN_SETTINGS_EVENT, () => {
+        handleOpenSettings();
+      });
+      if (disposed) {
+        removeOpenSettings();
+        return;
+      }
+      unlisteners.push(removeOpenSettings);
+
+      const removeMainResumed = await listen(MAIN_RESUMED_EVENT, () => {
+        lastActiveServiceRef.current = null;
+        setRuntimeResumeRevision((current) => current + 1);
+        reload();
+      });
+      if (disposed) {
+        removeMainResumed();
+        return;
+      }
+      unlisteners.push(removeMainResumed);
+    };
+
+    void attachRuntimeListeners().catch((nativeError: unknown) => {
+      if (!disposed) {
+        announce(describeNativeError(nativeError), "error");
+      }
+    });
+
+    return () => {
+      disposed = true;
+      for (const unlisten of unlisteners) {
+        unlisten();
+      }
+    };
+  }, [announce, handleOpenSettings, reload]);
 
   const handleCloseSettings = useCallback(() => {
     setSettingsView(null);

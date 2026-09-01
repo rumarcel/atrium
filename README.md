@@ -5,19 +5,20 @@ services. Built with Tauri v2, React, TypeScript and Vite.
 
 ## Current scope
 
-Phase 1 through Phase 7.1 are implemented: the desktop shell, responsive
+Phase 1 through Phase 7.2 are implemented: the desktop shell, responsive
 dashboard, validated service configuration, asynchronous service health checks,
 session-preserving native service tabs, live Glances monitoring and three
 server-only Windows desktop cards. Phase 7.0 adds a native Settings surface,
 writable per-user service configuration and Windows-backed credential storage;
 Phase 7.1 adds explicit, origin-bound authentication adapters and safe native
-validation state.
+validation state; Phase 7.2 adds the persistent opt-in card manager, tray and
+safe close-to-background lifecycle.
 The dashboard keeps its original Phase 6
 composition; the desktop cards are separate native surfaces rather than an
 in-app widget editor. The server summary now exposes Glances uptime, and an
 explicit service-tab close tears down its native WebView so media cannot remain
-audible invisibly. Background card controls, themes and deeper Windows
-integrations remain in later phases. The remaining work is tracked in
+audible invisibly. Themes, service discovery and deeper Windows integrations
+remain in later phases. The remaining work is tracked in
 [`ROADMAP.md`](ROADMAP.md).
 
 ## Architecture
@@ -26,6 +27,8 @@ integrations remain in later phases. The remaining work is tracked in
 - `src/features/dashboard`: dashboard composition and system preview widgets.
 - `src/features/desktopWidgets`: separate server, storage and service-attention
   desktop-card surfaces plus safe window-geometry persistence.
+- `src/features/backgroundRuntime`: strict runtime preference client, native
+  event contract and experimental-card Settings surface.
 - `src/features/health`: native health-check client, bounded polling and runtime
   status types.
 - `src/features/monitoring`: validated Glances metrics, visibility-aware polling
@@ -242,21 +245,33 @@ visible, trends are bounded to 24 in-memory samples, and each card's command
 returns only its authorized data slice. Expected private self-signed TLS
 exceptions remain normal online services rather than false attention items.
 
-Card position and size are stored per card in physical pixels. Startup validates
-the saved rectangle against the current monitor work areas and safely returns an
-off-screen card to the primary monitor. **Hide** removes a card until Personal
-Hub restarts. Phase 7.2 will make the experimental card system opt-in and disabled
-by default, with per-card settings plus persistent tray show/hide and reset
-controls. Without Glances, the Server and Storage cards have no server telemetry
-to display and therefore remain unavailable or are omitted by the relevant card
-manager; Service attention remains usable because it depends on the independent
-health-check pipeline. No card substitutes local-machine or invented values.
+The experimental card system is opt-in and disabled by default. The master and
+three per-card switches are persisted in a separate versioned per-user document.
+When a card is not effectively enabled, its window and WebView are not created
+and its broker claim does not exist. The card close button disables that card
+persistently instead of hiding it until restart. Server and Storage remain
+unavailable without Glances; Service attention stays independent and requires
+at least one enabled health target. No card substitutes local-machine or
+invented values.
 
-Closing the main window exits the card windows as well until the Phase 7.2 tray
-runtime exists. That future hide-to-tray path must first close every service child
-WebView and only then hide the main window. Invisible/background service media is
-off by default; keeping a service player alive will require a separate explicit
-product decision rather than inheriting tab-switch behavior accidentally.
+Card position and size are stored per card in physical pixels. Startup validates
+the saved rectangle against current monitor work areas and safely returns an
+off-screen card to the primary monitor. Tray **Reset card positions** advances a
+native geometry revision and recreates effective cards, so a disabled card also
+ignores stale bounds when it is enabled later.
+
+With close-to-tray enabled and at least one effective card, closing the main
+window keeps those cards running. Before the main window is hidden, Rust blocks
+new service-view opens and destroys every service child WebView; Jellyfin and
+other media therefore cannot remain audible invisibly. A teardown failure keeps
+the main window visible. The tray provides Open Personal Hub, Settings, the
+master and per-card switches, geometry reset and an explicit Quit action. When
+no effective card exists—or close-to-tray is off—closing the main window exits
+normally. Cards use Tauri's supported always-below layer; Explorer/WorkerW
+desktop embedding is not enabled. If Windows tray creation fails, Settings shows
+that limitation and close-to-tray is disabled so the application cannot become
+an unreachable hidden process. Runtime preference writes are serialized across
+processes, revision-checked and atomically replaced.
 
 ## Publishing safely
 

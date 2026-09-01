@@ -5,4 +5,10 @@ export {
   DESKTOP_WIDGET_HASHES,
   desktopWidgetKindFromHash,
   type DesktopWidgetKind,
+  type DesktopWidgetRuntimeState,
 } from "./desktopWidget.types";
+export {
+  disableDesktopWidget,
+  getDesktopWidgetRuntimeState,
+  parseDesktopWidgetRuntimeState,
+} from "./desktopWidgetClient";

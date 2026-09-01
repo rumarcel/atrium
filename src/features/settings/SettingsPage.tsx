@@ -8,6 +8,7 @@ import {
   type FormEvent,
 } from "react";
 import { CloseIcon, SettingsIcon } from "../../components/icons/AppIcons";
+import { BackgroundRuntimeSettings } from "../backgroundRuntime";
 import { ServiceIcon } from "../services/components/ServiceIcon";
 import {
   parseServiceConfiguration,
@@ -889,7 +890,7 @@ export function SettingsPage({
           <div>
             <p className="eyebrow">Personal Hub</p>
             <h1>Settings</h1>
-            <p>Services and secure integration credentials.</p>
+            <p>Services, background runtime and secure integration credentials.</p>
           </div>
         </div>
         {onClose ? (
@@ -925,6 +926,8 @@ export function SettingsPage({
             <span>{notice}</span>
           </div>
         ) : null}
+
+        <BackgroundRuntimeSettings />
 
         <section className="settings-panel" aria-labelledby="service-settings-heading">
           <div className="settings-panel__heading">

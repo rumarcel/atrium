@@ -7,16 +7,26 @@ import {
   type Monitor,
 } from "@tauri-apps/api/window";
 import { useEffect } from "react";
+import { getDesktopWidgetRuntimeState } from "../desktopWidgetClient";
 import type { DesktopWidgetKind } from "../desktopWidget.types";
 
-const GEOMETRY_VERSION = 1;
+const GEOMETRY_VERSION = 2;
 const SAVE_DELAY_MS = 250;
 const EDGE_GAP_LOGICAL_PX = 16;
 const MINIMUM_VISIBLE_WIDTH = 96;
 const MINIMUM_VISIBLE_HEIGHT = 64;
 
+const DEFAULT_LOGICAL_SIZES: Readonly<
+  Record<DesktopWidgetKind, { width: number; height: number }>
+> = {
+  server: { width: 420, height: 380 },
+  storage: { width: 400, height: 320 },
+  services: { width: 400, height: 340 },
+};
+
 interface StoredGeometry {
   version: typeof GEOMETRY_VERSION;
+  geometryRevision: string;
   position: { x: number; y: number };
   size: { width: number; height: number };
 }
@@ -31,7 +41,10 @@ function finiteInteger(value: unknown): number | null {
     : null;
 }
 
-function readStoredGeometry(kind: DesktopWidgetKind): StoredGeometry | null {
+function readStoredGeometry(
+  kind: DesktopWidgetKind,
+  geometryRevision: string,
+): StoredGeometry | null {
   try {
     const raw = localStorage.getItem(storageKey(kind));
     if (raw === null) {
@@ -51,6 +64,7 @@ function readStoredGeometry(kind: DesktopWidgetKind): StoredGeometry | null {
 
     if (
       candidate.version !== GEOMETRY_VERSION ||
+      candidate.geometryRevision !== geometryRevision ||
       x === null ||
       y === null ||
       width === null ||
@@ -67,6 +81,7 @@ function readStoredGeometry(kind: DesktopWidgetKind): StoredGeometry | null {
 
     return {
       version: GEOMETRY_VERSION,
+      geometryRevision,
       position: { x, y },
       size: { width, height },
     };
@@ -77,12 +92,14 @@ function readStoredGeometry(kind: DesktopWidgetKind): StoredGeometry | null {
 
 function writeStoredGeometry(
   kind: DesktopWidgetKind,
+  geometryRevision: string,
   position: PhysicalPosition,
   size: PhysicalSize,
 ): void {
   try {
     const geometry: StoredGeometry = {
       version: GEOMETRY_VERSION,
+      geometryRevision,
       position: {
         x: Math.round(position.x),
         y: Math.round(position.y),
@@ -95,6 +112,14 @@ function writeStoredGeometry(
     localStorage.setItem(storageKey(kind), JSON.stringify(geometry));
   } catch {
     // Window persistence is best-effort; the card remains usable without it.
+  }
+}
+
+function removeStoredGeometry(kind: DesktopWidgetKind): void {
+  try {
+    localStorage.removeItem(storageKey(kind));
+  } catch {
+    // Reset remains usable even when WebView storage is unavailable.
   }
 }
 
@@ -205,6 +230,7 @@ export function useDesktopWidgetWindow(kind: DesktopWidgetKind): void {
     let saveTimer: ReturnType<typeof setTimeout> | null = null;
     let removeMovedListener: (() => void) | null = null;
     let removeResizedListener: (() => void) | null = null;
+    let geometryRevision: string | null = null;
 
     const saveGeometry = async () => {
       try {
@@ -212,8 +238,8 @@ export function useDesktopWidgetWindow(kind: DesktopWidgetKind): void {
           appWindow.outerPosition(),
           appWindow.outerSize(),
         ]);
-        if (!disposed) {
-          writeStoredGeometry(kind, position, size);
+        if (!disposed && geometryRevision !== null) {
+          writeStoredGeometry(kind, geometryRevision, position, size);
         }
       } catch {
         // Window persistence is best-effort; the card remains usable without it.
@@ -230,35 +256,75 @@ export function useDesktopWidgetWindow(kind: DesktopWidgetKind): void {
       }, SAVE_DELAY_MS);
     };
 
+    const applyGeometry = async (
+      nextGeometryRevision: string,
+      resetToDefault: boolean,
+    ) => {
+      const [currentSize, monitors, preferredMonitor] = await Promise.all([
+        appWindow.outerSize(),
+        availableMonitors(),
+        primaryMonitor(),
+      ]);
+      const fallbackMonitor = preferredMonitor ?? monitors[0] ?? null;
+      const defaultLogicalSize = DEFAULT_LOGICAL_SIZES[kind];
+      const resetSize =
+        fallbackMonitor === null
+          ? currentSize
+          : {
+              width: Math.round(
+                defaultLogicalSize.width * fallbackMonitor.scaleFactor,
+              ),
+              height: Math.round(
+                defaultLogicalSize.height * fallbackMonitor.scaleFactor,
+              ),
+            };
+      const stored = resetToDefault
+        ? null
+        : readStoredGeometry(kind, nextGeometryRevision);
+      const requestedSize = resetToDefault
+        ? resetSize
+        : (stored?.size ?? currentSize);
+      const size = constrainSize(requestedSize, monitors);
+
+      if (resetToDefault) {
+        removeStoredGeometry(kind);
+      }
+      if (resetToDefault || stored !== null) {
+        await appWindow.setSize(new PhysicalSize(size.width, size.height));
+      }
+
+      const position =
+        stored === null
+          ? fallbackMonitor === null
+            ? null
+            : defaultPosition(kind, size, fallbackMonitor)
+          : restorePosition(stored.position, size, monitors) ??
+            (fallbackMonitor === null
+              ? null
+              : defaultPosition(kind, size, fallbackMonitor));
+
+      if (position !== null) {
+        await appWindow.setPosition(position);
+      }
+    };
+
+    const synchronizeGeometryRevision = async () => {
+      const state = await getDesktopWidgetRuntimeState(kind);
+      if (disposed || state.geometryRevision === geometryRevision) {
+        return;
+      }
+
+      const isInitialRevision = geometryRevision === null;
+      geometryRevision = state.geometryRevision;
+      await applyGeometry(state.geometryRevision, !isInitialRevision);
+    };
+
     const initialize = async () => {
       try {
-        const [currentSize, monitors, preferredMonitor] = await Promise.all([
-          appWindow.outerSize(),
-          availableMonitors(),
-          primaryMonitor(),
-        ]);
-        const stored = readStoredGeometry(kind);
-        const requestedSize = stored?.size ?? currentSize;
-        const size = constrainSize(requestedSize, monitors);
-
-        if (stored !== null) {
-          await appWindow.setSize(new PhysicalSize(size.width, size.height));
-        }
-
-        const fallbackMonitor = preferredMonitor ?? monitors[0] ?? null;
-        const position =
-          stored === null
-            ? fallbackMonitor === null
-              ? null
-              : defaultPosition(kind, size, fallbackMonitor)
-            : restorePosition(stored.position, size, monitors) ??
-              (fallbackMonitor === null
-                ? null
-                : defaultPosition(kind, size, fallbackMonitor));
-
-        if (position !== null) {
-          await appWindow.setPosition(position);
-        }
+        await synchronizeGeometryRevision();
+      } catch {
+        // A card remains usable at its native default geometry if persistence
+        // state is temporarily unavailable.
       } finally {
         if (!disposed) {
           await appWindow.show();
@@ -269,10 +335,17 @@ export function useDesktopWidgetWindow(kind: DesktopWidgetKind): void {
         return;
       }
 
-      [removeMovedListener, removeResizedListener] = await Promise.all([
+      const [nextMovedListener, nextResizedListener] = await Promise.all([
         appWindow.onMoved(scheduleSave),
         appWindow.onResized(scheduleSave),
       ]);
+      if (disposed) {
+        nextMovedListener();
+        nextResizedListener();
+        return;
+      }
+      removeMovedListener = nextMovedListener;
+      removeResizedListener = nextResizedListener;
     };
 
     void initialize().catch(() => undefined);

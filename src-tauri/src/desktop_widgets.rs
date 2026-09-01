@@ -32,11 +32,19 @@ pub enum DesktopWidgetKind {
 }
 
 impl DesktopWidgetKind {
-    fn window_label(self) -> &'static str {
+    pub(crate) fn window_label(self) -> &'static str {
         match self {
             Self::Server => "widget-server",
             Self::Storage => "widget-storage",
             Self::Services => "widget-services",
+        }
+    }
+
+    pub(crate) fn slug(self) -> &'static str {
+        match self {
+            Self::Server => "server",
+            Self::Storage => "storage",
+            Self::Services => "services",
         }
     }
 }
@@ -216,11 +224,33 @@ impl DesktopWidgetBroker {
             .lock()
             .map_err(|_| "The desktop widget broker is unavailable.".to_string())?;
         let was_empty = inner.visible_widgets.is_empty();
+        let previously_needed_metrics = inner
+            .visible_widgets
+            .iter()
+            .any(|kind| matches!(kind, DesktopWidgetKind::Server | DesktopWidgetKind::Storage));
+        let previously_needed_health = inner.visible_widgets.contains(&DesktopWidgetKind::Services);
 
-        if visible {
-            inner.visible_widgets.insert(kind);
+        let changed = if visible {
+            inner.visible_widgets.insert(kind)
         } else {
-            inner.visible_widgets.remove(&kind);
+            inner.visible_widgets.remove(&kind)
+        };
+
+        if changed && !visible {
+            let needs_metrics = inner
+                .visible_widgets
+                .iter()
+                .any(|kind| matches!(kind, DesktopWidgetKind::Server | DesktopWidgetKind::Storage));
+            let needs_health = inner.visible_widgets.contains(&DesktopWidgetKind::Services);
+
+            if previously_needed_metrics && !needs_metrics {
+                inner.metrics_generation = inner.metrics_generation.wrapping_add(1);
+                inner.metrics_in_flight = false;
+            }
+            if previously_needed_health && !needs_health {
+                inner.health_generation = inner.health_generation.wrapping_add(1);
+                inner.health_in_flight = false;
+            }
         }
 
         if was_empty && !inner.visible_widgets.is_empty() {
@@ -235,6 +265,10 @@ impl DesktopWidgetBroker {
         }
 
         Ok(false)
+    }
+
+    pub(crate) fn deactivate(&self, kind: DesktopWidgetKind) -> Result<(), String> {
+        self.set_visibility(kind, false).map(|_| ())
     }
 
     pub(crate) fn refresh_catalog(&self, catalog: &ServiceCatalog) -> Result<bool, String> {
@@ -691,6 +725,52 @@ mod tests {
         broker
             .set_visibility(DesktopWidgetKind::Server, false)
             .unwrap();
+        assert_eq!(broker.claim_due_polls(Instant::now()).unwrap(), None);
+    }
+
+    #[test]
+    fn removing_the_last_metric_consumer_invalidates_in_flight_work() {
+        let broker = broker();
+        broker
+            .set_visibility(DesktopWidgetKind::Server, true)
+            .unwrap();
+        let old_generation = broker
+            .claim_due_polls(Instant::now() + Duration::from_millis(1))
+            .unwrap()
+            .unwrap()
+            .metrics
+            .unwrap();
+
+        broker.deactivate(DesktopWidgetKind::Server).unwrap();
+        broker.update_metrics(old_generation, sample(123));
+
+        let snapshot = broker.snapshot(DesktopWidgetKind::Server).unwrap();
+        assert_eq!(snapshot.metrics.cpu_percent, None);
+        assert_eq!(broker.claim_due_polls(Instant::now()).unwrap(), None);
+    }
+
+    #[test]
+    fn removing_the_last_health_consumer_invalidates_in_flight_work() {
+        let broker = broker();
+        broker
+            .set_visibility(DesktopWidgetKind::Services, true)
+            .unwrap();
+        let old_generation = broker
+            .claim_due_polls(Instant::now() + Duration::from_millis(1))
+            .unwrap()
+            .unwrap()
+            .health
+            .unwrap();
+
+        broker.deactivate(DesktopWidgetKind::Services).unwrap();
+        broker.update_services(
+            old_generation,
+            vec![service("jellyfin", HealthStatus::Offline)],
+            123,
+        );
+
+        let snapshot = broker.snapshot(DesktopWidgetKind::Services).unwrap();
+        assert!(snapshot.services.is_empty());
         assert_eq!(broker.claim_due_polls(Instant::now()).unwrap(), None);
     }
 

@@ -32,6 +32,8 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
   Windows-backed credential vault.
 - Phase 7.1: origin-bound provider authentication, native validation and
   exact-origin WebView2 HTTP Basic handling.
+- Phase 7.2: persistent background runtime, opt-in desktop cards and native
+  tray lifecycle.
 
 ## Phase 6.1 — Windows desktop cards (completed)
 
@@ -47,8 +49,8 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
   card needs that data.
 - Position and size persist per card, with automatic recovery when saved geometry
   no longer intersects an available monitor.
-- Hide-until-restart behavior; persistent visibility and reset controls move to
-  the Phase 7.2 settings and tray manager.
+- Phase 6.1 initially shipped hide-until-restart behavior; Phase 7.2 replaces
+  it with persistent per-card Settings and tray controls.
 - No local Windows hardware telemetry, clock/date or credential-dependent
   provider integration.
 
@@ -65,9 +67,8 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
   uptime or other server telemetry, while independent service health continues.
 - Glances-dependent Server and Storage desktop cards are unavailable or omitted
   when that provider is absent; Service attention remains independent.
-- The lifecycle contract for the later tray runtime closes all service child
-  WebViews before hiding the main window. Invisible background playback is off
-  by default.
+- The Phase 7.2 tray runtime closes all service child WebViews before hiding the
+  main window. Invisible background playback remains off by default.
 - Regression coverage protects service-tab close, media teardown, unavailable
   uptime and optional-provider behavior.
 
@@ -104,7 +105,7 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
   provider-specific OIDC/SSO handoff remains a dormant extension point until a
   supported service exposes a documented flow that needs one.
 
-### Phase 7.2 — Background runtime and experimental desktop cards
+### Phase 7.2 — Background runtime and experimental desktop cards (completed)
 
 - An `Experimental desktop cards` master switch, disabled by default, plus
   independent Server, Storage and Service-attention card switches.
@@ -116,6 +117,19 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - A separate, clearly labeled Explorer desktop-layer experiment may be offered
   only after Windows-version, Explorer-restart, DPI and multi-monitor testing;
   it is never the default.
+- Runtime preferences use an exact, versioned schema, cross-process serialized
+  revision-checked writes and atomic per-user persistence. The safe
+  first-run/recovery state creates no card window or polling claim.
+- Card windows are created dynamically only for effective selections. Removing
+  Glances closes Server/Storage cards; adding it back restores selected cards.
+- Closing the main window first suspends service-view creation, releases every
+  child WebView and only then hides the window. A failed teardown keeps the
+  main window visible, while tray Open resumes the service lifecycle.
+- Card close controls now disable that card persistently. Geometry reset uses a
+  native revision so even a currently disabled card cannot restore stale bounds.
+- Tray setup is best-effort: if Windows cannot create it, Settings reports the
+  limitation and closing the main window exits instead of hiding an unreachable
+  process.
 
 ### Phase 7.3 — Appearance and languages
 
@@ -161,6 +175,8 @@ Theme Studio and safe theme packs are part of this phase:
 ## Phase 8 — Windows desktop integration
 
 - NSIS installer, application/taskbar icons and startup registration.
+- Single-instance activation so launching Personal Hub again restores the
+  existing tray/background process instead of creating duplicate UI surfaces.
 - Signed-release and installed-version visibility so the running build can be
   identified from an About/update page.
 - Disk, download and service-outage notifications.

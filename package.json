@@ -12,7 +12,7 @@
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "test": "pnpm test:frontend",
-    "test:frontend": "tsc -p tsconfig.tests.json && node --test tests/nativeServiceWebviews.test.mjs tests/monitoringFormatters.test.mjs tests/settingsClient.test.mjs",
+    "test:frontend": "tsc -p tsconfig.tests.json && node --test tests/backgroundRuntimeClient.test.mjs tests/nativeServiceWebviews.test.mjs tests/monitoringFormatters.test.mjs tests/settingsClient.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

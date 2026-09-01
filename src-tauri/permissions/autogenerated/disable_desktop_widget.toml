@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-disable-desktop-widget"
+description = "Enables the disable_desktop_widget command without any pre-configured scope."
+commands.allow = ["disable_desktop_widget"]
+
+[[permission]]
+identifier = "deny-disable-desktop-widget"
+description = "Denies the disable_desktop_widget command without any pre-configured scope."
+commands.deny = ["disable_desktop_widget"]

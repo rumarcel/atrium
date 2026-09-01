@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import {
-  hideDesktopWidget,
+  disableDesktopWidget,
   startDesktopWidgetDrag,
 } from "../desktopWidgetClient";
 import type {
@@ -36,7 +36,7 @@ export function DesktopWidgetShell({
   children,
 }: DesktopWidgetShellProps) {
   const [windowActionError, setWindowActionError] = useState<string | null>(null);
-  const [isHiding, setIsHiding] = useState(false);
+  const [isDisabling, setIsDisabling] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.add("desktop-widget-document");
@@ -48,19 +48,19 @@ export function DesktopWidgetShell({
     };
   }, []);
 
-  const handleHide = useCallback(async () => {
-    setIsHiding(true);
+  const handleDisable = useCallback(async () => {
+    setIsDisabling(true);
     setWindowActionError(null);
 
     try {
-      await hideDesktopWidget(kind);
+      await disableDesktopWidget(kind);
     } catch (error) {
       setWindowActionError(
         error instanceof Error && error.message.trim().length > 0
           ? error.message.slice(0, 240)
-          : "This desktop card could not be hidden.",
+          : "This desktop card could not be disabled.",
       );
-      setIsHiding(false);
+      setIsDisabling(false);
     }
   }, [kind]);
 
@@ -155,10 +155,10 @@ export function DesktopWidgetShell({
             </button>
             <button
               type="button"
-              onClick={handleHide}
-              disabled={isHiding}
-              aria-label={`Hide ${title}`}
-              title="Hide until Personal Hub restarts"
+              onClick={handleDisable}
+              disabled={isDisabling}
+              aria-label={`Turn off ${title}`}
+              title="Turn off this desktop card"
             >
               <WidgetCloseIcon />
             </button>

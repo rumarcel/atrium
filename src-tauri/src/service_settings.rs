@@ -1,4 +1,5 @@
 use crate::{
+    background_runtime::schedule_catalog_reconcile,
     credential_vault::delete_all_service_credentials,
     desktop_widgets::{refresh_after_catalog_change, DesktopWidgetBroker},
     service_webviews::{revoke_stale_service_webviews, ServiceCatalog, ServiceWebviewRegistry},
@@ -680,6 +681,8 @@ fn reconcile_catalog_change(
             "Desktop-card monitoring could not be refreshed after the catalog changed.".to_string(),
         );
     }
+
+    schedule_catalog_reconcile(app.clone());
 
     notices
 }

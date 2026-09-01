@@ -12,6 +12,9 @@
     "target": "ES2022"
   },
   "include": [
+    "src/features/backgroundRuntime/backgroundRuntimeClient.ts",
+    "src/features/backgroundRuntime/backgroundRuntimeSaveGeneration.ts",
+    "src/features/desktopWidgets/desktopWidgetClient.ts",
     "src/features/monitoring/monitoringFormatters.ts",
     "src/features/services/hooks/catalogRequestGeneration.ts",
     "src/features/settings/settingsClient.ts",

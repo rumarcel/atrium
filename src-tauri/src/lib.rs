@@ -1,3 +1,4 @@
+mod background_runtime;
 mod credential_vault;
 mod desktop_widgets;
 mod health;
@@ -6,7 +7,7 @@ mod provider_auth;
 mod service_settings;
 mod service_webviews;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,7 +16,7 @@ pub fn run() {
         .expect("the application configuration directory is unavailable")
         .join(&context.config().identifier);
     let settings = service_settings::ServiceSettings::initialize(
-        configuration_directory,
+        &configuration_directory,
         service_settings::BUNDLED_SERVICE_CONFIG,
     )
     .expect("the service settings could not be initialized");
@@ -27,6 +28,9 @@ pub fn run() {
     let desktop_widget_broker = desktop_widgets::DesktopWidgetBroker::new(&catalog);
     let provider_auth = provider_auth::ProviderAuthManager::new()
         .expect("the provider-authentication clients could not be initialized");
+    let background_runtime =
+        background_runtime::BackgroundRuntimeSettings::initialize(configuration_directory)
+            .expect("the background runtime settings could not be initialized");
 
     tauri::Builder::default()
         .manage(
@@ -38,6 +42,7 @@ pub fn run() {
                 .expect("the Glances HTTP clients could not be initialized"),
         )
         .manage(provider_auth)
+        .manage(background_runtime)
         .manage(service_webviews::ServiceWebviewRegistry::default())
         .manage(settings)
         .manage(catalog)
@@ -47,6 +52,10 @@ pub fn run() {
             monitoring::get_server_metrics,
             desktop_widgets::get_desktop_widget_snapshot,
             desktop_widgets::set_desktop_widget_visibility,
+            background_runtime::get_background_runtime_preferences,
+            background_runtime::save_background_runtime_preferences,
+            background_runtime::get_desktop_widget_runtime_state,
+            background_runtime::disable_desktop_widget,
             service_settings::get_service_configuration,
             service_settings::save_service_configuration,
             service_settings::reset_service_configuration,
@@ -63,11 +72,83 @@ pub fn run() {
             service_webviews::close_service_webview,
             service_webviews::open_service_in_system_browser,
         ])
+        .setup(background_runtime::setup)
         .on_window_event(|window, event| {
-            if window.label() == "main"
-                && matches!(event, tauri::WindowEvent::CloseRequested { .. })
-            {
-                window.app_handle().exit(0);
+            if window.label() != "main" {
+                return;
+            }
+
+            let tauri::WindowEvent::CloseRequested { api, .. } = event else {
+                return;
+            };
+            let app = window.app_handle().clone();
+            let settings = app.state::<background_runtime::BackgroundRuntimeSettings>();
+            let catalog = app.state::<service_webviews::ServiceCatalog>();
+            let should_background = match settings.should_close_to_tray(&catalog) {
+                Ok(should_background) => should_background,
+                Err(error) => {
+                    api.prevent_close();
+                    eprintln!(
+                        "Personal Hub stayed open because its close policy is unavailable: {error}"
+                    );
+                    return;
+                }
+            };
+
+            if !should_background {
+                app.exit(0);
+                return;
+            }
+
+            api.prevent_close();
+            if !background_runtime::begin_close_to_tray(&settings) {
+                return;
+            }
+
+            let worker_app = app.clone();
+            let worker_window = window.clone();
+            let spawn_result = std::thread::Builder::new()
+                .name("personal-hub-close-to-tray".into())
+                .spawn(move || {
+                    let registry = worker_app.state::<service_webviews::ServiceWebviewRegistry>();
+                    let teardown_result = service_webviews::suspend_and_close_all_service_webviews(
+                        &worker_app,
+                        &registry,
+                    );
+                    let background_result = teardown_result.and_then(|_| {
+                        worker_window.hide().map_err(|error| {
+                            format!("The main window could not be hidden: {error}")
+                        })
+                    });
+
+                    if let Err(error) = background_result {
+                        // Resume service creation only after the main window is
+                        // visible again. This preserves the invariant that a
+                        // hidden Personal Hub cannot own a playing service
+                        // renderer, even when native close or hide fails.
+                        let unminimize_result = match worker_window.is_minimized() {
+                            Ok(true) => worker_window.unminimize(),
+                            Ok(false) => Ok(()),
+                            Err(error) => Err(error),
+                        };
+                        if unminimize_result.and_then(|_| worker_window.show()).is_ok() {
+                            let _ = service_webviews::resume_service_webviews(&registry);
+                            let _ = worker_window.set_focus();
+                            let _ = worker_window.emit("personal-hub://main-resumed", ());
+                        }
+                        eprintln!("Personal Hub stayed open: {error}");
+                    }
+
+                    worker_app
+                        .state::<background_runtime::BackgroundRuntimeSettings>()
+                        .end_close_to_tray();
+                });
+
+            if let Err(error) = spawn_result {
+                settings.end_close_to_tray();
+                let _ = window.show();
+                let _ = window.set_focus();
+                eprintln!("Personal Hub could not start its close-to-tray worker: {error}");
             }
         })
         .run(context)

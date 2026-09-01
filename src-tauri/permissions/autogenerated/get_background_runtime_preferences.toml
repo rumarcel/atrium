@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-background-runtime-preferences"
+description = "Enables the get_background_runtime_preferences command without any pre-configured scope."
+commands.allow = ["get_background_runtime_preferences"]
+
+[[permission]]
+identifier = "deny-get-background-runtime-preferences"
+description = "Denies the get_background_runtime_preferences command without any pre-configured scope."
+commands.deny = ["get_background_runtime_preferences"]

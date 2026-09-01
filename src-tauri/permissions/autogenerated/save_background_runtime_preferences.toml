@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-background-runtime-preferences"
+description = "Enables the save_background_runtime_preferences command without any pre-configured scope."
+commands.allow = ["save_background_runtime_preferences"]
+
+[[permission]]
+identifier = "deny-save-background-runtime-preferences"
+description = "Denies the save_background_runtime_preferences command without any pre-configured scope."
+commands.deny = ["save_background_runtime_preferences"]

@@ -430,11 +430,87 @@ struct RegistryInner {
     entries: HashMap<String, RegistryEntry>,
     active_service_id: Option<String>,
     use_sequence: u64,
+    /// Prevents a hidden main window from recreating service renderers after
+    /// the native close-to-tray boundary has released them.
+    background_suspended: bool,
 }
 
 #[derive(Default)]
 pub struct ServiceWebviewRegistry {
     inner: Mutex<RegistryInner>,
+}
+
+pub(crate) fn suspend_and_close_all_service_webviews(
+    app: &AppHandle,
+    registry: &ServiceWebviewRegistry,
+) -> Result<(), String> {
+    let mut inner = registry
+        .inner
+        .lock()
+        .map_err(|_| "The service webview registry is unavailable.".to_string())?;
+    inner.background_suspended = true;
+    inner.active_service_id = None;
+
+    let entries = inner
+        .entries
+        .iter()
+        .map(|(service_id, entry)| (service_id.clone(), entry.label.clone()))
+        .collect::<Vec<_>>();
+    let mut failures = Vec::new();
+
+    for (service_id, label) in entries {
+        let close_result: Result<(), String> = app.get_webview(&label).map_or(Ok(()), |view| {
+            match view.close() {
+                Ok(()) => Ok(()),
+                Err(first_error) => match view.close() {
+                    Ok(()) => Ok(()),
+                    Err(retry_error) => {
+                        // A failed view is surfaced instead of hidden: hiding
+                        // it could recreate the exact invisible-audio failure
+                        // this boundary is designed to prevent.
+                        let _ = view.show();
+                        Err(format!(
+                            "Could not close a service webview before backgrounding. First attempt: {first_error}. Retry: {retry_error}"
+                        ))
+                    }
+                },
+            }
+        });
+
+        if let Err(error) = finalize_registry_close(&mut inner, &service_id, close_result) {
+            set_entry_attached(&mut inner, &service_id, true);
+            inner.active_service_id = Some(service_id);
+            failures.push(error);
+        }
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Personal Hub stayed open because {} service {} could not be released: {}",
+            failures.len(),
+            if failures.len() == 1 { "view" } else { "views" },
+            failures.join(" ")
+        ))
+    }
+}
+
+pub(crate) fn resume_service_webviews(registry: &ServiceWebviewRegistry) -> Result<(), String> {
+    let mut inner = registry
+        .inner
+        .lock()
+        .map_err(|_| "The service webview registry is unavailable.".to_string())?;
+    inner.background_suspended = false;
+    Ok(())
+}
+
+fn ensure_service_webviews_active(inner: &RegistryInner) -> Result<(), String> {
+    if inner.background_suspended {
+        Err("Service views are paused while Personal Hub is running in the background.".into())
+    } else {
+        Ok(())
+    }
 }
 
 /// Runs a browser-credential mutation while the service registry remains
@@ -578,6 +654,7 @@ pub async fn open_service_webview(
         .inner
         .lock()
         .map_err(|_| "The service webview registry is unavailable.".to_string())?;
+    ensure_service_webviews_active(&inner)?;
     let service = catalog.resolve_enabled(&request.service_id)?;
     let authentication_target = catalog.resolve_authentication_target(&request.service_id)?;
     if !authentication_target.enabled
@@ -773,6 +850,7 @@ pub async fn activate_service_webview(
         .inner
         .lock()
         .map_err(|_| "The service webview registry is unavailable.".to_string())?;
+    ensure_service_webviews_active(&inner)?;
     let entry = inner
         .entries
         .get(&request.service_id)
@@ -1625,6 +1703,17 @@ mod tests {
             attached_to_tab,
             last_used,
         }
+    }
+
+    #[test]
+    fn background_suspension_blocks_open_and_activate_paths() {
+        let mut registry = RegistryInner::default();
+        assert!(ensure_service_webviews_active(&registry).is_ok());
+
+        registry.background_suspended = true;
+        assert!(ensure_service_webviews_active(&registry)
+            .unwrap_err()
+            .contains("running in the background"));
     }
 
     #[test]

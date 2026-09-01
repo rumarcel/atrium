@@ -177,7 +177,8 @@
 }
 
 .settings-count,
-.settings-privacy-badge {
+.settings-privacy-badge,
+.settings-experimental-badge {
   padding: 5px 8px;
   border: 1px solid var(--color-border);
   border-radius: 999px;
@@ -191,6 +192,152 @@
   color: #80ce98;
   border-color: rgba(48, 209, 88, 0.16);
   background: rgba(48, 209, 88, 0.04);
+}
+
+.settings-experimental-badge {
+  color: #e9c75e;
+  border-color: rgba(255, 214, 10, 0.18);
+  background: rgba(255, 214, 10, 0.045);
+}
+
+.settings-runtime-content {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-runtime-master {
+  display: flex;
+  min-width: 0;
+  padding: 12px 13px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid rgba(10, 132, 255, 0.2);
+  border-radius: var(--radius-medium);
+  background: rgba(10, 132, 255, 0.04);
+}
+
+.settings-runtime-master--tray {
+  border-color: var(--color-border);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.settings-runtime-master > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.settings-runtime-master strong,
+.settings-runtime-card__heading strong {
+  font-size: 0.72rem;
+  font-weight: 620;
+}
+
+.settings-runtime-master > div > span,
+.settings-runtime-card__heading div > span {
+  color: var(--color-text-tertiary);
+  font-size: 0.59rem;
+  line-height: 1.45;
+}
+
+.settings-runtime-note,
+.settings-runtime-effective,
+.settings-runtime-card__availability-copy {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: 0.58rem;
+  line-height: 1.45;
+}
+
+.settings-runtime-note {
+  padding: 0 2px;
+}
+
+.settings-runtime-effective {
+  padding: 9px 11px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: 9px;
+  background: rgba(8, 9, 12, 0.2);
+}
+
+.settings-runtime-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-runtime-card {
+  display: flex;
+  min-width: 0;
+  min-height: 142px;
+  padding: 12px;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-medium);
+  background: rgba(8, 9, 12, 0.28);
+}
+
+.settings-runtime-card--unavailable {
+  background: rgba(8, 9, 12, 0.18);
+}
+
+.settings-runtime-card__heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-runtime-card__heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.settings-runtime-card > .settings-switch {
+  margin-top: auto;
+}
+
+.settings-runtime-availability {
+  padding: 4px 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  color: #79d895;
+  background: rgba(48, 209, 88, 0.08);
+  font-size: 0.52rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.settings-runtime-availability--glances-not-configured,
+.settings-runtime-availability--no-health-targets {
+  color: #e9c75e;
+  background: rgba(255, 214, 10, 0.08);
+}
+
+.settings-runtime-message {
+  padding: 9px 11px;
+  margin-bottom: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  color: var(--color-text-secondary);
+  background: rgba(255, 255, 255, 0.018);
+  font-size: 0.61rem;
+  line-height: 1.4;
+}
+
+.settings-runtime-message--warning {
+  border-color: rgba(255, 214, 10, 0.18);
+  background: rgba(255, 214, 10, 0.04);
+}
+
+.settings-runtime-message--error {
+  border-color: rgba(255, 69, 58, 0.2);
+  color: #f18a84;
+  background: rgba(255, 69, 58, 0.045);
 }
 
 .settings-service-toolbar {
@@ -739,7 +886,8 @@
   }
 
   .settings-credential-grid,
-  .settings-maintenance-actions {
+  .settings-maintenance-actions,
+  .settings-runtime-card-grid {
     grid-template-columns: 1fr;
   }
 
@@ -755,6 +903,7 @@
 
   .settings-page__identity p:last-child,
   .settings-privacy-badge,
+  .settings-experimental-badge,
   .settings-form-actions > span {
     display: none;
   }
@@ -779,9 +928,14 @@
   }
 
   .settings-authentication__heading,
-  .settings-authentication__actions {
+  .settings-authentication__actions,
+  .settings-runtime-master {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .settings-runtime-master > .settings-switch {
+    margin-left: 0;
   }
 
   .settings-authentication__live {

@@ -88,6 +88,10 @@ export interface DesktopWidgetMonitor {
   refresh: () => void;
 }
 
+export interface DesktopWidgetRuntimeState {
+  geometryRevision: string;
+}
+
 export function desktopWidgetKindFromHash(
   hash: string,
 ): DesktopWidgetKind | null {
