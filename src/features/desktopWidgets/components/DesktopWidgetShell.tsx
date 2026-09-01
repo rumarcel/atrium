@@ -5,6 +5,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { useTranslation } from "../../i18n";
 import {
   disableDesktopWidget,
   startDesktopWidgetDrag,
@@ -35,6 +36,7 @@ export function DesktopWidgetShell({
   icon,
   children,
 }: DesktopWidgetShellProps) {
+  const { t } = useTranslation();
   const [windowActionError, setWindowActionError] = useState<string | null>(null);
   const [isDisabling, setIsDisabling] = useState(false);
 
@@ -58,11 +60,11 @@ export function DesktopWidgetShell({
       setWindowActionError(
         error instanceof Error && error.message.trim().length > 0
           ? error.message.slice(0, 240)
-          : "This desktop card could not be disabled.",
+          : t("widget.disableFailed"),
       );
       setIsDisabling(false);
     }
-  }, [kind]);
+  }, [kind, t]);
 
   const handleDragStart = useCallback((event: MouseEvent<HTMLElement>) => {
     if (
@@ -77,10 +79,10 @@ export function DesktopWidgetShell({
       setWindowActionError(
         error instanceof Error && error.message.trim().length > 0
           ? error.message.slice(0, 240)
-          : "This desktop card could not be moved.",
+          : t("widget.moveFailed"),
       );
     });
-  }, []);
+  }, [t]);
 
   const monitoringNotConfigured =
     kind !== "services" &&
@@ -95,32 +97,32 @@ export function DesktopWidgetShell({
   const connectionLabel = (() => {
     if (kind === "services") {
       if (connectionTone === "online") {
-        return "Health checks complete";
+        return t("widget.healthComplete");
       }
 
       return connectionTone === "loading"
-        ? "Checking server services"
-        : "Service data unavailable";
+        ? t("widget.checkingServices")
+        : t("widget.serviceDataUnavailable");
     }
 
     if (monitoringNotConfigured) {
-      return "Monitoring not configured";
+      return t("widget.monitoringNotConfigured");
     }
 
     if (connectionTone === "online") {
-      return "Server online";
+      return t("widget.serverOnline");
     }
 
     return connectionTone === "loading"
-      ? "Connecting to server"
-      : "Server data unavailable";
+      ? t("widget.connecting")
+      : t("widget.serverDataUnavailable");
   })();
 
   return (
     <main className={`desktop-widget-root desktop-widget-root--${kind}`}>
       <section
         className={`desktop-widget-card desktop-widget-card--${connectionTone}`}
-        aria-label={`${title} desktop card`}
+        aria-label={t("widget.cardLabel", { title })}
         aria-busy={monitor.isRefreshing}
       >
         <header
@@ -146,8 +148,8 @@ export function DesktopWidgetShell({
                 monitor.isPaused ||
                 monitoringNotConfigured
               }
-              aria-label={`Refresh ${title}`}
-              title="Refresh server data"
+              aria-label={t("widget.refreshTitle", { title })}
+              title={t("widget.refresh")}
             >
               <WidgetRefreshIcon
                 className={monitor.isRefreshing ? "is-spinning" : undefined}
@@ -157,8 +159,8 @@ export function DesktopWidgetShell({
               type="button"
               onClick={handleDisable}
               disabled={isDisabling}
-              aria-label={`Turn off ${title}`}
-              title="Turn off this desktop card"
+              aria-label={t("widget.turnOffTitle", { title })}
+              title={t("widget.turnOff")}
             >
               <WidgetCloseIcon />
             </button>

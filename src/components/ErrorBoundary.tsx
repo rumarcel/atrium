@@ -1,7 +1,15 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+export interface ErrorBoundaryCopy {
+  eyebrow: string;
+  title: string;
+  description: string;
+  reload: string;
+}
+
 interface ErrorBoundaryProps {
   children: ReactNode;
+  copy?: ErrorBoundaryCopy;
 }
 
 interface ErrorBoundaryState {
@@ -24,16 +32,24 @@ export class ErrorBoundary extends Component<
 
   render() {
     if (this.state.hasError) {
+      const copy = this.props.copy ?? {
+        eyebrow: "Personal Hub",
+        title: "Something went wrong.",
+        description:
+          "The dashboard could not be rendered. Restart the app to try again.",
+        reload: "Reload dashboard",
+      };
+
       return (
         <main className="error-screen">
           <div className="error-screen__mark" aria-hidden="true">
             PH
           </div>
-          <p className="eyebrow">Personal Hub</p>
-          <h1>Something went wrong.</h1>
-          <p>The dashboard could not be rendered. Restart the app to try again.</p>
+          <p className="eyebrow">{copy.eyebrow}</p>
+          <h1>{copy.title}</h1>
+          <p>{copy.description}</p>
           <button type="button" onClick={() => window.location.reload()}>
-            Reload dashboard
+            {copy.reload}
           </button>
         </main>
       );

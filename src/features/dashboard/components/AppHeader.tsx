@@ -4,6 +4,7 @@ import {
   SearchIcon,
   SettingsIcon,
 } from "../../../components/icons/AppIcons";
+import { useTranslation } from "../../i18n";
 
 interface AppHeaderProps {
   searchValue: string;
@@ -22,13 +23,14 @@ export function AppHeader({
   onDashboardClick,
   onSettingsClick,
 }: AppHeaderProps) {
+  const { t } = useTranslation();
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     onSearchChange(event.currentTarget.value);
   };
 
   return (
     <header className="app-header">
-      <div className="brand" aria-label="Personal Hub">
+      <div className="brand" aria-label={t("header.brandLabel")}>
         <div className="brand__mark" aria-hidden="true">
           <svg viewBox="0 0 28 28" width="26" height="26" fill="none">
             <path d="m5 12 9-7 9 7v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V12Z" />
@@ -37,12 +39,12 @@ export function AppHeader({
           </svg>
         </div>
         <div className="brand__copy">
-          <span>Personal Hub</span>
-          <small>Home server</small>
+          <span>{t("app.name")}</span>
+          <small>{t("header.brandSubtitle")}</small>
         </div>
       </div>
 
-      <nav className="primary-nav" aria-label="Primary navigation">
+      <nav className="primary-nav" aria-label={t("header.primaryNavigation")}>
         <button
           className={
             isDashboardActive
@@ -53,30 +55,30 @@ export function AppHeader({
           onClick={onDashboardClick}
         >
           <GridIcon width={17} height={17} />
-          Dashboard
+          {t("header.dashboard")}
         </button>
       </nav>
 
       <div className="app-header__actions">
         <label className="search-field">
           <SearchIcon width={17} height={17} />
-          <span className="visually-hidden">Search services</span>
+          <span className="visually-hidden">{t("header.searchServices")}</span>
           <input
             ref={searchInputRef}
             type="search"
             value={searchValue}
             onChange={handleChange}
-            placeholder="Search services"
+            placeholder={t("header.searchServices")}
             autoComplete="off"
           />
-          <kbd>Ctrl K</kbd>
+          <kbd>{t("header.searchShortcut")}</kbd>
         </label>
 
         <button
           className="icon-button"
           type="button"
-          aria-label="Open settings"
-          title="Settings"
+          aria-label={t("header.openSettings")}
+          title={t("header.settingsTitle")}
           onClick={onSettingsClick}
         >
           <SettingsIcon width={19} height={19} />

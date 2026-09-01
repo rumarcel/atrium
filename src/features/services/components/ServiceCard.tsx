@@ -2,6 +2,7 @@ import {
   ArrowUpRightIcon,
 } from "../../../components/icons/AppIcons";
 import type { ServiceHealth } from "../../health/health.types";
+import { useTranslation, type Translator } from "../../i18n";
 import type { DashboardService } from "../service.types";
 import type { ServiceContextMenuState } from "./ServiceContextMenu";
 import { ServiceIcon } from "./ServiceIcon";
@@ -13,22 +14,33 @@ interface ServiceCardProps {
   onContextMenu: (state: ServiceContextMenuState) => void;
 }
 
-function formatLatency(latencyMs: number): string {
-  return latencyMs < 1 ? "<1 ms" : `${latencyMs} ms`;
+function formatLatency(
+  latencyMs: number,
+  number: (value: number) => string,
+): string {
+  return latencyMs < 1 ? "<1 ms" : `${number(latencyMs)} ms`;
 }
 
-function getHealthPresentation(health?: ServiceHealth) {
+function getHealthPresentation(
+  t: Translator,
+  number: (value: number) => string,
+  health?: ServiceHealth,
+) {
   if (!health || health.status === "unchecked") {
     return {
       state: health?.isChecking ? "checking" : "unchecked",
-      label: health?.isChecking ? "Checking" : "Not checked",
+      label: health?.isChecking
+        ? t("service.checking")
+        : t("service.notChecked"),
     };
   }
 
   if (health.status === "online") {
     return {
       state: "online",
-      label: `Online · ${formatLatency(health.latencyMs)}`,
+      label: t("service.online", {
+        latency: formatLatency(health.latencyMs, number),
+      }),
     };
   }
 
@@ -36,30 +48,35 @@ function getHealthPresentation(health?: ServiceHealth) {
     if (health.reason === "tls-exception") {
       return {
         state: "warning",
-        label: `Local TLS · ${formatLatency(health.latencyMs)}`,
+        label: t("service.localTls", {
+          latency: formatLatency(health.latencyMs, number),
+        }),
       };
     }
 
     if (health.reason === "tls") {
-      return { state: "warning", label: "TLS issue" };
+      return { state: "warning", label: t("service.tlsIssue") };
     }
 
     if (health.reason === "runtime") {
-      return { state: "warning", label: "Desktop only" };
+      return { state: "warning", label: t("service.desktopOnly") };
     }
 
-    return { state: "warning", label: "Attention" };
+    return { state: "warning", label: t("service.attention") };
   }
 
   if (health.reason === "timeout") {
-    return { state: "offline", label: "Timed out" };
+    return { state: "offline", label: t("service.timedOut") };
   }
 
   if (health.statusCode !== null) {
-    return { state: "offline", label: `HTTP ${health.statusCode}` };
+    return {
+      state: "offline",
+      label: t("service.httpStatus", { status: number(health.statusCode) }),
+    };
   }
 
-  return { state: "offline", label: "Offline" };
+  return { state: "offline", label: t("service.offline") };
 }
 
 export function ServiceCard({
@@ -68,12 +85,13 @@ export function ServiceCard({
   onOpen,
   onContextMenu,
 }: ServiceCardProps) {
-  const healthPresentation = getHealthPresentation(health);
+  const { number, t } = useTranslation();
+  const healthPresentation = getHealthPresentation(t, number, health);
   const healthDetails = [
     healthPresentation.label,
     health?.message,
     health?.isChecking && health.status !== "unchecked"
-      ? "Refreshing status…"
+      ? t("service.refreshingStatus")
       : null,
   ]
     .filter(Boolean)
@@ -82,13 +100,16 @@ export function ServiceCard({
   return (
     <article
       className="service-card"
-      aria-label={`${service.name}, ${healthPresentation.label}`}
+      aria-label={t("service.cardLabel", {
+        serviceName: service.name,
+        status: healthPresentation.label,
+      })}
       title={`${service.name}\n${service.url}\n${healthDetails}`}
     >
       <button
         className="service-card__action"
         type="button"
-        aria-label={`Open ${service.name} in Personal Hub`}
+        aria-label={t("service.openInHub", { serviceName: service.name })}
         onClick={(event) => onOpen(service, event.ctrlKey || event.metaKey)}
         onContextMenu={(event) => {
           event.preventDefault();

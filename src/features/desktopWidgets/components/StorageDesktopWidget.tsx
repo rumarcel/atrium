@@ -4,9 +4,8 @@ import type {
 } from "../desktopWidget.types";
 import {
   derivedPercent,
-  formatBytes,
-  formatPercent,
 } from "../desktopWidgetFormatters";
+import { useTranslation } from "../../i18n";
 import {
   WidgetAlertIcon,
   WidgetCheckIcon,
@@ -37,6 +36,7 @@ function diskTone(percent: number | null): DiskTone {
 }
 
 function DiskRow({ disk }: { disk: DesktopWidgetDisk }) {
+  const { bytes, percent: formatPercent, t } = useTranslation();
   const percent = diskPercent(disk);
   const tone = diskTone(percent);
 
@@ -45,14 +45,16 @@ function DiskRow({ disk }: { disk: DesktopWidgetDisk }) {
       <div className="desktop-widget-disk__heading">
         <div>
           <strong title={disk.name}>{disk.name}</strong>
-          <small title={disk.mountPoint}>{disk.mountPoint || "Server volume"}</small>
+          <small title={disk.mountPoint}>
+            {disk.mountPoint || t("widget.serverVolume")}
+          </small>
         </div>
         <span>{formatPercent(percent)}</span>
       </div>
       <div
         className="desktop-widget-progress"
         role="progressbar"
-        aria-label={`${disk.name} storage usage`}
+        aria-label={t("widget.storageUsage", { name: disk.name })}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent === null ? undefined : Math.round(percent)}
@@ -61,12 +63,17 @@ function DiskRow({ disk }: { disk: DesktopWidgetDisk }) {
       </div>
       <div className="desktop-widget-disk__footer">
         <span>
-          {formatBytes(disk.usedBytes)} of {formatBytes(disk.totalBytes)}
+          {t("widget.usedOf", {
+            used: bytes(disk.usedBytes),
+            total: bytes(disk.totalBytes),
+          })}
         </span>
         {tone === "normal" ? null : (
           <span className="desktop-widget-disk__warning">
             <WidgetAlertIcon />
-            {tone === "critical" ? "Critical" : "Low space"}
+            {tone === "critical"
+              ? t("widget.critical")
+              : t("widget.lowSpace")}
           </span>
         )}
       </div>
@@ -75,6 +82,7 @@ function DiskRow({ disk }: { disk: DesktopWidgetDisk }) {
 }
 
 export function StorageDesktopWidget({ monitor }: StorageDesktopWidgetProps) {
+  const { number, t } = useTranslation();
   const snapshot = monitor.snapshot;
   const disks = snapshot?.metrics.disks ?? [];
   const warningCount = disks.filter((disk) => {
@@ -85,15 +93,22 @@ export function StorageDesktopWidget({ monitor }: StorageDesktopWidgetProps) {
   return (
     <DesktopWidgetShell
       kind="storage"
-      title="Server storage"
-      subtitle={`${snapshot?.serverName ?? "Home Server"} · ${
+      title={t("widget.serverStorage")}
+      subtitle={`${snapshot?.serverName ?? t("widget.homeServer")} · ${
         snapshot?.serverAddress ?? "192.168.1.10"
       }`}
       monitor={monitor}
       icon={<WidgetStorageIcon />}
     >
       <div className="desktop-widget-storage-summary">
-        <span>{disks.length} {disks.length === 1 ? "volume" : "volumes"}</span>
+        <span>
+          {t(
+            disks.length === 1
+              ? "widget.volumeCountOne"
+              : "widget.volumeCountOther",
+            { count: number(disks.length) },
+          )}
+        </span>
         <span
           className={
             warningCount > 0
@@ -103,10 +118,15 @@ export function StorageDesktopWidget({ monitor }: StorageDesktopWidgetProps) {
         >
           {warningCount > 0 ? <WidgetAlertIcon /> : <WidgetCheckIcon />}
           {disks.length === 0
-            ? "Awaiting capacity"
+            ? t("widget.awaitingCapacity")
             : warningCount > 0
-            ? `${warningCount} ${warningCount === 1 ? "warning" : "warnings"}`
-            : "Capacity healthy"}
+              ? t(
+                  warningCount === 1
+                    ? "widget.warningCountOne"
+                    : "widget.warningCountOther",
+                  { count: number(warningCount) },
+                )
+              : t("widget.capacityHealthy")}
         </span>
       </div>
 
@@ -118,8 +138,8 @@ export function StorageDesktopWidget({ monitor }: StorageDesktopWidgetProps) {
         ) : (
           <div className="desktop-widget-empty">
             <WidgetStorageIcon />
-            <strong>No volume data</strong>
-            <span>Waiting for storage metrics from the server.</span>
+            <strong>{t("widget.noVolumeData")}</strong>
+            <span>{t("widget.noVolumeDataDescription")}</span>
           </div>
         )}
       </div>

@@ -9,6 +9,7 @@
     "allow-get-desktop-widget-runtime-state",
     "allow-disable-desktop-widget",
     "allow-set-desktop-widget-visibility",
+    "allow-get-appearance-settings",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-available-monitors",

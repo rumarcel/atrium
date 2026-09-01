@@ -1,8 +1,9 @@
 :root {
   color-scheme: dark;
-  font-family:
+  --font-family-app:
     Inter, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
     sans-serif;
+  font-family: var(--font-family-app);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -29,4 +30,8 @@
   --duration-fast: 160ms;
   --duration-standard: 190ms;
   --shadow-window: 0 20px 60px rgba(0, 0, 0, 0.18);
+  --theme-density: 1;
+  --theme-type-scale: 1;
+  --theme-translucency: 0;
+  --theme-blur: 0px;
 }

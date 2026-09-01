@@ -1,3 +1,5 @@
+import { useTranslation } from "../../i18n";
+
 interface DesktopWidgetSparklineProps {
   values: readonly (number | null)[];
   label: string;
@@ -41,12 +43,13 @@ export function DesktopWidgetSparkline({
   label,
   tone = "blue",
 }: DesktopWidgetSparklineProps) {
+  const { t } = useTranslation();
   const points = sparklinePoints(values);
 
   if (points === null) {
     return (
       <div className="desktop-widget-sparkline desktop-widget-sparkline--empty">
-        <span>Trend pending</span>
+        <span>{t("widget.trendPending")}</span>
       </div>
     );
   }

@@ -7,8 +7,8 @@ import {
   ServerIcon,
   StorageIcon,
 } from "../../../components/icons/AppIcons";
+import { useTranslation, type Translator } from "../../i18n";
 import { useServerMetrics } from "../hooks/useServerMetrics";
-import { formatUptime } from "../monitoringFormatters";
 import type {
   DiskMetrics,
   ServerMetricsMonitor,
@@ -26,35 +26,6 @@ interface MetricShellProps {
   detail: string;
   percent?: number | null;
   children?: ReactNode;
-}
-
-const byteUnits = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
-
-function formatBytes(bytes: number | null, fractionDigits = 1): string {
-  if (bytes === null || !Number.isFinite(bytes) || bytes < 0) {
-    return "—";
-  }
-
-  if (bytes === 0) {
-    return "0 B";
-  }
-
-  const unitIndex = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    byteUnits.length - 1,
-  );
-  const value = bytes / 1024 ** unitIndex;
-  const digits = value >= 100 || unitIndex === 0 ? 0 : fractionDigits;
-  return `${value.toFixed(digits)} ${byteUnits[unitIndex]}`;
-}
-
-function formatRate(bytesPerSecond: number | null): string {
-  const bytes = formatBytes(bytesPerSecond);
-  return bytes === "—" ? bytes : `${bytes}/s`;
-}
-
-function formatPercent(value: number | null): string {
-  return value === null ? "—" : `${Math.round(value)}%`;
 }
 
 function normalizedPercent(value: number | null): number | null {
@@ -105,6 +76,7 @@ function MetricShell({
   percent,
   children,
 }: MetricShellProps) {
+  const { t } = useTranslation();
   const safePercent = normalizedPercent(percent ?? null);
 
   return (
@@ -121,7 +93,7 @@ function MetricShell({
         <div
           className="monitoring-progress"
           role="progressbar"
-          aria-label={`${label} usage`}
+          aria-label={t("monitoring.metricUsage", { metric: label })}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(safePercent)}
@@ -134,23 +106,22 @@ function MetricShell({
   );
 }
 
-function connectionCopy(monitor: ServerMetricsMonitor) {
+function connectionCopy(monitor: ServerMetricsMonitor, t: Translator) {
   if (monitor.status === "loading") {
     return {
       tone: "loading",
-      eyebrow: "Connecting",
-      title: "Reaching Glances",
-      description: "Waiting for the first server sample.",
+      eyebrow: t("monitoring.connectingEyebrow"),
+      title: t("monitoring.connectingTitle"),
+      description: t("monitoring.connectingDescription"),
     } as const;
   }
 
   if (monitor.providerState === "not-configured") {
     return {
       tone: "inactive",
-      eyebrow: "Optional",
-      title: "Monitoring not configured",
-      description:
-        "Add a compatible monitoring provider to show CPU, memory, storage, and uptime.",
+      eyebrow: t("monitoring.optionalEyebrow"),
+      title: t("monitoring.notConfiguredTitle"),
+      description: t("monitoring.notConfiguredDescription"),
     } as const;
   }
 
@@ -158,36 +129,36 @@ function connectionCopy(monitor: ServerMetricsMonitor) {
     if (monitor.message) {
       return {
         tone: "warning",
-        eyebrow: "Partial",
-        title: "Some metrics unavailable",
+        eyebrow: t("monitoring.partialEyebrow"),
+        title: t("monitoring.partialTitle"),
         description: monitor.message,
       } as const;
     }
 
     return {
       tone: "online",
-      eyebrow: "Live",
-      title: "Server online",
-      description: monitor.message ?? "System metrics are updating automatically.",
+      eyebrow: t("monitoring.liveEyebrow"),
+      title: t("monitoring.onlineTitle"),
+      description: monitor.message ?? t("monitoring.onlineDescription"),
     } as const;
   }
 
   if (monitor.snapshot) {
     return {
       tone: "stale",
-      eyebrow: "Stale data",
-      title: "Live metrics interrupted",
-      description: monitor.message ?? "Showing the last successful server sample.",
+      eyebrow: t("monitoring.staleEyebrow"),
+      title: t("monitoring.interruptedTitle"),
+      description: monitor.message ?? t("monitoring.interruptedDescription"),
     } as const;
   }
 
   return {
     tone: "unavailable",
-    eyebrow: "Unavailable",
-    title: "Monitoring provider unavailable",
+    eyebrow: t("monitoring.unavailableEyebrow"),
+    title: t("monitoring.unavailableTitle"),
     description:
       monitor.message ??
-      "No monitoring sample is available. Service availability is checked separately.",
+      t("monitoring.unavailableDescription"),
   } as const;
 }
 
@@ -197,6 +168,7 @@ export function ServerMonitoring({
   pollIntervalMs,
   staleAfterMs,
 }: ServerMonitoringProps) {
+  const { byteRate, bytes, percent, t, uptime: formatUptime } = useTranslation();
   const headingId = useId();
   const monitor = useServerMetrics({ enabled, pollIntervalMs, staleAfterMs });
   const snapshot = monitor.snapshot;
@@ -215,12 +187,14 @@ export function ServerMonitoring({
         fullestDisk.totalBytes,
       )
     : null;
-  const connection = connectionCopy(monitor);
-  const uptime = formatUptime(snapshot?.uptimeSeconds ?? null);
+  const connection = connectionCopy(monitor, t);
+  const uptime = formatUptime(snapshot?.uptimeSeconds ?? null, {
+    placeholder: t("monitoring.uptimeUnavailable"),
+  });
   const hasUptime = snapshot?.uptimeSeconds != null;
   const uptimeLabel = monitor.isStale && hasUptime
-    ? "Last known uptime"
-    : "Server uptime";
+    ? t("monitoring.lastKnownUptime")
+    : t("monitoring.serverUptime");
   const classes = [
     "server-monitoring",
     snapshot === null ? "server-monitoring--summary-only" : null,
@@ -250,8 +224,8 @@ export function ServerMonitoring({
               monitor.providerState === "not-configured" ||
               enabled === false
             }
-            aria-label="Refresh server metrics"
-            title="Refresh server metrics"
+            aria-label={t("monitoring.refresh")}
+            title={t("monitoring.refresh")}
           >
             <RefreshIcon
               className={monitor.isRefreshing ? "is-spinning" : undefined}
@@ -289,50 +263,70 @@ export function ServerMonitoring({
       {snapshot ? (
         <div
           className="monitoring-metrics"
-          aria-label={monitor.isStale ? "Last known server metrics" : "Live server metrics"}
+          aria-label={
+            monitor.isStale
+              ? t("monitoring.lastKnownMetrics")
+              : t("monitoring.liveMetrics")
+          }
           aria-busy={monitor.isRefreshing}
         >
           <MetricShell
             Icon={CpuIcon}
-            label="CPU"
-            value={formatPercent(cpuPercent)}
+            label={t("monitoring.cpu")}
+            value={percent(cpuPercent)}
             detail={
               snapshot.cpuTemperatureC === null
-                ? "Temperature unavailable"
-                : `${Math.round(snapshot.cpuTemperatureC)} °C temperature`
+                ? t("monitoring.temperatureUnavailable")
+                : t("monitoring.temperature", {
+                    temperature: `${Math.round(snapshot.cpuTemperatureC)} °C`,
+                  })
             }
             percent={cpuPercent}
           />
 
           <MetricShell
             Icon={MemoryIcon}
-            label="Memory"
-            value={formatPercent(memoryPercent)}
-            detail={`${formatBytes(snapshot.memoryUsedBytes)} of ${formatBytes(snapshot.memoryTotalBytes)}`}
+            label={t("monitoring.memory")}
+            value={percent(memoryPercent)}
+            detail={t("monitoring.memoryUsage", {
+              used: bytes(snapshot.memoryUsedBytes),
+              total: bytes(snapshot.memoryTotalBytes),
+            })}
             percent={memoryPercent}
           />
 
           <MetricShell
             Icon={NetworkIcon}
-            label="Network"
-            value={formatRate(snapshot.networkDownloadBytesPerSecond)}
-            detail={`Down · ${formatRate(snapshot.networkUploadBytesPerSecond)} up`}
+            label={t("monitoring.network")}
+            value={byteRate(snapshot.networkDownloadBytesPerSecond)}
+            detail={t("monitoring.networkRate", {
+              upload: byteRate(snapshot.networkUploadBytesPerSecond),
+            })}
           />
 
           <MetricShell
             Icon={StorageIcon}
-            label="Storage"
-            value={formatPercent(fullestDiskPercent)}
+            label={t("monitoring.storage")}
+            value={percent(fullestDiskPercent)}
             detail={
               fullestDisk === null
-                ? "Disk data unavailable"
-                : `${fullestDisk.name} · ${formatBytes(fullestDisk.usedBytes)} of ${formatBytes(fullestDisk.totalBytes)}`
+                ? t("monitoring.diskDataUnavailable")
+                : t("monitoring.diskUsage", {
+                    name: fullestDisk.name,
+                    used: bytes(fullestDisk.usedBytes),
+                    total: bytes(fullestDisk.totalBytes),
+                  })
             }
             percent={fullestDiskPercent}
           >
             {disks.length > 0 ? (
               <span className="monitoring-metric__disk-count">
-                {disks.length} {disks.length === 1 ? "volume" : "volumes"}
+                {t(
+                  disks.length === 1
+                    ? "monitoring.volumeCountOne"
+                    : "monitoring.volumeCountOther",
+                  { count: String(disks.length) },
+                )}
               </span>
             ) : null}
           </MetricShell>

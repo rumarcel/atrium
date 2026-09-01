@@ -2,6 +2,7 @@ import type {
   DesktopWidgetMonitor,
   DesktopWidgetService,
 } from "../desktopWidget.types";
+import { useTranslation } from "../../i18n";
 import {
   WidgetAlertIcon,
   WidgetCheckIcon,
@@ -14,6 +15,7 @@ interface ServicesDesktopWidgetProps {
 }
 
 function ServiceAlertRow({ service }: { service: DesktopWidgetService }) {
+  const { t } = useTranslation();
   return (
     <article
       className={`desktop-widget-service-alert desktop-widget-service-alert--${service.status}`}
@@ -26,24 +28,27 @@ function ServiceAlertRow({ service }: { service: DesktopWidgetService }) {
         <small>
           {service.message ??
             (service.status === "offline"
-              ? "The service is offline."
-              : "The service needs attention.")}
+              ? t("widget.serviceOfflineDescription")
+              : t("widget.serviceWarningDescription"))}
         </small>
       </div>
       <span className="desktop-widget-service-alert__status">
-        {service.status === "offline" ? "Offline" : "Warning"}
+        {service.status === "offline"
+          ? t("service.offline")
+          : t("widget.warning")}
       </span>
     </article>
   );
 }
 
 export function ServicesDesktopWidget({ monitor }: ServicesDesktopWidgetProps) {
+  const { locale, number, t } = useTranslation();
   const snapshot = monitor.snapshot;
   const alerts = (snapshot?.services ?? [])
     .filter((service) => service.status !== "online")
     .sort((left, right) => {
       if (left.status === right.status) {
-        return left.name.localeCompare(right.name);
+        return left.name.localeCompare(right.name, locale);
       }
 
       return left.status === "offline" ? -1 : 1;
@@ -55,8 +60,8 @@ export function ServicesDesktopWidget({ monitor }: ServicesDesktopWidgetProps) {
   return (
     <DesktopWidgetShell
       kind="services"
-      title="Service attention"
-      subtitle={`${snapshot?.serverName ?? "Home Server"} · ${
+      title={t("widget.serviceAttention")}
+      subtitle={`${snapshot?.serverName ?? t("widget.homeServer")} · ${
         snapshot?.serverAddress ?? "192.168.1.10"
       }`}
       monitor={monitor}
@@ -67,13 +72,18 @@ export function ServicesDesktopWidget({ monitor }: ServicesDesktopWidgetProps) {
           <strong>{snapshot?.status === "online" ? alerts.length : "—"}</strong>
           <span>
             {snapshot?.status === "online"
-              ? `${alerts.length === 1 ? "service needs" : "services need"} attention`
-              : "attention status pending"}
+              ? t(
+                  alerts.length === 1
+                    ? "widget.serviceNeedsAttentionOne"
+                    : "widget.serviceNeedsAttentionOther",
+                  { count: number(alerts.length) },
+                )
+              : t("widget.attentionPending")}
           </span>
         </div>
         {offlineCount > 0 ? (
           <span className="desktop-widget-services-summary__offline">
-            {offlineCount} offline
+            {t("widget.offlineCount", { count: number(offlineCount) })}
           </span>
         ) : null}
       </div>
@@ -86,14 +96,14 @@ export function ServicesDesktopWidget({ monitor }: ServicesDesktopWidgetProps) {
         ) : snapshot?.status === "online" ? (
           <div className="desktop-widget-empty desktop-widget-empty--healthy">
             <WidgetCheckIcon />
-            <strong>All services healthy</strong>
-            <span>There are no server service alerts.</span>
+            <strong>{t("widget.allServicesHealthy")}</strong>
+            <span>{t("widget.allServicesHealthyDescription")}</span>
           </div>
         ) : (
           <div className="desktop-widget-empty">
             <WidgetAlertIcon />
-            <strong>Service status unavailable</strong>
-            <span>Waiting for health checks from the server.</span>
+            <strong>{t("widget.serviceStatusUnavailable")}</strong>
+            <span>{t("widget.serviceStatusUnavailableDescription")}</span>
           </div>
         )}
       </div>

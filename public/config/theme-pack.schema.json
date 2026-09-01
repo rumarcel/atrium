@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://personal-hub.local/schemas/theme-pack.schema.json",
+  "title": "Personal Hub appearance pack",
+  "description": "A declarative Personal Hub theme and language preference pack. It cannot contain executable code, markup, fonts, URLs or unrestricted CSS.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "version", "preferences"],
+  "properties": {
+    "kind": { "const": "personal-hub-appearance" },
+    "version": { "const": 1 },
+    "preferences": { "$ref": "#/$defs/preferences" }
+  },
+  "$defs": {
+    "preferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "colorMode", "themeId", "language", "overrides"],
+      "properties": {
+        "version": { "const": 1 },
+        "colorMode": { "enum": ["system", "dark", "light"] },
+        "themeId": {
+          "enum": ["default", "code", "translucent", "minimal", "custom"]
+        },
+        "language": { "enum": ["system", "tr", "en"] },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dark", "light"],
+          "properties": {
+            "dark": { "$ref": "#/$defs/tokenOverrides" },
+            "light": { "$ref": "#/$defs/tokenOverrides" }
+          }
+        }
+      }
+    },
+    "hexColor": {
+      "type": "string",
+      "description": "A #RRGGBB or #RRGGBBAA color. Lowercase and uppercase input are accepted; Personal Hub stores and exports the canonical uppercase form.",
+      "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+    },
+    "radius": { "type": "integer", "minimum": 0, "maximum": 32 },
+    "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "tokenOverrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 22,
+      "properties": {
+        "background": { "$ref": "#/$defs/hexColor" },
+        "surface": { "$ref": "#/$defs/hexColor" },
+        "surfaceElevated": { "$ref": "#/$defs/hexColor" },
+        "surfaceHover": { "$ref": "#/$defs/hexColor" },
+        "border": { "$ref": "#/$defs/hexColor" },
+        "borderStrong": { "$ref": "#/$defs/hexColor" },
+        "textPrimary": { "$ref": "#/$defs/hexColor" },
+        "textSecondary": { "$ref": "#/$defs/hexColor" },
+        "textTertiary": { "$ref": "#/$defs/hexColor" },
+        "accent": { "$ref": "#/$defs/hexColor" },
+        "accentHover": { "$ref": "#/$defs/hexColor" },
+        "online": { "$ref": "#/$defs/hexColor" },
+        "offline": { "$ref": "#/$defs/hexColor" },
+        "warning": { "$ref": "#/$defs/hexColor" },
+        "radiusSmall": { "$ref": "#/$defs/radius" },
+        "radiusMedium": { "$ref": "#/$defs/radius" },
+        "radiusLarge": { "$ref": "#/$defs/radius" },
+        "density": { "type": "number", "minimum": 0.75, "maximum": 1.25 },
+        "typeScale": { "type": "number", "minimum": 0.8, "maximum": 1.3 },
+        "shadow": { "$ref": "#/$defs/ratio" },
+        "translucency": { "type": "number", "minimum": 0, "maximum": 0.85 },
+        "blur": { "type": "number", "minimum": 0, "maximum": 40 }
+      }
+    }
+  }
+}

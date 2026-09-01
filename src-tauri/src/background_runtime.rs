@@ -1,4 +1,5 @@
 use crate::{
+    appearance_settings,
     desktop_widgets::{DesktopWidgetBroker, DesktopWidgetKind},
     service_webviews::{
         resume_service_webviews, suspend_and_close_all_service_webviews, ServiceCatalog,
@@ -20,7 +21,7 @@ use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     webview::Color,
-    App, AppHandle, Emitter, Manager, Theme, Webview, WebviewUrl, WebviewWindowBuilder,
+    App, AppHandle, Emitter, Manager, Webview, WebviewUrl, WebviewWindowBuilder,
 };
 
 const DOCUMENT_VERSION: u8 = 1;
@@ -688,6 +689,7 @@ fn card_window_spec(kind: DesktopWidgetKind) -> CardWindowSpec {
 fn create_card_window(app: &AppHandle, kind: DesktopWidgetKind) -> Result<(), String> {
     let spec = card_window_spec(kind);
     let url = format!("index.html#desktop-widget/{}", kind.slug());
+    let native_theme = appearance_settings::current_native_theme(app)?;
     let window = WebviewWindowBuilder::new(app, kind.window_label(), WebviewUrl::App(url.into()))
         .title(spec.title)
         .inner_size(spec.width, spec.height)
@@ -707,7 +709,7 @@ fn create_card_window(app: &AppHandle, kind: DesktopWidgetKind) -> Result<(), St
         .skip_taskbar(true)
         .prevent_overflow()
         .disable_drag_drop_handler()
-        .theme(Some(Theme::Dark))
+        .theme(native_theme)
         .background_color(Color(0, 0, 0, 0))
         .build()
         .map_err(|error| {
@@ -716,6 +718,14 @@ fn create_card_window(app: &AppHandle, kind: DesktopWidgetKind) -> Result<(), St
                 kind.slug()
             )
         })?;
+
+    if let Err(error) = appearance_settings::apply_current_appearance(app) {
+        let _ = window.destroy();
+        return Err(format!(
+            "The {} desktop card appearance could not be applied: {error}",
+            kind.slug()
+        ));
+    }
 
     let cleanup_app = app.clone();
     window.on_window_event(move |event| {

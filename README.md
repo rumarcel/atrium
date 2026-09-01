@@ -5,19 +5,20 @@ services. Built with Tauri v2, React, TypeScript and Vite.
 
 ## Current scope
 
-Phase 1 through Phase 7.2 are implemented: the desktop shell, responsive
+Phase 1 through Phase 7.3 are implemented: the desktop shell, responsive
 dashboard, validated service configuration, asynchronous service health checks,
 session-preserving native service tabs, live Glances monitoring and three
 server-only Windows desktop cards. Phase 7.0 adds a native Settings surface,
 writable per-user service configuration and Windows-backed credential storage;
 Phase 7.1 adds explicit, origin-bound authentication adapters and safe native
 validation state; Phase 7.2 adds the persistent opt-in card manager, tray and
-safe close-to-background lifecycle.
-Through Phase 7.2, the dashboard keeps its original Phase 6 composition; the
+safe close-to-background lifecycle; Phase 7.3 adds persisted appearance,
+safe theme packs and Turkish/English localization.
+Through Phase 7.3, the dashboard keeps its original Phase 6 composition; the
 desktop cards are separate native surfaces rather than an in-app widget editor.
 The server summary now exposes Glances uptime, and an
 explicit service-tab close tears down its native WebView so media cannot remain
-audible invisibly. Themes, the planned Homarr-style Dashboard Composer, service
+audible invisibly. The planned Homarr-style Dashboard Composer, service
 discovery and deeper Windows integrations remain in later phases. The remaining
 work is tracked in
 [`ROADMAP.md`](ROADMAP.md).
@@ -30,8 +31,12 @@ work is tracked in
   desktop-card surfaces plus safe window-geometry persistence.
 - `src/features/backgroundRuntime`: strict runtime preference client, native
   event contract and experimental-card Settings surface.
+- `src/features/appearance`: exact theme-pack parsing, bundled themes, safe
+  token resolution, native persistence client and live Appearance provider.
 - `src/features/health`: native health-check client, bounded polling and runtime
   status types.
+- `src/features/i18n`: typed English/Turkish catalogs, system-language
+  resolution and locale-aware server-value formatters.
 - `src/features/monitoring`: validated Glances metrics, visibility-aware polling
   and the dashboard monitoring panel.
 - `src/features/services`: configuration parsing, loading state and service cards.
@@ -273,6 +278,31 @@ desktop embedding is not enabled. If Windows tray creation fails, Settings shows
 that limitation and close-to-tray is disabled so the application cannot become
 an unreachable hidden process. Runtime preference writes are serialized across
 processes, revision-checked and atomically replaced.
+
+## Appearance and languages
+
+Phase 7.3 keeps the original dark `Default` appearance for first run and safe
+recovery, then adds `Code`, `Translucent` and `Minimal` presets. `Code` is a
+code-editor visual treatment—not a terminal emulator—and all four themes keep
+the same application structure and behavior. Color mode can follow Windows or
+be pinned to dark/light; system-mode changes are applied live to the main window
+and the experimental desktop-card WebViews. Remote service WebView contents are
+isolated and retain the service's own theme.
+
+Appearance preferences use a separate exact, versioned per-user document with
+revision-checked atomic writes. Theme Studio can preview and edit only the
+allowlisted color, radius, density, type-scale, shadow, translucency and blur
+tokens. Imports and exports use
+[`public/config/theme-pack.schema.json`](public/config/theme-pack.schema.json);
+unknown fields, unsafe CSS values, URLs, markup, scripts, remote fonts and
+out-of-range values are rejected by both TypeScript and Rust. The format is a
+safe future extension point for a repository-backed community catalog; this
+release does not execute or automatically download third-party theme content.
+
+English and Turkish are bundled, with an optional Windows-language mode and
+English fallback for missing copy. Capacity, transfer-rate, percentage, uptime
+and elapsed-duration values follow the selected locale. No clock, calendar,
+date widget or visible polling timestamp is added.
 
 ## Publishing safely
 

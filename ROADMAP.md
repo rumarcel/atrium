@@ -40,6 +40,8 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
   exact-origin WebView2 HTTP Basic handling.
 - Phase 7.2: persistent background runtime, opt-in desktop cards and native
   tray lifecycle.
+- Phase 7.3: persisted appearance, four bundled themes, safe Theme Studio packs
+  and Turkish/English localization.
 
 ## Phase 6.1 — Windows desktop cards (completed)
 
@@ -137,9 +139,11 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
   limitation and closing the main window exits instead of hiding an unreachable
   process.
 
-### Phase 7.3 — Appearance and languages
+### Phase 7.3 — Appearance and languages (completed)
 
-- One versioned theme-token contract shared by every Personal Hub component.
+- One versioned theme-token contract shared by trusted Personal Hub host
+  surfaces and the optional desktop cards. Remote service WebViews remain
+  intentionally isolated and keep each service's own appearance.
 - Bundled `Default`, `Code`, `Translucent` and `Minimal` themes.
 - System, dark and light color modes with live Windows-theme tracking.
 - Persisted selection, live preview, reset and guaranteed default fallback.
@@ -157,7 +161,8 @@ Theme Studio and safe theme packs are part of this phase:
 - An Appearance page for editing safe tokens such as colors, radii, density,
   typography scale, shadows and translucency.
 - Import/export through a versioned JSON format and JSON Schema.
-- A repository-backed community catalog after the schema becomes stable.
+- A repository-backed community catalog is planned after the schema becomes
+  stable; automatic catalog downloads are not part of Phase 7.3.
 - Theme packs may contain declarative tokens only: no arbitrary JavaScript, HTML,
   remote fonts or unrestricted CSS.
 

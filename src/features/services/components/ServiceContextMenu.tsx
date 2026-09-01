@@ -12,6 +12,7 @@ import {
   EditIcon,
   ExternalBrowserIcon,
 } from "../../../components/icons/AppIcons";
+import { useTranslation } from "../../i18n";
 import type { DashboardService } from "../service.types";
 
 export interface ServiceContextMenuState {
@@ -40,6 +41,7 @@ export function ServiceContextMenu({
   onCopyUrl,
   onEdit,
 }: ServiceContextMenuProps) {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: state.x, top: state.y });
 
@@ -125,7 +127,7 @@ export function ServiceContextMenu({
       ref={menuRef}
       className="service-context-menu"
       role="menu"
-      aria-label={`${state.service.name} actions`}
+      aria-label={t("service.actions", { serviceName: state.service.name })}
       style={position}
       onKeyDown={handleKeyDown}
     >
@@ -139,7 +141,7 @@ export function ServiceContextMenu({
         onClick={() => runAction(() => onOpen(state.service))}
       >
         <ArrowUpRightIcon width={16} height={16} />
-        Open
+        {t("service.open")}
       </button>
       <button
         type="button"
@@ -149,7 +151,7 @@ export function ServiceContextMenu({
         <span className="service-context-menu__plus" aria-hidden="true">
           +
         </span>
-        Open in new tab
+        {t("service.openInNewTab")}
       </button>
       <div className="service-context-menu__separator" role="separator" />
       <button
@@ -158,7 +160,7 @@ export function ServiceContextMenu({
         onClick={() => runAction(() => onOpenInSystemBrowser(state.service))}
       >
         <ExternalBrowserIcon width={16} height={16} />
-        Open in system browser
+        {t("service.openInSystemBrowser")}
       </button>
       <button
         type="button"
@@ -166,7 +168,7 @@ export function ServiceContextMenu({
         onClick={() => runAction(() => onCopyUrl(state.service))}
       >
         <CopyIcon width={16} height={16} />
-        Copy URL
+        {t("service.copyUrl")}
       </button>
       <button
         type="button"
@@ -174,7 +176,7 @@ export function ServiceContextMenu({
         onClick={() => runAction(() => onEdit(state.service))}
       >
         <EditIcon width={16} height={16} />
-        Edit service
+        {t("service.edit")}
       </button>
     </div>,
     document.body,

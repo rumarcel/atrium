@@ -3,6 +3,7 @@ import {
   CloseIcon,
   GridIcon,
 } from "../../../components/icons/AppIcons";
+import { useTranslation } from "../../i18n";
 import { ServiceIcon } from "../../services/components/ServiceIcon";
 import type { DashboardService } from "../../services/service.types";
 import { DASHBOARD_TAB_ID, type ActiveTabId } from "../tab.types";
@@ -20,6 +21,7 @@ export function TabBar({
   onActivate,
   onClose,
 }: TabBarProps) {
+  const { t } = useTranslation();
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
   const orderedTabIds = useMemo(
     () => [DASHBOARD_TAB_ID, ...services.map((service) => service.id)],
@@ -69,8 +71,8 @@ export function TabBar({
   };
 
   return (
-    <div className="tab-bar" aria-label="Open views">
-      <div className="tab-bar__track" role="tablist" aria-label="Personal Hub tabs">
+    <div className="tab-bar" aria-label={t("tabs.openViews")}>
+      <div className="tab-bar__track" role="tablist" aria-label={t("tabs.listLabel")}>
         <button
           ref={(element) => registerTab(DASHBOARD_TAB_ID, element)}
           className={
@@ -87,7 +89,7 @@ export function TabBar({
           onKeyDown={(event) => handleTabKeyDown(event, DASHBOARD_TAB_ID)}
         >
           <GridIcon width={15} height={15} />
-          <span>Dashboard</span>
+          <span>{t("tabs.dashboard")}</span>
         </button>
 
         {services.map((service) => {
@@ -125,8 +127,8 @@ export function TabBar({
               <button
                 className="service-tab__close"
                 type="button"
-                aria-label={`Close ${service.name} tab`}
-                title={`Close ${service.name}`}
+                aria-label={t("tabs.closeTab", { serviceName: service.name })}
+                title={t("tabs.closeService", { serviceName: service.name })}
                 onClick={(event) => {
                   event.stopPropagation();
                   onClose(service.id);

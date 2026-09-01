@@ -1,3 +1,4 @@
+mod appearance_settings;
 mod background_runtime;
 mod credential_vault;
 mod desktop_widgets;
@@ -28,6 +29,9 @@ pub fn run() {
     let desktop_widget_broker = desktop_widgets::DesktopWidgetBroker::new(&catalog);
     let provider_auth = provider_auth::ProviderAuthManager::new()
         .expect("the provider-authentication clients could not be initialized");
+    let appearance_settings =
+        appearance_settings::AppearanceSettings::initialize(configuration_directory.clone())
+            .expect("the appearance settings could not be initialized");
     let background_runtime =
         background_runtime::BackgroundRuntimeSettings::initialize(configuration_directory)
             .expect("the background runtime settings could not be initialized");
@@ -42,6 +46,7 @@ pub fn run() {
                 .expect("the Glances HTTP clients could not be initialized"),
         )
         .manage(provider_auth)
+        .manage(appearance_settings)
         .manage(background_runtime)
         .manage(service_webviews::ServiceWebviewRegistry::default())
         .manage(settings)
@@ -56,6 +61,11 @@ pub fn run() {
             background_runtime::save_background_runtime_preferences,
             background_runtime::get_desktop_widget_runtime_state,
             background_runtime::disable_desktop_widget,
+            appearance_settings::get_appearance_settings,
+            appearance_settings::save_appearance_preferences,
+            appearance_settings::reset_appearance_preferences,
+            appearance_settings::import_appearance_preferences,
+            appearance_settings::export_appearance_preferences,
             service_settings::get_service_configuration,
             service_settings::save_service_configuration,
             service_settings::reset_service_configuration,
@@ -72,7 +82,11 @@ pub fn run() {
             service_webviews::close_service_webview,
             service_webviews::open_service_in_system_browser,
         ])
-        .setup(background_runtime::setup)
+        .setup(|app| {
+            background_runtime::setup(app)?;
+            appearance_settings::apply_current_appearance(app.handle())?;
+            Ok(())
+        })
         .on_window_event(|window, event| {
             if window.label() != "main" {
                 return;

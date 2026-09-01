@@ -8,7 +8,13 @@ import {
   type FormEvent,
 } from "react";
 import { CloseIcon, SettingsIcon } from "../../components/icons/AppIcons";
+import { AppearanceSettingsPanel } from "../appearance";
 import { BackgroundRuntimeSettings } from "../backgroundRuntime";
+import {
+  useTranslation,
+  type TranslationKeysWithoutParameters,
+  type Translator,
+} from "../i18n";
 import { ServiceIcon } from "../services/components/ServiceIcon";
 import {
   parseServiceConfiguration,
@@ -21,6 +27,7 @@ import {
   SERVICE_ICON_NAMES,
   SERVICE_TLS_POLICIES,
   type DashboardService,
+  type ServiceAccent,
   type ServiceApiAuthentication,
   type ServiceBrowserAuthentication,
   type ServiceConfiguration,
@@ -45,85 +52,96 @@ const CREDENTIAL_PRESENTATION: Readonly<
   Record<
     ServiceCredentialKind,
     {
-      title: string;
-      description: string;
-      secretLabel: string;
-      usernameLabel: string | null;
+      titleKey: TranslationKeysWithoutParameters;
+      descriptionKey: TranslationKeysWithoutParameters;
+      secretLabelKey: TranslationKeysWithoutParameters;
+      usernameLabelKey: TranslationKeysWithoutParameters | null;
     }
   >
 > = {
   "api-key": {
-    title: "API key",
-    description: "For service-specific API headers and integrations.",
-    secretLabel: "API key",
-    usernameLabel: null,
+    titleKey: "credentials.apiKeyTitle",
+    descriptionKey: "credentials.apiKeyDescription",
+    secretLabelKey: "credentials.apiKeyLabel",
+    usernameLabelKey: null,
   },
   "bearer-token": {
-    title: "Bearer token",
-    description: "For documented token-based provider APIs.",
-    secretLabel: "Token",
-    usernameLabel: null,
+    titleKey: "credentials.bearerTokenTitle",
+    descriptionKey: "credentials.bearerTokenDescription",
+    secretLabelKey: "credentials.tokenLabel",
+    usernameLabelKey: null,
   },
   "http-basic": {
-    title: "HTTP Basic",
-    description: "Scoped to the exact service origin by the native runtime.",
-    secretLabel: "Password",
-    usernameLabel: "Username",
+    titleKey: "credentials.httpBasicTitle",
+    descriptionKey: "credentials.httpBasicDescription",
+    secretLabelKey: "credentials.passwordLabel",
+    usernameLabelKey: "credentials.usernameLabel",
   },
   "username-password": {
-    title: "Provider login",
-    description: "For supported provider adapters; never injected into the page.",
-    secretLabel: "Password",
-    usernameLabel: "Username",
+    titleKey: "credentials.providerLoginTitle",
+    descriptionKey: "credentials.providerLoginDescription",
+    secretLabelKey: "credentials.passwordLabel",
+    usernameLabelKey: "credentials.usernameLabel",
   },
 };
 
 const API_AUTHENTICATION_LABELS: Readonly<
-  Record<ServiceApiAuthentication, string>
+  Record<ServiceApiAuthentication, TranslationKeysWithoutParameters>
 > = {
-  none: "No native API adapter",
-  "homarr-api-key": "Homarr API key",
-  "glances-http-basic": "Glances HTTP Basic",
-  "glances-bearer": "Glances bearer token",
+  none: "credentials.apiNone",
+  "homarr-api-key": "credentials.apiHomarr",
+  "glances-http-basic": "credentials.apiGlancesBasic",
+  "glances-bearer": "credentials.apiGlancesBearer",
 };
 
 const BROWSER_AUTHENTICATION_LABELS: Readonly<
-  Record<ServiceBrowserAuthentication, string>
+  Record<ServiceBrowserAuthentication, TranslationKeysWithoutParameters>
 > = {
-  none: "Persistent browser profile",
-  "http-basic": "Exact-origin HTTP Basic",
+  none: "credentials.browserProfile",
+  "http-basic": "credentials.browserHttpBasic",
 };
 
 const AUTHENTICATION_VALIDATION_LABELS: Readonly<
-  Record<ServiceAuthenticationValidationState, string>
+  Record<ServiceAuthenticationValidationState, TranslationKeysWithoutParameters>
 > = {
-  unsupported: "Not configured",
-  "not-validated": "Not validated",
-  validating: "Validating…",
-  valid: "Validated",
-  invalid: "Rejected",
-  "temporarily-unavailable": "Temporarily unavailable",
-  backoff: "Waiting to retry",
+  unsupported: "authentication.notConfigured",
+  "not-validated": "authentication.notValidated",
+  validating: "authentication.validating",
+  valid: "authentication.validated",
+  invalid: "authentication.rejected",
+  "temporarily-unavailable": "authentication.temporarilyUnavailable",
+  backoff: "authentication.waitingToRetry",
 };
 
 const AUTHENTICATION_REASON_COPY: Readonly<
-  Record<ServiceAuthenticationReasonCode, string>
+  Record<ServiceAuthenticationReasonCode, TranslationKeysWithoutParameters>
 > = {
-  "missing-credential": "Store every required credential before validating.",
-  "endpoint-changed":
-    "The service endpoint changed. Store replacement credentials for the new origin.",
-  unauthorized: "The service rejected the stored credential.",
-  forbidden: "The credential was accepted but lacks the required permission.",
-  "rate-limited": "The service is rate limiting authentication checks.",
-  timeout: "The authentication check timed out.",
-  tls: "TLS validation prevented the authentication check.",
-  connection: "The service could not be reached for authentication.",
-  "api-unavailable": "The provider authentication endpoint is unavailable.",
-  "invalid-data": "The provider returned an invalid authentication response.",
-  "insecure-transport":
-    "Automatic credentials are blocked on plaintext HTTP until local HTTP is explicitly allowed.",
-  "vault-unavailable": "The native credential vault is temporarily unavailable.",
-  "validation-in-progress": "An authentication check is already in progress.",
+  "missing-credential": "authentication.missingCredential",
+  "endpoint-changed": "authentication.endpointChanged",
+  unauthorized: "authentication.unauthorized",
+  forbidden: "authentication.forbidden",
+  "rate-limited": "authentication.rateLimited",
+  timeout: "authentication.timeout",
+  tls: "authentication.tls",
+  connection: "authentication.connection",
+  "api-unavailable": "authentication.apiUnavailable",
+  "invalid-data": "authentication.invalidData",
+  "insecure-transport": "authentication.insecureTransport",
+  "vault-unavailable": "authentication.vaultUnavailable",
+  "validation-in-progress": "authentication.validationInProgress",
+};
+
+const ACCENT_LABELS: Readonly<
+  Record<ServiceAccent, TranslationKeysWithoutParameters>
+> = {
+  violet: "settings.accentViolet",
+  amber: "settings.accentAmber",
+  blue: "settings.accentBlue",
+  cyan: "settings.accentCyan",
+  green: "settings.accentGreen",
+  orange: "settings.accentOrange",
+  red: "settings.accentRed",
+  slate: "settings.accentSlate",
 };
 
 function authenticationStatusTone(
@@ -146,14 +164,15 @@ function authenticationStatusTone(
 
 function authenticationStatusDescription(
   snapshot: ServiceAuthenticationStatusSnapshot,
+  t: Translator,
 ): string {
   if (snapshot.reasonCode !== null) {
-    const reason = AUTHENTICATION_REASON_COPY[snapshot.reasonCode];
+    const reason = t(AUTHENTICATION_REASON_COPY[snapshot.reasonCode]);
     if (snapshot.validationState === "backoff" && snapshot.retryAfterMs !== null) {
-      return `${reason} Try again in about ${Math.max(
-        1,
-        Math.ceil(snapshot.retryAfterMs / 1_000),
-      )} seconds.`;
+      return t("authentication.retryInSeconds", {
+        reason,
+        count: Math.max(1, Math.ceil(snapshot.retryAfterMs / 1_000)),
+      });
     }
 
     return reason;
@@ -161,21 +180,21 @@ function authenticationStatusDescription(
 
   switch (snapshot.validationState) {
     case "unsupported":
-      return "Choose an allowlisted adapter to enable automatic authentication.";
+      return t("authentication.enableAdapter");
     case "not-validated":
       return snapshot.credentialState === "stored"
-        ? "The required credentials are stored and ready to validate."
-        : "Automatic authentication has not been validated.";
+        ? t("authentication.storedReady")
+        : t("authentication.notValidatedDescription");
     case "validating":
-      return "Personal Hub is checking the adapter without exposing its credential.";
+      return t("authentication.validatingDescription");
     case "valid":
-      return "The native adapter accepted the stored credential.";
+      return t("authentication.validDescription");
     case "invalid":
-      return "The automatic authentication check failed.";
+      return t("authentication.invalidDescription");
     case "temporarily-unavailable":
-      return "The adapter could not complete its check right now.";
+      return t("authentication.unavailableDescription");
     case "backoff":
-      return "Authentication checks are temporarily paused.";
+      return t("authentication.backoffDescription");
   }
 }
 
@@ -204,7 +223,10 @@ function cloneConfiguration(
   };
 }
 
-function blankService(services: readonly DashboardService[]): DashboardService {
+function blankService(
+  services: readonly DashboardService[],
+  t: Translator,
+): DashboardService {
   const usedIds = new Set(services.map((service) => service.id));
   let id = "new-service";
   let suffix = 2;
@@ -216,10 +238,10 @@ function blankService(services: readonly DashboardService[]): DashboardService {
 
   return {
     id,
-    name: "New service",
-    description: "Local service",
+    name: t("settings.newServiceName"),
+    description: t("settings.newServiceDescription"),
     url: "http://192.168.1.10:8080",
-    category: "Other",
+    category: t("settings.newServiceCategory"),
     icon: "service",
     accent: "slate",
     enabled: true,
@@ -239,8 +261,14 @@ function configurationsMatch(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function serviceLabel(service: DashboardService, index: number): string {
-  const state = service.enabled ? "" : " · disabled";
+function serviceLabel(
+  service: DashboardService,
+  index: number,
+  t: Translator,
+): string {
+  const state = service.enabled
+    ? ""
+    : ` · ${t("settings.serviceDisabledSuffix")}`;
   return `${index + 1}. ${service.name}${state}`;
 }
 
@@ -263,6 +291,7 @@ export function SettingsPage({
   onClose,
   className,
 }: SettingsPageProps) {
+  const { t } = useTranslation();
   const normalizedInitial = useMemo(() => {
     if (initialConfiguration === undefined) {
       return null;
@@ -555,13 +584,16 @@ export function SettingsPage({
     const nextIndex = draft?.services.length ?? 0;
     setDraft((current) => {
       const configuration = current ?? { version: 1 as const, services: [] };
-      const services = [...configuration.services, blankService(configuration.services)];
+      const services = [
+        ...configuration.services,
+        blankService(configuration.services, t),
+      ];
       return { version: 1, services };
     });
     setSelectedIndex(nextIndex);
-    setNotice("New service added to the draft. Save to persist it.");
+    setNotice(t("settings.addedNotice"));
     setError(null);
-  }, [draft?.services.length, isBusy]);
+  }, [draft?.services.length, isBusy, t]);
 
   const deleteSelectedService = useCallback(() => {
     if (isBusy || selectedService === null) {
@@ -578,9 +610,11 @@ export function SettingsPage({
       return { version: 1, services };
     });
     setSelectedIndex((index) => Math.max(0, Math.min(index, remainingCount - 1)));
-    setNotice(`${selectedService.name} removed from the draft. Save to persist it.`);
+    setNotice(
+      t("settings.removedNotice", { serviceName: selectedService.name }),
+    );
     setError(null);
-  }, [draft?.services.length, isBusy, selectedIndex, selectedService]);
+  }, [draft?.services.length, isBusy, selectedIndex, selectedService, t]);
 
   const discardEdits = useCallback(() => {
     if (isBusy || baseline === null) {
@@ -593,9 +627,9 @@ export function SettingsPage({
         ? 0
         : Math.min(current, baseline.services.length - 1),
     );
-    setNotice("Unsaved edits discarded.");
+    setNotice(t("settings.discardedNotice"));
     setError(null);
-  }, [baseline, isBusy]);
+  }, [baseline, isBusy, t]);
 
   const handleSave = useCallback(
     async (event?: FormEvent) => {
@@ -611,7 +645,7 @@ export function SettingsPage({
         setError(
           reason instanceof ServiceConfigurationError
             ? reason.message
-            : "The service configuration is invalid.",
+            : t("settings.invalidConfiguration"),
         );
         return;
       }
@@ -621,14 +655,14 @@ export function SettingsPage({
       setNotice(null);
       try {
         const nextSnapshot = await client.saveConfiguration(configuration);
-        applySnapshot(nextSnapshot, "Service configuration saved.");
+        applySnapshot(nextSnapshot, t("settings.savedNotice"));
       } catch (reason) {
         setError(describeSettingsError(reason));
       } finally {
         setOperation(null);
       }
     },
-    [applySnapshot, client, draft, isBusy],
+    [applySnapshot, client, draft, isBusy, t],
   );
 
   const runConfigurationAction = useCallback(
@@ -639,8 +673,8 @@ export function SettingsPage({
 
       const confirmed = window.confirm(
         action === "reset"
-          ? "Replace the saved service catalog with the bundled defaults?"
-          : "Replace the saved service catalog with its most recent backup?",
+          ? t("settings.resetConfirmation")
+          : t("settings.restoreConfirmation"),
       );
       if (!confirmed) {
         return;
@@ -657,8 +691,8 @@ export function SettingsPage({
         applySnapshot(
           nextSnapshot,
           action === "reset"
-            ? "Bundled defaults restored."
-            : "Configuration backup restored.",
+            ? t("settings.resetNotice")
+            : t("settings.restoreNotice"),
         );
       } catch (reason) {
         setError(describeSettingsError(reason));
@@ -666,7 +700,7 @@ export function SettingsPage({
         setOperation(null);
       }
     },
-    [applySnapshot, client, isBusy],
+    [applySnapshot, client, isBusy, t],
   );
 
   const updateCredentialDraft = useCallback(
@@ -695,16 +729,21 @@ export function SettingsPage({
       }
 
       const presentation = CREDENTIAL_PRESENTATION[kind];
+      const secretLabel = t(presentation.secretLabelKey);
+      const usernameLabel =
+        presentation.usernameLabelKey === null
+          ? null
+          : t(presentation.usernameLabelKey);
       const values = credentialDrafts[kind];
       const username = values.username.trim();
       const secret = values.secret;
 
       if (secret.length === 0) {
-        setError(`${presentation.secretLabel} cannot be empty.`);
+        setError(t("credentials.requiredField", { field: secretLabel }));
         return;
       }
-      if (presentation.usernameLabel !== null && username.length === 0) {
-        setError(`${presentation.usernameLabel} cannot be empty.`);
+      if (usernameLabel !== null && username.length === 0) {
+        setError(t("credentials.requiredField", { field: usernameLabel }));
         return;
       }
 
@@ -715,7 +754,7 @@ export function SettingsPage({
         const status = await client.setCredential({
           serviceId: selectedService.id,
           kind,
-          username: presentation.usernameLabel === null ? null : username,
+          username: usernameLabel === null ? null : username,
           secret,
         });
         setCredentialStatuses((current) =>
@@ -726,7 +765,11 @@ export function SettingsPage({
           ...current,
           [kind]: { username: "", secret: "" },
         }));
-        setNotice(`${presentation.title} stored in the native credential vault.`);
+        setNotice(
+          t("credentials.storedNotice", {
+            credential: t(presentation.titleKey),
+          }),
+        );
         await refreshAuthenticationStatus(selectedService.id);
       } catch (reason) {
         setError(describeSettingsError(reason));
@@ -742,6 +785,7 @@ export function SettingsPage({
       isBusy,
       refreshAuthenticationStatus,
       selectedService,
+      t,
     ],
   );
 
@@ -758,7 +802,10 @@ export function SettingsPage({
 
       const presentation = CREDENTIAL_PRESENTATION[kind];
       const confirmed = window.confirm(
-        `Delete the stored ${presentation.title.toLowerCase()} for ${selectedService.name}? This credential cannot be recovered.`,
+        t("credentials.deleteConfirmation", {
+          credential: t(presentation.titleKey),
+          serviceName: selectedService.name,
+        }),
       );
       if (!confirmed) {
         return;
@@ -777,7 +824,11 @@ export function SettingsPage({
           ...current,
           [kind]: { username: "", secret: "" },
         }));
-        setNotice(`${presentation.title} removed from the native credential vault.`);
+        setNotice(
+          t("credentials.removedNotice", {
+            credential: t(presentation.titleKey),
+          }),
+        );
         await refreshAuthenticationStatus(selectedService.id);
       } catch (reason) {
         setError(describeSettingsError(reason));
@@ -792,6 +843,7 @@ export function SettingsPage({
       isBusy,
       refreshAuthenticationStatus,
       selectedService,
+      t,
     ],
   );
 
@@ -863,7 +915,7 @@ export function SettingsPage({
       selectedService.authentication.browser !== "none");
   const requiredCredentialLabels =
     authenticationStatus?.requiredCredentialKinds.map(
-      (kind) => CREDENTIAL_PRESENTATION[kind].title,
+      (kind) => t(CREDENTIAL_PRESENTATION[kind].titleKey),
     ) ?? [];
   const authenticationTone = authenticationStatus
     ? authenticationStatusTone(authenticationStatus.validationState)
@@ -873,12 +925,12 @@ export function SettingsPage({
       return;
     }
 
-    if (isDirty && !window.confirm("Discard unsaved catalog changes and close Settings?")) {
+    if (isDirty && !window.confirm(t("settings.discardCloseConfirmation"))) {
       return;
     }
 
     onClose?.();
-  }, [isBusy, isDirty, onClose]);
+  }, [isBusy, isDirty, onClose, t]);
 
   return (
     <main className={rootClassName} aria-busy={isBusy}>
@@ -888,9 +940,9 @@ export function SettingsPage({
             <SettingsIcon width={20} height={20} />
           </span>
           <div>
-            <p className="eyebrow">Personal Hub</p>
-            <h1>Settings</h1>
-            <p>Services, background runtime and secure integration credentials.</p>
+            <p className="eyebrow">{t("settings.headerEyebrow")}</p>
+            <h1>{t("settings.title")}</h1>
+            <p>{t("settings.description")}</p>
           </div>
         </div>
         {onClose ? (
@@ -899,8 +951,8 @@ export function SettingsPage({
             type="button"
             onClick={handleClose}
             disabled={isBusy}
-            aria-label="Close settings"
-            title="Close settings"
+            aria-label={t("settings.close")}
+            title={t("settings.close")}
           >
             <CloseIcon width={18} height={18} />
           </button>
@@ -910,39 +962,43 @@ export function SettingsPage({
       <div className="settings-page__scroll">
         {snapshotMeta.recoveryNotice ? (
           <div className="settings-banner settings-banner--warning" role="status">
-            <strong>Configuration notice</strong>
+            <strong>{t("settings.configurationNotice")}</strong>
             <span>{snapshotMeta.recoveryNotice}</span>
           </div>
         ) : null}
         {error ? (
           <div className="settings-banner settings-banner--error" role="alert">
-            <strong>Could not complete the operation</strong>
+            <strong>{t("settings.operationFailed")}</strong>
             <span>{error}</span>
           </div>
         ) : null}
         {notice ? (
           <div className="settings-banner settings-banner--success" role="status">
-            <strong>Settings updated</strong>
+            <strong>{t("settings.updated")}</strong>
             <span>{notice}</span>
           </div>
         ) : null}
+
+        <AppearanceSettingsPanel />
 
         <BackgroundRuntimeSettings />
 
         <section className="settings-panel" aria-labelledby="service-settings-heading">
           <div className="settings-panel__heading">
             <div>
-              <p className="settings-kicker">Catalog</p>
-              <h2 id="service-settings-heading">Services</h2>
+              <p className="settings-kicker">{t("settings.catalogKicker")}</p>
+              <h2 id="service-settings-heading">{t("settings.servicesTitle")}</h2>
             </div>
             <span className="settings-count">
-              {draft?.services.length ?? 0} configured
+              {t("settings.serviceCount", {
+                count: draft?.services.length ?? 0,
+              })}
             </span>
           </div>
 
           <div className="settings-service-toolbar">
             <label className="settings-service-picker">
-              <span>Selected service</span>
+              <span>{t("settings.selectedService")}</span>
               <select
                 value={selectedService === null ? "" : selectedIndex}
                 onChange={(event) => {
@@ -954,14 +1010,14 @@ export function SettingsPage({
               >
                 {(draft?.services ?? []).map((service, index) => (
                   <option key={`${index}:${service.id}`} value={index}>
-                    {serviceLabel(service, index)}
+                    {serviceLabel(service, index, t)}
                   </option>
                 ))}
               </select>
             </label>
             <div className="settings-service-toolbar__actions">
               <button type="button" onClick={addService} disabled={isBusy}>
-                Add service
+                {t("settings.addService")}
               </button>
               <button
                 type="button"
@@ -969,7 +1025,7 @@ export function SettingsPage({
                 onClick={deleteSelectedService}
                 disabled={isBusy || selectedService === null}
               >
-                Delete
+                {t("settings.deleteService")}
               </button>
             </div>
           </div>
@@ -984,8 +1040,12 @@ export function SettingsPage({
                   <ServiceIcon name={selectedService.icon} />
                 </span>
                 <div>
-                  <strong>{selectedService.name || "Unnamed service"}</strong>
-                  <span>{selectedService.category || "No category"}</span>
+                  <strong>
+                    {selectedService.name || t("settings.unnamedService")}
+                  </strong>
+                  <span>
+                    {selectedService.category || t("settings.noCategory")}
+                  </span>
                 </div>
                 <label className="settings-switch">
                   <input
@@ -998,13 +1058,15 @@ export function SettingsPage({
                     }}
                   />
                   <span aria-hidden="true" />
-                  {selectedService.enabled ? "Enabled" : "Disabled"}
+                  {selectedService.enabled
+                    ? t("common.enabled")
+                    : t("common.disabled")}
                 </label>
               </div>
 
               <div className="settings-form-grid">
                 <label className="settings-field">
-                  <span>Service ID</span>
+                  <span>{t("settings.serviceId")}</span>
                   <input
                     value={selectedService.id}
                     onChange={handleTextField("id")}
@@ -1016,12 +1078,12 @@ export function SettingsPage({
                   />
                   <small>
                     {isSelectedServiceIdPersisted
-                      ? "Saved service IDs are immutable because credentials are scoped to them."
-                      : "Choose a stable lowercase ID; it becomes immutable after saving because credentials are scoped to it."}
+                      ? t("settings.savedIdHelp")
+                      : t("settings.newIdHelp")}
                   </small>
                 </label>
                 <label className="settings-field">
-                  <span>Name</span>
+                  <span>{t("settings.name")}</span>
                   <input
                     value={selectedService.name}
                     onChange={handleTextField("name")}
@@ -1032,7 +1094,7 @@ export function SettingsPage({
                   />
                 </label>
                 <label className="settings-field settings-field--wide">
-                  <span>Description</span>
+                  <span>{t("settings.descriptionLabel")}</span>
                   <textarea
                     value={selectedService.description}
                     onChange={handleTextField("description")}
@@ -1043,21 +1105,21 @@ export function SettingsPage({
                   />
                 </label>
                 <label className="settings-field settings-field--wide">
-                  <span>URL</span>
+                  <span>{t("settings.url")}</span>
                   <input
                     type="url"
                     value={selectedService.url}
                     onChange={handleTextField("url")}
                     disabled={isBusy}
                     maxLength={2_048}
-                    placeholder="https://192.168.1.10:8443"
+                    placeholder={t("settings.urlPlaceholder")}
                     autoComplete="url"
                     required
                   />
-                  <small>HTTP(S) only. Credentials cannot be embedded in URLs.</small>
+                  <small>{t("settings.urlHelp")}</small>
                 </label>
                 <label className="settings-field">
-                  <span>Category</span>
+                  <span>{t("settings.category")}</span>
                   <input
                     value={selectedService.category}
                     onChange={handleTextField("category")}
@@ -1069,7 +1131,7 @@ export function SettingsPage({
                   />
                 </label>
                 <label className="settings-field">
-                  <span>Icon</span>
+                  <span>{t("settings.icon")}</span>
                   <input
                     value={selectedService.icon}
                     onChange={handleTextField("icon")}
@@ -1081,7 +1143,7 @@ export function SettingsPage({
                   />
                 </label>
                 <label className="settings-field">
-                  <span>Accent</span>
+                  <span>{t("settings.accent")}</span>
                   <select
                     value={selectedService.accent}
                     disabled={isBusy}
@@ -1092,13 +1154,13 @@ export function SettingsPage({
                   >
                     {SERVICE_ACCENTS.map((accent) => (
                       <option key={accent} value={accent}>
-                        {accent[0].toUpperCase() + accent.slice(1)}
+                        {t(ACCENT_LABELS[accent])}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="settings-field">
-                  <span>TLS policy</span>
+                  <span>{t("settings.tlsPolicy")}</span>
                   <select
                     value={selectedService.tlsPolicy}
                     disabled={isBusy}
@@ -1118,15 +1180,15 @@ export function SettingsPage({
                         }
                       >
                         {policy === "strict"
-                          ? "Strict validation"
-                          : "Allow invalid local certificate"}
+                          ? t("settings.tlsStrict")
+                          : t("settings.tlsAllowInvalid")}
                       </option>
                     ))}
                   </select>
-                  <small>The relaxed policy is limited to private HTTPS targets.</small>
+                  <small>{t("settings.tlsHelp")}</small>
                 </label>
                 <label className="settings-field">
-                  <span>Automatic API authentication</span>
+                  <span>{t("settings.apiAuthentication")}</span>
                   <select
                     value={selectedService.authentication.api}
                     disabled={isBusy}
@@ -1160,17 +1222,14 @@ export function SettingsPage({
                   >
                     {SERVICE_API_AUTHENTICATIONS.map((adapter) => (
                       <option key={adapter} value={adapter}>
-                        {API_AUTHENTICATION_LABELS[adapter]}
+                        {t(API_AUTHENTICATION_LABELS[adapter])}
                       </option>
                     ))}
                   </select>
-                  <small>
-                    Used only by a matching native provider adapter; secrets stay in
-                    the credential vault.
-                  </small>
+                  <small>{t("settings.apiAuthenticationHelp")}</small>
                 </label>
                 <label className="settings-field">
-                  <span>Browser authentication</span>
+                  <span>{t("settings.browserAuthentication")}</span>
                   <select
                     value={selectedService.authentication.browser}
                     disabled={isBusy}
@@ -1209,14 +1268,11 @@ export function SettingsPage({
                           selectedService.authentication.api === "glances-bearer"
                         }
                       >
-                        {BROWSER_AUTHENTICATION_LABELS[adapter]}
+                        {t(BROWSER_AUTHENTICATION_LABELS[adapter])}
                       </option>
                     ))}
                   </select>
-                  <small>
-                    Normal sign-in stays in the persistent service-tab profile. No
-                    password is injected into a page or login form.
-                  </small>
+                  <small>{t("settings.browserAuthenticationHelp")}</small>
                 </label>
                 {selectedUrlIsHttp && selectedAuthenticationIsConfigured ? (
                   <label className="settings-authentication-optin settings-field--wide">
@@ -1238,11 +1294,8 @@ export function SettingsPage({
                       }}
                     />
                     <span>
-                      <strong>Allow credentials over local plaintext HTTP</strong>
-                      <small>
-                        Opt in only for a trusted loopback or private-network service.
-                        HTTPS remains recommended.
-                      </small>
+                      <strong>{t("settings.allowLocalHttp")}</strong>
+                      <small>{t("settings.allowLocalHttpHelp")}</small>
                     </span>
                   </label>
                 ) : null}
@@ -1262,43 +1315,49 @@ export function SettingsPage({
               </datalist>
 
               <div className="settings-form-actions">
-                <span>{isDirty ? "Unsaved catalog changes" : "Catalog is up to date"}</span>
+                <span>
+                  {isDirty
+                    ? t("settings.unsavedChanges")
+                    : t("settings.catalogUpToDate")}
+                </span>
                 <button
                   type="button"
                   onClick={discardEdits}
                   disabled={!isDirty || isBusy}
                 >
-                  Discard edits
+                  {t("settings.discardEdits")}
                 </button>
                 <button
                   className="settings-button--primary"
                   type="submit"
                   disabled={!isDirty || isBusy}
                 >
-                  {operation === "save" ? "Saving…" : "Save"}
+                  {operation === "save"
+                    ? t("settings.saving")
+                    : t("common.save")}
                 </button>
               </div>
             </form>
           ) : isLoading ? (
             <div className="settings-empty-state" role="status">
               <SettingsIcon width={24} height={24} />
-              <strong>Loading service catalog</strong>
-              <span>Reading the validated per-user configuration.</span>
+              <strong>{t("settings.loadingCatalog")}</strong>
+              <span>{t("settings.loadingCatalogDescription")}</span>
             </div>
           ) : (
             <div className="settings-empty-state">
               <SettingsIcon width={24} height={24} />
-              <strong>No services configured</strong>
-              <span>Add a service, complete its fields, then save the catalog.</span>
+              <strong>{t("settings.noServices")}</strong>
+              <span>{t("settings.noServicesDescription")}</span>
               {draft !== null && isDirty ? (
                 <div className="settings-form-actions">
-                  <span>Unsaved catalog changes</span>
+                  <span>{t("settings.unsavedChanges")}</span>
                   <button
                     type="button"
                     onClick={discardEdits}
                     disabled={isBusy}
                   >
-                    Discard edits
+                    {t("settings.discardEdits")}
                   </button>
                   <button
                     className="settings-button--primary"
@@ -1306,7 +1365,9 @@ export function SettingsPage({
                     onClick={() => void handleSave()}
                     disabled={isBusy}
                   >
-                    {operation === "save" ? "Saving…" : "Save empty catalog"}
+                    {operation === "save"
+                      ? t("settings.saving")
+                      : t("settings.saveEmptyCatalog")}
                   </button>
                 </div>
               ) : null}
@@ -1317,17 +1378,19 @@ export function SettingsPage({
         <section className="settings-panel" aria-labelledby="credentials-heading">
           <div className="settings-panel__heading">
             <div>
-              <p className="settings-kicker">Windows credential vault</p>
-              <h2 id="credentials-heading">Credentials</h2>
+              <p className="settings-kicker">{t("credentials.kicker")}</p>
+              <h2 id="credentials-heading">{t("credentials.title")}</h2>
             </div>
-            <span className="settings-privacy-badge">Secrets never return to the UI</span>
+            <span className="settings-privacy-badge">
+              {t("credentials.privateBadge")}
+            </span>
           </div>
 
           {!credentialsReady ? (
             <div className="settings-inline-note">
               {selectedService === null
-                ? "Select or add a service before managing credentials."
-                : "Save or discard catalog edits before managing credentials."}
+                ? t("credentials.selectService")
+                : t("credentials.saveFirst")}
             </div>
           ) : (
             <div className="settings-credentials-content">
@@ -1337,9 +1400,11 @@ export function SettingsPage({
               >
                 <div className="settings-authentication__heading">
                   <div>
-                    <p className="settings-kicker">Provider adapter</p>
+                    <p className="settings-kicker">
+                      {t("credentials.providerAdapter")}
+                    </p>
                     <h3 id="automatic-authentication-heading">
-                      Automatic authentication
+                      {t("credentials.automaticAuthentication")}
                     </h3>
                   </div>
                   <div
@@ -1352,53 +1417,64 @@ export function SettingsPage({
                       className={`settings-authentication__status settings-authentication__status--${authenticationTone}`}
                     >
                       {authenticationOperation
-                        ? "Validating…"
+                        ? t("authentication.validating")
                         : authenticationStatus
-                          ? AUTHENTICATION_VALIDATION_LABELS[
-                              authenticationStatus.validationState
-                            ]
-                          : "Checking…"}
+                          ? t(
+                              AUTHENTICATION_VALIDATION_LABELS[
+                                authenticationStatus.validationState
+                              ],
+                            )
+                          : t("common.checking")}
                     </span>
                     <span id="automatic-authentication-live">
                       {authenticationError
-                        ? `Status unavailable: ${authenticationError}`
+                        ? t("credentials.statusUnavailable", {
+                            error: authenticationError,
+                          })
                         : authenticationOperation
-                          ? "Checking the stored credential with the service."
+                          ? t("credentials.checkingStored")
                           : authenticationStatus
-                            ? authenticationStatusDescription(authenticationStatus)
-                            : "Reading the native adapter status."}
+                            ? authenticationStatusDescription(
+                                authenticationStatus,
+                                t,
+                              )
+                            : t("credentials.readingStatus")}
                     </span>
                   </div>
                 </div>
 
                 <div className="settings-authentication__summary">
                   <div>
-                    <span>Native API</span>
+                    <span>{t("credentials.nativeApi")}</span>
                     <strong>
                       {authenticationStatus
-                        ? API_AUTHENTICATION_LABELS[
-                            authenticationStatus.apiAdapter
-                          ]
-                        : "Checking…"}
+                        ? t(
+                            API_AUTHENTICATION_LABELS[
+                              authenticationStatus.apiAdapter
+                            ],
+                          )
+                        : t("common.checking")}
                     </strong>
                   </div>
                   <div>
-                    <span>Browser path</span>
+                    <span>{t("credentials.browserPath")}</span>
                     <strong>
                       {authenticationStatus
-                        ? BROWSER_AUTHENTICATION_LABELS[
-                            authenticationStatus.browserAdapter
-                          ]
-                        : "Checking…"}
+                        ? t(
+                            BROWSER_AUTHENTICATION_LABELS[
+                              authenticationStatus.browserAdapter
+                            ],
+                          )
+                        : t("common.checking")}
                     </strong>
                   </div>
                   <div>
-                    <span>Required vault entries</span>
+                    <span>{t("credentials.requiredEntries")}</span>
                     <strong>
                       {authenticationStatus === null
-                        ? "Checking…"
+                        ? t("common.checking")
                         : requiredCredentialLabels.length === 0
-                          ? "None"
+                          ? t("common.none")
                           : requiredCredentialLabels.join(", ")}
                     </strong>
                   </div>
@@ -1406,9 +1482,7 @@ export function SettingsPage({
 
                 <div className="settings-authentication__actions">
                   <p id="automatic-authentication-browser-note">
-                    Browser login is separate and stays in the persistent service-tab
-                    profile. Automatic credentials are never injected into webpage
-                    fields or login forms.
+                    {t("credentials.browserLoginHelp")}
                   </p>
                   <button
                     className="settings-button--primary"
@@ -1421,7 +1495,9 @@ export function SettingsPage({
                     }
                     aria-describedby="automatic-authentication-live automatic-authentication-browser-note"
                   >
-                    {authenticationOperation ? "Validating…" : "Validate now"}
+                    {authenticationOperation
+                      ? t("authentication.validating")
+                      : t("credentials.validateNow")}
                   </button>
                 </div>
               </article>
@@ -1439,8 +1515,8 @@ export function SettingsPage({
                     <article className="settings-credential" key={kind}>
                       <div className="settings-credential__heading">
                         <div>
-                          <strong>{presentation.title}</strong>
-                          <span>{presentation.description}</span>
+                          <strong>{t(presentation.titleKey)}</strong>
+                          <span>{t(presentation.descriptionKey)}</span>
                         </div>
                         <span
                           className={`settings-credential__status settings-credential__status--${
@@ -1448,17 +1524,17 @@ export function SettingsPage({
                           }`}
                         >
                           {status === undefined
-                            ? "Checking…"
+                            ? t("common.checking")
                             : status.exists
-                              ? "Stored"
-                              : "Not stored"}
+                              ? t("credentials.stored")
+                              : t("credentials.notStored")}
                         </span>
                       </div>
 
                       <div className="settings-credential__fields">
-                        {presentation.usernameLabel ? (
+                        {presentation.usernameLabelKey ? (
                           <label className="settings-field">
-                            <span>{presentation.usernameLabel}</span>
+                            <span>{t(presentation.usernameLabelKey)}</span>
                             <input
                               value={values.username}
                               onChange={(event) =>
@@ -1471,12 +1547,12 @@ export function SettingsPage({
                               disabled={isBusy}
                               maxLength={256}
                               autoComplete="off"
-                              placeholder="Enter a replacement username"
+                              placeholder={t("credentials.usernamePlaceholder")}
                             />
                           </label>
                         ) : null}
                         <label className="settings-field">
-                          <span>{presentation.secretLabel}</span>
+                          <span>{t(presentation.secretLabelKey)}</span>
                           <input
                             type="password"
                             value={values.secret}
@@ -1490,7 +1566,7 @@ export function SettingsPage({
                             disabled={isBusy}
                             maxLength={2_560}
                             autoComplete="new-password"
-                            placeholder="Enter a replacement value"
+                            placeholder={t("credentials.valuePlaceholder")}
                           />
                         </label>
                       </div>
@@ -1501,7 +1577,7 @@ export function SettingsPage({
                           onClick={() => void removeCredential(kind)}
                           disabled={!status?.exists || isBusy}
                         >
-                          Delete stored
+                          {t("credentials.deleteStored")}
                         </button>
                         <button
                           className="settings-button--primary"
@@ -1509,7 +1585,9 @@ export function SettingsPage({
                           onClick={() => void storeCredential(kind)}
                           disabled={credentialStatuses === null || isBusy}
                         >
-                          {isCredentialBusy ? "Working…" : "Store replacement"}
+                          {isCredentialBusy
+                            ? t("common.working")
+                            : t("credentials.storeReplacement")}
                         </button>
                       </div>
                     </article>
@@ -1523,31 +1601,35 @@ export function SettingsPage({
         <section className="settings-panel settings-panel--maintenance">
           <div className="settings-panel__heading">
             <div>
-              <p className="settings-kicker">Recovery</p>
-              <h2>Configuration maintenance</h2>
+              <p className="settings-kicker">{t("maintenance.kicker")}</p>
+              <h2>{t("maintenance.title")}</h2>
             </div>
           </div>
           <div className="settings-maintenance-actions">
             <div>
-              <strong>Bundled defaults</strong>
-              <span>Replace the saved catalog with the version shipped with the app.</span>
+              <strong>{t("maintenance.bundledDefaults")}</strong>
+              <span>{t("maintenance.bundledDefaultsDescription")}</span>
               <button
                 type="button"
                 onClick={() => void runConfigurationAction("reset")}
                 disabled={isBusy}
               >
-                {operation === "reset" ? "Resetting…" : "Reset defaults"}
+                {operation === "reset"
+                  ? t("maintenance.resetting")
+                  : t("maintenance.resetDefaults")}
               </button>
             </div>
             <div>
-              <strong>Last known backup</strong>
-              <span>Restore the backup created before the most recent saved change.</span>
+              <strong>{t("maintenance.lastBackup")}</strong>
+              <span>{t("maintenance.lastBackupDescription")}</span>
               <button
                 type="button"
                 onClick={() => void runConfigurationAction("restore")}
                 disabled={!snapshotMeta.backupAvailable || isBusy}
               >
-                {operation === "restore" ? "Restoring…" : "Restore backup"}
+                {operation === "restore"
+                  ? t("maintenance.restoring")
+                  : t("maintenance.restoreBackup")}
               </button>
             </div>
           </div>

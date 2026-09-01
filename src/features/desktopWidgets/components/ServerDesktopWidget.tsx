@@ -1,13 +1,9 @@
 import type { DesktopWidgetMonitor } from "../desktopWidget.types";
 import {
   derivedPercent,
-  formatBytes,
-  formatDuration,
-  formatLoad,
-  formatPercent,
-  formatRate,
   normalizedPercent,
 } from "../desktopWidgetFormatters";
+import { useTranslation } from "../../i18n";
 import {
   WidgetArrowDownIcon,
   WidgetArrowUpIcon,
@@ -27,23 +23,24 @@ interface PercentageMetricProps {
 }
 
 function PercentageMetric({ label, value, detail }: PercentageMetricProps) {
-  const percent = normalizedPercent(value);
+  const { percent: formatPercent, t } = useTranslation();
+  const safePercent = normalizedPercent(value);
 
   return (
     <article className="desktop-widget-metric">
       <span>{label}</span>
-      <strong>{formatPercent(percent)}</strong>
+      <strong>{formatPercent(safePercent)}</strong>
       <small>{detail}</small>
-      {percent !== null ? (
+      {safePercent !== null ? (
         <div
           className="desktop-widget-progress"
           role="progressbar"
-          aria-label={`${label} usage`}
+          aria-label={t("widget.metricUsage", { metric: label })}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={Math.round(percent)}
+          aria-valuenow={Math.round(safePercent)}
         >
-          <span style={{ width: `${percent}%` }} />
+          <span style={{ width: `${safePercent}%` }} />
         </div>
       ) : null}
     </article>
@@ -51,6 +48,7 @@ function PercentageMetric({ label, value, detail }: PercentageMetricProps) {
 }
 
 export function ServerDesktopWidget({ monitor }: ServerDesktopWidgetProps) {
+  const { byteRate, bytes, duration, number, t } = useTranslation();
   const snapshot = monitor.snapshot;
   const metrics = snapshot?.metrics ?? null;
   const memoryPercent = derivedPercent(
@@ -63,83 +61,108 @@ export function ServerDesktopWidget({ monitor }: ServerDesktopWidgetProps) {
   return (
     <DesktopWidgetShell
       kind="server"
-      title={snapshot?.serverName ?? "Home Server"}
+      title={snapshot?.serverName ?? t("widget.homeServer")}
       subtitle={snapshot?.serverAddress ?? "192.168.1.10"}
       monitor={monitor}
       icon={<WidgetServerIcon />}
     >
       <div className="desktop-widget-metric-grid">
         <PercentageMetric
-          label="CPU"
+          label={t("monitoring.cpu")}
           value={metrics?.cpuPercent ?? null}
           detail={
             metrics?.cpuTemperatureC === null || !metrics
-              ? "Temperature unavailable"
-              : `${Math.round(metrics.cpuTemperatureC)} °C`
+              ? t("widget.temperatureUnavailable")
+              : t("widget.temperature", {
+                  temperature: `${number(Math.round(metrics.cpuTemperatureC))} °C`,
+                })
           }
         />
         <PercentageMetric
-          label="Memory"
+          label={t("monitoring.memory")}
           value={memoryPercent}
-          detail={`${formatBytes(metrics?.memoryUsedBytes ?? null)} / ${formatBytes(
-            metrics?.memoryTotalBytes ?? null,
-          )}`}
+          detail={t("widget.memoryUsage", {
+            used: bytes(metrics?.memoryUsedBytes ?? null),
+            total: bytes(metrics?.memoryTotalBytes ?? null),
+          })}
         />
         <article className="desktop-widget-metric desktop-widget-metric--network">
-          <span>Network</span>
-          <strong>{formatRate(metrics?.networkDownloadBytesPerSecond ?? null)}</strong>
+          <span>{t("monitoring.network")}</span>
+          <strong>{byteRate(metrics?.networkDownloadBytesPerSecond ?? null)}</strong>
           <small className="desktop-widget-network-detail">
             <span>
               <WidgetArrowDownIcon />
-              Down
+              {t("widget.down")}
             </span>
             <span>
               <WidgetArrowUpIcon />
-              {formatRate(metrics?.networkUploadBytesPerSecond ?? null)} up
+              {t("widget.networkUpload", {
+                upload: byteRate(metrics?.networkUploadBytesPerSecond ?? null),
+              })}
             </span>
           </small>
         </article>
       </div>
 
-      <div className="desktop-widget-facts" aria-label="Server uptime and load">
+      <div
+        className="desktop-widget-facts"
+        aria-label={t("widget.serverUptimeAndLoad")}
+      >
         <div>
-          <span>Uptime</span>
-          <strong>{formatDuration(metrics?.uptimeSeconds ?? null)}</strong>
+          <span>{t("widget.uptime")}</span>
+          <strong>
+            {duration(metrics?.uptimeSeconds ?? null, {
+              maximumParts: 2,
+              smallestUnit: "minute",
+              unitDisplay: "narrow",
+            })}
+          </strong>
         </div>
         <div>
-          <span>Load average</span>
-          <strong>{formatLoad(metrics?.loadAverage1m ?? null)}</strong>
+          <span>{t("widget.loadAverage")}</span>
+          <strong>
+            {number(metrics?.loadAverage1m ?? null, {
+              maximumFractionDigits:
+                (metrics?.loadAverage1m ?? 0) >= 10 ? 1 : 2,
+            })}
+          </strong>
           <small>
-            {formatLoad(metrics?.loadAverage5m ?? null)} / {formatLoad(
-              metrics?.loadAverage15m ?? null,
-            )}
+            {number(metrics?.loadAverage5m ?? null, {
+              maximumFractionDigits:
+                (metrics?.loadAverage5m ?? 0) >= 10 ? 1 : 2,
+            })}{" "}
+            /{" "}
+            {number(metrics?.loadAverage15m ?? null, {
+              maximumFractionDigits:
+                (metrics?.loadAverage15m ?? 0) >= 10 ? 1 : 2,
+            })}
           </small>
         </div>
       </div>
 
-      <div className="desktop-widget-trends" aria-label="Recent server trends">
+      <div className="desktop-widget-trends" aria-label={t("widget.recentTrends")}>
         <article>
-          <span>CPU</span>
+          <span>{t("monitoring.cpu")}</span>
           <DesktopWidgetSparkline
             values={trends.map((sample) => sample.cpuPercent)}
-            label="Recent CPU usage trend"
+            label={t("widget.recentCpuTrend")}
           />
         </article>
         <article>
-          <span>Memory</span>
+          <span>{t("monitoring.memory")}</span>
           <DesktopWidgetSparkline
             values={trends.map((sample) => sample.memoryPercent)}
-            label="Recent memory usage trend"
+            label={t("widget.recentMemoryTrend")}
             tone="violet"
           />
         </article>
         <article>
-          <span>Network</span>
+          <span>{t("monitoring.network")}</span>
           <DesktopWidgetSparkline
             values={trends.map(
               (sample) => sample.networkDownloadBytesPerSecond,
             )}
-            label="Recent network download trend"
+            label={t("widget.recentNetworkTrend")}
             tone="green"
           />
         </article>

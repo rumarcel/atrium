@@ -7,6 +7,7 @@ import {
 } from "../features/backgroundRuntime";
 import { AppHeader } from "../features/dashboard/components/AppHeader";
 import { useServiceHealth } from "../features/health/hooks/useServiceHealth";
+import { useTranslation } from "../features/i18n";
 import { ServerMonitoring } from "../features/monitoring";
 import { SettingsPage } from "../features/settings";
 import {
@@ -58,7 +59,7 @@ interface SettingsViewState {
   initialServiceId: string | null;
 }
 
-async function copyText(value: string): Promise<void> {
+async function copyText(value: string, unavailableMessage: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
     return;
@@ -75,11 +76,12 @@ async function copyText(value: string): Promise<void> {
   field.remove();
 
   if (!copied) {
-    throw new Error("Clipboard access is unavailable.");
+    throw new Error(unavailableMessage);
   }
 }
 
 export function DashboardPage() {
+  const { number, t } = useTranslation();
   const [searchValue, setSearchValue] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [contextMenu, setContextMenu] =
@@ -392,14 +394,14 @@ export function DashboardPage() {
 
       if (!isDesktopRuntime()) {
         announce(
-          "Service views are available in the Windows desktop app, not the browser preview.",
+          t("dashboard.desktopOnly"),
         );
         return;
       }
 
       tabs.openService(service.id);
     },
-    [announce, tabs.openService],
+    [announce, t, tabs.openService],
   );
 
   const handleCloseTab = useCallback(
@@ -499,23 +501,31 @@ export function DashboardPage() {
   const handleSystemBrowser = useCallback(
     (service: DashboardService) => {
       void openServiceInSystemBrowser(service)
-        .then(() => announce(`${service.name} opened in the system browser.`))
+        .then(() =>
+          announce(
+            t("dashboard.openedInSystemBrowser", {
+              serviceName: service.name,
+            }),
+          ),
+        )
         .catch((nativeError) =>
           announce(describeNativeError(nativeError), "error"),
         );
     },
-    [announce],
+    [announce, t],
   );
 
   const handleCopyUrl = useCallback(
     (service: DashboardService) => {
-      void copyText(service.url)
-        .then(() => announce(`${service.name} URL copied.`))
+      void copyText(service.url, t("dashboard.clipboardUnavailable"))
+        .then(() =>
+          announce(t("dashboard.urlCopied", { serviceName: service.name })),
+        )
         .catch((clipboardError) =>
           announce(describeNativeError(clipboardError), "error"),
         );
     },
-    [announce],
+    [announce, t],
   );
 
   const {
@@ -532,13 +542,15 @@ export function DashboardPage() {
     }
 
     if (enabledServices.length === 0) {
-      return "No enabled services to check";
+      return t("health.noEnabledServices");
     }
 
     if (lastCheckedAt === null) {
       return isHealthChecking
-        ? `Checking ${enabledServices.length} services…`
-        : "Health checks ready";
+        ? t("health.checkingServices", {
+            count: number(enabledServices.length),
+          })
+        : t("health.ready");
     }
 
     const localTlsWarnings = enabledServices.reduce(
@@ -548,18 +560,31 @@ export function DashboardPage() {
     );
     const otherWarnings = healthSummary.warning - localTlsWarnings;
     const summaryParts = [
-      healthSummary.online > 0 ? `${healthSummary.online} online` : null,
-      localTlsWarnings > 0 ? `${localTlsWarnings} local TLS` : null,
-      otherWarnings > 0
-        ? `${otherWarnings} ${otherWarnings === 1 ? "warning" : "warnings"}`
+      healthSummary.online > 0
+        ? t("health.onlineCount", { count: number(healthSummary.online) })
         : null,
-      healthSummary.offline > 0 ? `${healthSummary.offline} offline` : null,
+      localTlsWarnings > 0
+        ? t("health.localTlsCount", { count: number(localTlsWarnings) })
+        : null,
+      otherWarnings > 0
+        ? t(
+            otherWarnings === 1
+              ? "health.warningCountOne"
+              : "health.warningCountOther",
+            { count: number(otherWarnings) },
+          )
+        : null,
+      healthSummary.offline > 0
+        ? t("health.offlineCount", { count: number(healthSummary.offline) })
+        : null,
       healthSummary.unchecked > 0
-        ? `${healthSummary.unchecked} unchecked`
+        ? t("health.uncheckedCount", {
+            count: number(healthSummary.unchecked),
+          })
         : null,
     ].filter(Boolean);
 
-    return `${isHealthChecking ? "Refreshing · " : ""}${summaryParts.join(" · ")}`;
+    return `${isHealthChecking ? `${t("health.refreshingPrefix")} · ` : ""}${summaryParts.join(" · ")}`;
   }, [
     catalogStatus,
     enabledServices,
@@ -567,6 +592,8 @@ export function DashboardPage() {
     healthSummary,
     isHealthChecking,
     lastCheckedAt,
+    number,
+    t,
   ]);
 
   const serviceCategories = useMemo(
@@ -653,24 +680,24 @@ export function DashboardPage() {
           id="dashboard-panel"
           className="dashboard-panel"
           role="tabpanel"
-          aria-label="Dashboard"
+          aria-label={t("dashboard.panelLabel")}
           hidden={!isDashboardActive}
         >
           <main className="dashboard">
             <section className="dashboard-intro" aria-labelledby="dashboard-title">
               <div>
-                <p className="eyebrow">Dashboard</p>
-                <h1 id="dashboard-title">Everything at home, in one place.</h1>
+                <p className="eyebrow">{t("dashboard.eyebrow")}</p>
+                <h1 id="dashboard-title">{t("dashboard.title")}</h1>
                 <p className="dashboard-intro__description">
-                  A calm command center for the services running on your home server.
+                  {t("dashboard.description")}
                 </p>
               </div>
               <div
                 className="phase-note phase-note--ready"
-                aria-label="Current implementation phase"
+                aria-label={t("dashboard.currentPhase")}
               >
-                <span>Phase 7</span>
-                <p>Settings &amp; secure vault</p>
+                <span>{t("dashboard.phaseLabel")}</span>
+                <p>{t("dashboard.phaseDescription")}</p>
               </div>
             </section>
 
@@ -679,11 +706,11 @@ export function DashboardPage() {
             {catalogStatus === "error" ? (
               <div className="configuration-alert" role="alert">
                 <div>
-                  <strong>Service configuration unavailable</strong>
+                  <strong>{t("dashboard.configurationUnavailableTitle")}</strong>
                   <p>{error}</p>
                 </div>
                 <button type="button" onClick={reload}>
-                  Try again
+                  {t("common.tryAgain")}
                 </button>
               </div>
             ) : null}
@@ -691,11 +718,11 @@ export function DashboardPage() {
             {recoveryNotice ? (
               <div className="configuration-alert" role="status">
                 <div>
-                  <strong>Service settings notice</strong>
+                  <strong>{t("dashboard.settingsNoticeTitle")}</strong>
                   <p>{recoveryNotice}</p>
                 </div>
                 <button type="button" onClick={() => handleOpenSettings()}>
-                  Review settings
+                  {t("dashboard.reviewSettings")}
                 </button>
               </div>
             ) : null}
@@ -704,7 +731,7 @@ export function DashboardPage() {
               <div className="section-heading">
                 <div>
                   <div className="section-heading__title-row">
-                    <h2 id="services-heading">Services</h2>
+                    <h2 id="services-heading">{t("dashboard.servicesTitle")}</h2>
                     <span className="count-badge">
                       {catalogStatus === "loading" ? "—" : filteredServices.length}
                     </span>
@@ -715,10 +742,10 @@ export function DashboardPage() {
                       aria-hidden="true"
                     />
                     {catalogStatus === "ready"
-                      ? "Loaded from your saved service settings"
+                      ? t("dashboard.configurationLoaded")
                       : catalogStatus === "loading"
-                        ? "Loading saved service settings"
-                        : "Configuration unavailable"}
+                        ? t("dashboard.configurationLoading")
+                        : t("dashboard.configurationUnavailable")}
                     {healthSummaryText ? (
                       <>
                         <span
@@ -736,7 +763,7 @@ export function DashboardPage() {
                 <button
                   className="refresh-button"
                   type="button"
-                  title="Status refreshes automatically every 45 seconds."
+                  title={t("dashboard.refreshAutomatically")}
                   onClick={refreshHealth}
                   disabled={
                     catalogStatus !== "ready" ||
@@ -752,7 +779,9 @@ export function DashboardPage() {
                     width={16}
                     height={16}
                   />
-                  {isHealthChecking ? "Checking…" : "Refresh status"}
+                  {isHealthChecking
+                    ? t("common.checking")
+                    : t("dashboard.refreshStatus")}
                 </button>
               </div>
 
@@ -761,7 +790,7 @@ export function DashboardPage() {
                   <div
                     className="category-filter"
                     role="group"
-                    aria-label="Filter services by category"
+                    aria-label={t("dashboard.filterByCategory")}
                   >
                     {serviceCategories.map((category) => (
                       <button
@@ -774,7 +803,7 @@ export function DashboardPage() {
                         key={category}
                         onClick={() => setActiveCategory(category)}
                       >
-                        {category}
+                        {category === "All" ? t("common.all") : category}
                       </button>
                     ))}
                   </div>
@@ -785,13 +814,13 @@ export function DashboardPage() {
                     healthById={healthById}
                     emptyTitle={
                       hasEnabledServices
-                        ? "No services found"
-                        : "No enabled services"
+                        ? t("dashboard.noServicesFound")
+                        : t("dashboard.noEnabledServices")
                     }
                     emptyDescription={
                       hasEnabledServices
-                        ? "Try another name or category."
-                        : "Enable or add a service in Settings."
+                        ? t("dashboard.noServicesFoundDescription")
+                        : t("dashboard.noEnabledServicesDescription")
                     }
                     onOpenService={handleOpenService}
                     onOpenContextMenu={setContextMenu}
@@ -802,9 +831,9 @@ export function DashboardPage() {
           </main>
 
           <footer className="app-footer">
-            <span>Personal Hub</span>
+            <span>{t("app.name")}</span>
             <span className="app-footer__separator" aria-hidden="true" />
-            <span>Local-first desktop control center</span>
+            <span>{t("dashboard.footerDescription")}</span>
           </footer>
         </div>
 

@@ -1,4 +1,5 @@
 import type { ServiceHealthById } from "../../health/health.types";
+import { useTranslation } from "../../i18n";
 import type { DashboardService } from "../service.types";
 import { ServiceCard } from "./ServiceCard";
 import type { ServiceContextMenuState } from "./ServiceContextMenu";
@@ -16,17 +17,22 @@ interface ServiceGridProps {
 export function ServiceGrid({
   services,
   isLoading = false,
-  emptyTitle = "No services found",
-  emptyDescription = "Try another name or category.",
+  emptyTitle,
+  emptyDescription,
   healthById = {},
   onOpenService,
   onOpenContextMenu,
 }: ServiceGridProps) {
+  const { t } = useTranslation();
+  const resolvedEmptyTitle = emptyTitle ?? t("dashboard.noServicesFound");
+  const resolvedEmptyDescription =
+    emptyDescription ?? t("dashboard.noServicesFoundDescription");
+
   if (isLoading) {
     return (
       <div
         className="service-grid"
-        aria-label="Loading service configuration"
+        aria-label={t("service.gridLoading")}
         aria-busy="true"
       >
         {Array.from({ length: 8 }, (_, index) => (
@@ -52,8 +58,8 @@ export function ServiceGrid({
   if (services.length === 0) {
     return (
       <div className="service-grid__empty">
-        <p>{emptyTitle}</p>
-        <span>{emptyDescription}</span>
+        <p>{resolvedEmptyTitle}</p>
+        <span>{resolvedEmptyDescription}</span>
       </div>
     );
   }

@@ -7,6 +7,7 @@ import "./styles/global.css";
 import "./styles/dashboard.css";
 import "./styles/tabs.css";
 import "./styles/monitoring.css";
+import "./styles/appearance.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

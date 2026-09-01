@@ -6,6 +6,11 @@ import {
   type DesktopWidgetKind,
 } from "../../desktopWidgets/desktopWidget.types";
 import {
+  useTranslation,
+  type TranslationKeysWithoutParameters,
+  type Translator,
+} from "../../i18n";
+import {
   BACKGROUND_RUNTIME_CHANGED_EVENT,
   describeBackgroundRuntimeError,
   nativeBackgroundRuntimeClient,
@@ -27,50 +32,57 @@ const CARD_PRESENTATION: Readonly<
   Record<
     DesktopWidgetKind,
     {
-      title: string;
-      description: string;
+      titleKey: TranslationKeysWithoutParameters;
+      descriptionKey: TranslationKeysWithoutParameters;
     }
   >
 > = {
   server: {
-    title: "Server metrics",
-    description: "CPU, memory, network, uptime and load from Glances.",
+    titleKey: "background.serverCardTitle",
+    descriptionKey: "background.serverCardDescription",
   },
   storage: {
-    title: "Storage",
-    description: "Server volume usage and capacity warnings from Glances.",
+    titleKey: "background.storageCardTitle",
+    descriptionKey: "background.storageCardDescription",
   },
   services: {
-    title: "Service attention",
-    description: "Offline and warning states from configured service health checks.",
+    titleKey: "background.servicesCardTitle",
+    descriptionKey: "background.servicesCardDescription",
   },
 };
 
-function availabilityLabel(value: BackgroundRuntimeAvailability): string {
+function availabilityLabel(
+  value: BackgroundRuntimeAvailability,
+  t: Translator,
+): string {
   switch (value) {
     case "available":
-      return "Available";
+      return t("common.available");
     case "glances-not-configured":
-      return "Needs Glances";
+      return t("background.needsGlances");
     case "no-health-targets":
-      return "No health targets";
+      return t("background.noHealthTargets");
   }
 }
 
-function availabilityDescription(value: BackgroundRuntimeAvailability): string | null {
+function availabilityDescription(
+  value: BackgroundRuntimeAvailability,
+  t: Translator,
+): string | null {
   switch (value) {
     case "available":
       return null;
     case "glances-not-configured":
-      return "This card stays stopped until an enabled Glances provider is configured.";
+      return t("background.glancesUnavailableDescription");
     case "no-health-targets":
-      return "This card stays stopped until at least one enabled service can be checked.";
+      return t("background.healthUnavailableDescription");
   }
 }
 
 export function BackgroundRuntimeSettings({
   client = nativeBackgroundRuntimeClient,
 }: BackgroundRuntimeSettingsProps) {
+  const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<BackgroundRuntimeSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [operation, setOperation] = useState<string | null>(null);
@@ -123,7 +135,7 @@ export function BackgroundRuntimeSettings({
         setSnapshot(nextSnapshot);
         setIsLoading(false);
         setError(null);
-        setNotice("Background runtime settings were updated.");
+        setNotice(t("background.updatedNotice"));
       } catch (reason) {
         setError(describeBackgroundRuntimeError(reason));
       }
@@ -145,7 +157,7 @@ export function BackgroundRuntimeSettings({
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [t]);
 
   const savePreferences = useCallback(
     async (
@@ -210,19 +222,25 @@ export function BackgroundRuntimeSettings({
     snapshot?.preferences.experimentalDesktopCards ?? false;
   const runtimeStatus = (() => {
     if (!masterEnabled) {
-      return "Desktop cards are off. Personal Hub exits normally when its main window closes.";
+      return t("background.runtimeOff");
     }
     if (snapshot !== null && !snapshot.trayAvailable && effectiveCardCount > 0) {
-      return `${effectiveCardCount} desktop card${
-        effectiveCardCount === 1 ? " is" : "s are"
-      } available, but Personal Hub will quit when its main window closes because tray integration is unavailable.`;
+      return t(
+        effectiveCardCount === 1
+          ? "background.runtimeTrayUnavailableOne"
+          : "background.runtimeTrayUnavailableOther",
+        { count: effectiveCardCount },
+      );
     }
     if (effectiveCardCount === 0) {
-      return "No selected card is currently available; closing the window will not leave an idle background runtime.";
+      return t("background.runtimeNoneAvailable");
     }
-    return `${effectiveCardCount} desktop card${
-      effectiveCardCount === 1 ? " is" : "s are"
-    } available to run in the background.`;
+    return t(
+      effectiveCardCount === 1
+        ? "background.runtimeAvailableOne"
+        : "background.runtimeAvailableOther",
+      { count: effectiveCardCount },
+    );
   })();
 
   return (
@@ -233,10 +251,12 @@ export function BackgroundRuntimeSettings({
     >
       <div className="settings-panel__heading">
         <div>
-          <p className="settings-kicker">Background runtime</p>
-          <h2 id="background-runtime-heading">Experimental desktop cards</h2>
+          <p className="settings-kicker">{t("background.kicker")}</p>
+          <h2 id="background-runtime-heading">{t("background.title")}</h2>
         </div>
-        <span className="settings-experimental-badge">Opt-in experiment</span>
+        <span className="settings-experimental-badge">
+          {t("background.experimentBadge")}
+        </span>
       </div>
 
       {snapshot?.recoveryNotice ? (
@@ -258,18 +278,15 @@ export function BackgroundRuntimeSettings({
       {snapshot === null ? (
         <div className="settings-inline-note" role="status">
           {isLoading
-            ? "Reading background runtime preferences."
-            : "Background runtime preferences are unavailable."}
+            ? t("background.reading")
+            : t("background.unavailable")}
         </div>
       ) : (
         <div className="settings-runtime-content">
           <div className="settings-runtime-master">
             <div>
-              <strong>Allow desktop cards</strong>
-              <span>
-                Disabled by default. When off, Personal Hub creates no card
-                windows, WebViews or card polling work.
-              </span>
+              <strong>{t("background.allowCards")}</strong>
+              <span>{t("background.allowCardsDescription")}</span>
             </div>
             <label className="settings-switch">
               <input
@@ -281,8 +298,8 @@ export function BackgroundRuntimeSettings({
                   void savePreferences(
                     "master",
                     experimentalDesktopCards
-                      ? "Experimental desktop cards enabled."
-                      : "Experimental desktop cards and their background work are off.",
+                      ? t("background.enabledNotice")
+                      : t("background.disabledNotice"),
                     (preferences) => ({
                       ...preferences,
                       experimentalDesktopCards,
@@ -292,20 +309,19 @@ export function BackgroundRuntimeSettings({
                 aria-describedby="desktop-cards-experimental-note"
               />
               <span aria-hidden="true" />
-              {masterEnabled ? "On" : "Off"}
+              {masterEnabled ? t("common.on") : t("common.off")}
             </label>
           </div>
 
           <p id="desktop-cards-experimental-note" className="settings-runtime-note">
-            Cards use the supported always-below window layer. Explorer desktop
-            embedding is not enabled in this experiment.
+            {t("background.layerNote")}
           </p>
 
           <div className="settings-runtime-card-grid">
             {DESKTOP_WIDGET_KINDS.map((kind) => {
               const presentation = CARD_PRESENTATION[kind];
               const availability = snapshot.availability[kind];
-              const unavailableCopy = availabilityDescription(availability);
+              const unavailableCopy = availabilityDescription(availability, t);
               const enabled = snapshot.preferences.cards[kind];
 
               return (
@@ -319,13 +335,13 @@ export function BackgroundRuntimeSettings({
                 >
                   <div className="settings-runtime-card__heading">
                     <div>
-                      <strong>{presentation.title}</strong>
-                      <span>{presentation.description}</span>
+                      <strong>{t(presentation.titleKey)}</strong>
+                      <span>{t(presentation.descriptionKey)}</span>
                     </div>
                     <span
                       className={`settings-runtime-availability settings-runtime-availability--${availability}`}
                     >
-                      {availabilityLabel(availability)}
+                      {availabilityLabel(availability, t)}
                     </span>
                   </div>
                   {unavailableCopy ? (
@@ -342,9 +358,12 @@ export function BackgroundRuntimeSettings({
                         const cardEnabled = event.currentTarget.checked;
                         void savePreferences(
                           `card-${kind}`,
-                          `${presentation.title} card ${
-                            cardEnabled ? "enabled" : "disabled"
-                          }.`,
+                          t(
+                            cardEnabled
+                              ? "background.cardEnabledNotice"
+                              : "background.cardDisabledNotice",
+                            { card: t(presentation.titleKey) },
+                          ),
                           (preferences) => ({
                             ...preferences,
                             cards: {
@@ -358,9 +377,9 @@ export function BackgroundRuntimeSettings({
                     <span aria-hidden="true" />
                     {enabled
                       ? masterEnabled
-                        ? "Enabled"
-                        : "Selected"
-                      : "Disabled"}
+                        ? t("common.enabled")
+                        : t("common.selected")
+                      : t("common.disabled")}
                   </label>
                 </article>
               );
@@ -369,11 +388,11 @@ export function BackgroundRuntimeSettings({
 
           <div className="settings-runtime-master settings-runtime-master--tray">
             <div>
-              <strong>Keep Personal Hub in the notification area</strong>
+              <strong>{t("background.keepInTray")}</strong>
               <span>
                 {snapshot.trayAvailable
-                  ? "Closing the main window keeps enabled cards running. Use Quit in the tray menu to stop Personal Hub completely."
-                  : "Notification-area integration is unavailable in this Windows session, so closing the main window quits Personal Hub safely."}
+                  ? t("background.trayAvailableDescription")
+                  : t("background.trayUnavailableDescription")}
               </span>
             </div>
             <label className="settings-switch">
@@ -388,8 +407,8 @@ export function BackgroundRuntimeSettings({
                   void savePreferences(
                     "close-to-tray",
                     closeToTray
-                      ? "Close-to-tray enabled."
-                      : "Closing the main window will quit Personal Hub.",
+                      ? t("background.closeToTrayEnabled")
+                      : t("background.closeQuits"),
                     (preferences) => ({ ...preferences, closeToTray }),
                   );
                 }}
@@ -397,9 +416,9 @@ export function BackgroundRuntimeSettings({
               <span aria-hidden="true" />
               {snapshot.trayAvailable
                 ? snapshot.preferences.closeToTray
-                  ? "On"
-                  : "Off"
-                : "Unavailable"}
+                  ? t("common.on")
+                  : t("common.off")
+                : t("common.unavailable")}
             </label>
           </div>
 

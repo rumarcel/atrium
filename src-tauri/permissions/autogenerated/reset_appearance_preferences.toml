@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reset-appearance-preferences"
+description = "Enables the reset_appearance_preferences command without any pre-configured scope."
+commands.allow = ["reset_appearance_preferences"]
+
+[[permission]]
+identifier = "deny-reset-appearance-preferences"
+description = "Denies the reset_appearance_preferences command without any pre-configured scope."
+commands.deny = ["reset_appearance_preferences"]

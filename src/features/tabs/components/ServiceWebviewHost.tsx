@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
+import { useTranslation } from "../../i18n";
 import type { ServiceWebviewBounds } from "../nativeServiceWebviews";
 
 interface ServiceWebviewHostProps {
@@ -39,6 +40,7 @@ export function ServiceWebviewHost({
   error,
   onBoundsChange,
 }: ServiceWebviewHostProps) {
+  const { t } = useTranslation();
   const viewportRef = useRef<HTMLDivElement>(null);
   const lastMeasurementRef = useRef<HostMeasurement | null>(null);
 
@@ -116,13 +118,13 @@ export function ServiceWebviewHost({
       id="service-webview-panel"
       className="service-webview-panel"
       role="tabpanel"
-      aria-label={`${serviceName} service view`}
+      aria-label={t("serviceView.panelLabel", { serviceName })}
     >
       <div ref={viewportRef} className="service-webview-viewport" />
       <div className="service-webview-placeholder" aria-live="polite">
         {status === "error" ? (
           <div className="service-webview-error" role="alert">
-            <span>Service view unavailable</span>
+            <span>{t("serviceView.unavailable")}</span>
             <strong>{serviceName}</strong>
             <p>{error}</p>
           </div>
@@ -130,7 +132,11 @@ export function ServiceWebviewHost({
           <div className="service-webview-loading">
             <span className="service-webview-loading__spinner" aria-hidden="true" />
             <strong>{serviceName}</strong>
-            <p>{status === "ready" ? "Service view ready" : "Opening service…"}</p>
+            <p>
+              {status === "ready"
+                ? t("serviceView.ready")
+                : t("serviceView.opening")}
+            </p>
           </div>
         )}
       </div>
