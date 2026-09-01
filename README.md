@@ -13,12 +13,13 @@ writable per-user service configuration and Windows-backed credential storage;
 Phase 7.1 adds explicit, origin-bound authentication adapters and safe native
 validation state; Phase 7.2 adds the persistent opt-in card manager, tray and
 safe close-to-background lifecycle.
-The dashboard keeps its original Phase 6
-composition; the desktop cards are separate native surfaces rather than an
-in-app widget editor. The server summary now exposes Glances uptime, and an
+Through Phase 7.2, the dashboard keeps its original Phase 6 composition; the
+desktop cards are separate native surfaces rather than an in-app widget editor.
+The server summary now exposes Glances uptime, and an
 explicit service-tab close tears down its native WebView so media cannot remain
-audible invisibly. Themes, service discovery and deeper Windows integrations
-remain in later phases. The remaining work is tracked in
+audible invisibly. Themes, the planned Homarr-style Dashboard Composer, service
+discovery and deeper Windows integrations remain in later phases. The remaining
+work is tracked in
 [`ROADMAP.md`](ROADMAP.md).
 
 ## Architecture

@@ -10,6 +10,12 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - Theme changes apply to Personal Hub's dashboard, navigation and settings. Remote
   service pages run in isolated native WebViews and keep their own appearance.
 - Invalid or missing appearance settings always fall back to the bundled default.
+- The bundled `Code` theme keeps the same navigation, content and features; it
+  changes the visual language to a restrained code-editor aesthetic rather than
+  pretending to be a terminal or command-line interface.
+- Dashboard customization is declarative and separate from themes, service
+  configuration and credentials. Layout packs cannot contain JavaScript,
+  unrestricted CSS or commands.
 - The dashboard server summary must show server uptime as a duration. This is not
   a clock, date or visible polling timestamp.
 - Desktop cards are experimental, opt-in and disabled by default. Disabling them
@@ -39,8 +45,8 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 
 - Three independent companion surfaces for server metrics, server storage and
   server-service attention, outside the Personal Hub dashboard.
-- The in-app dashboard remains in its Phase 6 layout with no widget editor,
-  reordering or card-size controls.
+- At the end of Phase 6.1, the in-app dashboard remained in its Phase 6 layout
+  with no widget editor, reordering or card-size controls.
 - Borderless transparent windows stay below ordinary applications, skip the
   taskbar and never attach to Explorer/WorkerW internals.
 - A single Rust broker shares bounded Glances trends, uptime and load data while
@@ -134,16 +140,17 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 ### Phase 7.3 — Appearance and languages
 
 - One versioned theme-token contract shared by every Personal Hub component.
-- Bundled `Default`, `Terminal`, `Translucent` and `Minimal` themes.
+- Bundled `Default`, `Code`, `Translucent` and `Minimal` themes.
 - System, dark and light color modes with live Windows-theme tracking.
 - Persisted selection, live preview, reset and guaranteed default fallback.
 - Turkish and English built-in translations.
 - Locale-aware speed and capacity formatting without adding clocks or dates.
 
-`Default` preserves the current visual language. `Terminal` uses a restrained
-code-editor aesthetic. `Translucent` is an Apple-inspired soft-surface theme,
-without copying macOS. `Minimal` removes nonessential decoration and reduces
-visual density.
+`Default` preserves the current visual language. `Code` applies a restrained
+code-editor palette, optional monospace typography and syntax-like accents while
+keeping the existing dashboard structure and behavior. It is not a terminal
+emulator. `Translucent` is an Apple-inspired soft-surface theme, without copying
+macOS. `Minimal` removes nonessential decoration and reduces visual density.
 
 Theme Studio and safe theme packs are part of this phase:
 
@@ -154,7 +161,46 @@ Theme Studio and safe theme packs are part of this phase:
 - Theme packs may contain declarative tokens only: no arbitrary JavaScript, HTML,
   remote fonts or unrestricted CSS.
 
-### Phase 7.4 — Service discovery and icons
+### Phase 7.4 — Dashboard Composer
+
+- A dedicated, lockable `Edit dashboard` mode for the main Personal Hub screen;
+  the separate Windows desktop cards remain outside this editor.
+- A responsive grid supporting drag, resize, reorder, hide/show and duplicate
+  operations with mouse, touchpad and keyboard-accessible alternatives.
+- Repeated metric blocks share the existing broker/subscription result; adding
+  another visual instance must not start an independent server poll.
+- Every dashboard region becomes a registered block: app header controls,
+  dashboard title/subtitle, development badge, server status, uptime, CPU,
+  memory, network, storage, service summary, filters and service grids.
+- Configurable columns, row height, gaps, density, alignment and breakpoint-
+  specific layouts for wide and compact windows.
+- Service-card controls for size, ordering, grouping, favorites and visible
+  fields. Hiding a service from a layout never disables it in the trusted
+  service catalog or changes its health-check policy.
+- Safe structural blocks such as headings, dividers, spacers, local link groups
+  and explanatory text, all rendered by an allowlisted component registry.
+- Provider-aware blocks remain unavailable or show an explicit empty state when
+  their source is absent; the composer never fabricates server data.
+- Live preview, undo/redo, save, cancel, reset and bundled layout presets. A
+  permanently reachable recovery action prevents a broken layout from trapping
+  the user outside Settings.
+- Separate versioned per-user layout documents with an explicit layout `kind`,
+  revision checks, atomic persistence, last-known-good recovery and
+  monitor/window-width validation. Theme packs use a different `kind` and schema.
+- Import/export through a strict JSON Schema. Layout packs may reference only
+  registered block types, known service IDs and safe theme tokens—never HTML,
+  JavaScript, unrestricted CSS, secrets or native commands.
+- The block registry is an extension point for later discovery and Download
+  Center phases without giving third-party layouts execution privileges.
+
+The editable scope covers the application content visible in the referenced
+dashboard, including the header, hero, metric cards and service grid. Windows'
+native title-bar buttons, credential/security flows, service WebView contents
+and the emergency layout-reset path remain fixed safety boundaries. “Homarr-like”
+describes the editing experience only; it does not imply Homarr layout-file
+compatibility or import.
+
+### Phase 7.5 — Service discovery and icons
 
 - Authenticated Homarr import using the Phase 7.1 provider plus read-only
   Docker/Podman inventory.
@@ -163,7 +209,7 @@ Theme Studio and safe theme packs are part of this phase:
 - A local Dashboard Icons-based SVG/WebP catalog with dark/light variants.
 - Custom icon import with validated storage and a bounded cache.
 
-### Phase 7.5 — Download Center
+### Phase 7.6 — Download Center
 
 - A read-only qBittorrent provider first: active downloads, progress, speed, ETA,
   state, provider badge, categories and tags.
