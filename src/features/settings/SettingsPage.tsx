@@ -1129,6 +1129,7 @@ export function SettingsPage({
                     autoComplete="off"
                     required
                   />
+                  <small>{t("settings.categoryHelp")}</small>
                 </label>
                 <label className="settings-field">
                   <span>{t("settings.icon")}</span>

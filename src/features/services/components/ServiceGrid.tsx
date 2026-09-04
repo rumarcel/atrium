@@ -1,5 +1,6 @@
 import type { ServiceHealthById } from "../../health/health.types";
 import { useTranslation } from "../../i18n";
+import type { ServiceDisplayMode } from "../serviceDisplayPreferences";
 import type { DashboardService } from "../service.types";
 import { ServiceCard } from "./ServiceCard";
 import type { ServiceContextMenuState } from "./ServiceContextMenu";
@@ -10,6 +11,7 @@ interface ServiceGridProps {
   emptyTitle?: string;
   emptyDescription?: string;
   healthById?: ServiceHealthById;
+  displayMode?: ServiceDisplayMode;
   onOpenService: (service: DashboardService, openInNewTab: boolean) => void;
   onOpenContextMenu: (state: ServiceContextMenuState) => void;
 }
@@ -20,6 +22,7 @@ export function ServiceGrid({
   emptyTitle,
   emptyDescription,
   healthById = {},
+  displayMode = "cards",
   onOpenService,
   onOpenContextMenu,
 }: ServiceGridProps) {
@@ -31,13 +34,13 @@ export function ServiceGrid({
   if (isLoading) {
     return (
       <div
-        className="service-grid"
+        className={`service-grid service-grid--${displayMode}`}
         aria-label={t("service.gridLoading")}
         aria-busy="true"
       >
         {Array.from({ length: 8 }, (_, index) => (
           <div
-            className="service-card service-card--skeleton"
+            className={`service-card service-card--${displayMode} service-card--skeleton`}
             aria-hidden="true"
             key={`service-skeleton-${index}`}
           >
@@ -65,12 +68,13 @@ export function ServiceGrid({
   }
 
   return (
-    <div className="service-grid">
+    <div className={`service-grid service-grid--${displayMode}`}>
       {services.map((service) => (
         <ServiceCard
           key={service.id}
           service={service}
           health={healthById[service.id]}
+          displayMode={displayMode}
           onOpen={onOpenService}
           onContextMenu={onOpenContextMenu}
         />

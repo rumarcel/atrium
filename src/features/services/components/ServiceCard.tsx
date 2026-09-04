@@ -3,6 +3,7 @@ import {
 } from "../../../components/icons/AppIcons";
 import type { ServiceHealth } from "../../health/health.types";
 import { useTranslation, type Translator } from "../../i18n";
+import type { ServiceDisplayMode } from "../serviceDisplayPreferences";
 import type { DashboardService } from "../service.types";
 import type { ServiceContextMenuState } from "./ServiceContextMenu";
 import { ServiceIcon } from "./ServiceIcon";
@@ -10,6 +11,7 @@ import { ServiceIcon } from "./ServiceIcon";
 interface ServiceCardProps {
   service: DashboardService;
   health?: ServiceHealth;
+  displayMode?: ServiceDisplayMode;
   onOpen: (service: DashboardService, openInNewTab: boolean) => void;
   onContextMenu: (state: ServiceContextMenuState) => void;
 }
@@ -82,6 +84,7 @@ function getHealthPresentation(
 export function ServiceCard({
   service,
   health,
+  displayMode = "cards",
   onOpen,
   onContextMenu,
 }: ServiceCardProps) {
@@ -99,7 +102,7 @@ export function ServiceCard({
 
   return (
     <article
-      className="service-card"
+      className={`service-card service-card--${displayMode}`}
       aria-label={t("service.cardLabel", {
         serviceName: service.name,
         status: healthPresentation.label,

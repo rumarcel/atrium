@@ -50,8 +50,8 @@ const turkishOverrides = {
   "dashboard.description":
     "Ev sunucunuzda çalışan servisler için sakin bir komuta merkezi.",
   "dashboard.currentPhase": "Geçerli uygulama aşaması",
-  "dashboard.phaseLabel": "Aşama 7.3",
-  "dashboard.phaseDescription": "Görünüm ve diller",
+  "dashboard.phaseLabel": "Aşama 7.4",
+  "dashboard.phaseDescription": "Sade servis görünümleri",
   "dashboard.configurationUnavailableTitle":
     "Servis yapılandırması kullanılamıyor",
   "dashboard.settingsNoticeTitle": "Servis ayarları bildirimi",
@@ -64,6 +64,10 @@ const turkishOverrides = {
     "Durum her 45 saniyede bir otomatik yenilenir.",
   "dashboard.refreshStatus": "Durumu yenile",
   "dashboard.filterByCategory": "Servisleri kategoriye göre filtrele",
+  "dashboard.serviceDisplay": "Görünüm",
+  "dashboard.serviceDisplayCards": "Kartlar",
+  "dashboard.serviceDisplayLogos": "Logolar",
+  "dashboard.manageServices": "Servisleri düzenle",
   "dashboard.noServicesFound": "Servis bulunamadı",
   "dashboard.noServicesFoundDescription": "Başka bir ad veya kategori deneyin.",
   "dashboard.noEnabledServices": "Etkin servis yok",
@@ -188,6 +192,8 @@ const turkishOverrides = {
   "settings.urlPlaceholder": "https://192.168.1.10:8443",
   "settings.urlHelp": "Yalnız HTTP(S). URL'lere kimlik bilgisi eklenemez.",
   "settings.category": "Kategori",
+  "settings.categoryHelp":
+    "Aynı kategorideki servisler panoda aynı sekmede görünür. Yeni bir sekme oluşturmak için yeni bir ad girin.",
   "settings.icon": "Simge",
   "settings.accent": "Vurgu",
   "settings.accentViolet": "Mor",

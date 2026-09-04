@@ -13,9 +13,8 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - The bundled `Code` theme keeps the same navigation, content and features; it
   changes the visual language to a restrained code-editor aesthetic rather than
   pretending to be a terminal or command-line interface.
-- Dashboard customization is declarative and separate from themes, service
-  configuration and credentials. Layout packs cannot contain JavaScript,
-  unrestricted CSS or commands.
+- The main dashboard composition stays fixed and calm. Customization is limited
+  to the service area, and never changes themes, credentials or native commands.
 - The dashboard server summary must show server uptime as a duration. This is not
   a clock, date or visible polling timestamp.
 - Desktop cards are experimental, opt-in and disabled by default. Disabling them
@@ -42,6 +41,7 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
   tray lifecycle.
 - Phase 7.3: persisted appearance, four bundled themes, safe Theme Studio packs
   and Turkish/English localization.
+- Phase 7.4: category-based service tabs plus persistent card/logo views.
 
 ## Phase 6.1 — Windows desktop cards (completed)
 
@@ -166,44 +166,19 @@ Theme Studio and safe theme packs are part of this phase:
 - Theme packs may contain declarative tokens only: no arbitrary JavaScript, HTML,
   remote fonts or unrestricted CSS.
 
-### Phase 7.4 — Dashboard Composer
+### Phase 7.4 — Simple service views (completed)
 
-- A dedicated, lockable `Edit dashboard` mode for the main Personal Hub screen;
-  the separate Windows desktop cards remain outside this editor.
-- A responsive grid supporting drag, resize, reorder, hide/show and duplicate
-  operations with mouse, touchpad and keyboard-accessible alternatives.
-- Repeated metric blocks share the existing broker/subscription result; adding
-  another visual instance must not start an independent server poll.
-- Every dashboard region becomes a registered block: app header controls,
-  dashboard title/subtitle, development badge, server status, uptime, CPU,
-  memory, network, storage, service summary, filters and service grids.
-- Configurable columns, row height, gaps, density, alignment and breakpoint-
-  specific layouts for wide and compact windows.
-- Service-card controls for size, ordering, grouping, favorites and visible
-  fields. Hiding a service from a layout never disables it in the trusted
-  service catalog or changes its health-check policy.
-- Safe structural blocks such as headings, dividers, spacers, local link groups
-  and explanatory text, all rendered by an allowlisted component registry.
-- Provider-aware blocks remain unavailable or show an explicit empty state when
-  their source is absent; the composer never fabricates server data.
-- Live preview, undo/redo, save, cancel, reset and bundled layout presets. A
-  permanently reachable recovery action prevents a broken layout from trapping
-  the user outside Settings.
-- Separate versioned per-user layout documents with an explicit layout `kind`,
-  revision checks, atomic persistence, last-known-good recovery and
-  monitor/window-width validation. Theme packs use a different `kind` and schema.
-- Import/export through a strict JSON Schema. Layout packs may reference only
-  registered block types, known service IDs and safe theme tokens—never HTML,
-  JavaScript, unrestricted CSS, secrets or native commands.
-- The block registry is an extension point for later discovery and Download
-  Center phases without giving third-party layouts execution privileges.
-
-The editable scope covers the application content visible in the referenced
-dashboard, including the header, hero, metric cards and service grid. Windows'
-native title-bar buttons, credential/security flows, service WebView contents
-and the emergency layout-reset path remain fixed safety boundaries. “Homarr-like”
-describes the editing experience only; it does not imply Homarr layout-file
-compatibility or import.
+- The Phase 7.3 header, introduction and server-monitoring composition remains
+  fixed; there is no full-screen dashboard editor or draggable block system.
+- Existing service categories are the dashboard tabs. Changing a service's
+  category in Settings moves it to that tab, and entering a new category name
+  creates a new tab after saving.
+- The service area can switch between the original detailed cards and a compact
+  logo grid without changing service configuration or health-check behavior.
+- The selected presentation is stored locally in a small versioned preference;
+  invalid or unavailable browser storage falls back to the original card view.
+- Service add, edit, enable/disable, icon and category controls stay in the
+  existing Settings surface so the dashboard itself remains uncluttered.
 
 ### Phase 7.5 — Service discovery and icons
 

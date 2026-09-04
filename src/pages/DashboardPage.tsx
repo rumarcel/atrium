@@ -16,6 +16,11 @@ import {
 } from "../features/services/components/ServiceContextMenu";
 import { ServiceGrid } from "../features/services/components/ServiceGrid";
 import { useServiceCatalog } from "../features/services/hooks/useServiceCatalog";
+import {
+  loadServiceDisplayMode,
+  saveServiceDisplayMode,
+  type ServiceDisplayMode,
+} from "../features/services/serviceDisplayPreferences";
 import type {
   DashboardService,
   ServiceConfiguration,
@@ -84,6 +89,8 @@ export function DashboardPage() {
   const { number, t } = useTranslation();
   const [searchValue, setSearchValue] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
+  const [serviceDisplayMode, setServiceDisplayMode] =
+    useState<ServiceDisplayMode>(loadServiceDisplayMode);
   const [contextMenu, setContextMenu] =
     useState<ServiceContextMenuState | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -445,6 +452,14 @@ export function DashboardPage() {
     setSettingsView({ initialServiceId: service?.id ?? null });
   }, []);
 
+  const handleServiceDisplayModeChange = useCallback(
+    (mode: ServiceDisplayMode) => {
+      setServiceDisplayMode(mode);
+      saveServiceDisplayMode(mode);
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!isDesktopRuntime()) {
       return;
@@ -787,29 +802,62 @@ export function DashboardPage() {
 
               {catalogStatus !== "error" ? (
                 <>
-                  <div
-                    className="category-filter"
-                    role="group"
-                    aria-label={t("dashboard.filterByCategory")}
-                  >
-                    {serviceCategories.map((category) => (
+                  <div className="service-toolbar">
+                    <div
+                      className="category-filter"
+                      role="group"
+                      aria-label={t("dashboard.filterByCategory")}
+                    >
+                      {serviceCategories.map((category) => (
+                        <button
+                          className={
+                            activeCategory === category
+                              ? "category-filter__button category-filter__button--active"
+                              : "category-filter__button"
+                          }
+                          type="button"
+                          key={category}
+                          onClick={() => setActiveCategory(category)}
+                        >
+                          {category === "All" ? t("common.all") : category}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="service-toolbar__actions">
+                      <label className="service-display-select">
+                        <span>{t("dashboard.serviceDisplay")}</span>
+                        <select
+                          value={serviceDisplayMode}
+                          onChange={(event) =>
+                            handleServiceDisplayModeChange(
+                              event.currentTarget.value === "logos"
+                                ? "logos"
+                                : "cards",
+                            )
+                          }
+                        >
+                          <option value="cards">
+                            {t("dashboard.serviceDisplayCards")}
+                          </option>
+                          <option value="logos">
+                            {t("dashboard.serviceDisplayLogos")}
+                          </option>
+                        </select>
+                      </label>
                       <button
-                        className={
-                          activeCategory === category
-                            ? "category-filter__button category-filter__button--active"
-                            : "category-filter__button"
-                        }
+                        className="manage-services-button"
                         type="button"
-                        key={category}
-                        onClick={() => setActiveCategory(category)}
+                        onClick={() => handleOpenSettings()}
                       >
-                        {category === "All" ? t("common.all") : category}
+                        {t("dashboard.manageServices")}
                       </button>
-                    ))}
+                    </div>
                   </div>
 
                   <ServiceGrid
                     services={filteredServices}
+                    displayMode={serviceDisplayMode}
                     isLoading={catalogStatus === "loading"}
                     healthById={healthById}
                     emptyTitle={

@@ -44,8 +44,8 @@ export const englishCatalog = {
   "dashboard.description":
     "A calm command center for the services running on your home server.",
   "dashboard.currentPhase": "Current implementation phase",
-  "dashboard.phaseLabel": "Phase 7.3",
-  "dashboard.phaseDescription": "Appearance and languages",
+  "dashboard.phaseLabel": "Phase 7.4",
+  "dashboard.phaseDescription": "Simple service views",
   "dashboard.configurationUnavailableTitle":
     "Service configuration unavailable",
   "dashboard.settingsNoticeTitle": "Service settings notice",
@@ -58,6 +58,10 @@ export const englishCatalog = {
     "Status refreshes automatically every 45 seconds.",
   "dashboard.refreshStatus": "Refresh status",
   "dashboard.filterByCategory": "Filter services by category",
+  "dashboard.serviceDisplay": "View",
+  "dashboard.serviceDisplayCards": "Cards",
+  "dashboard.serviceDisplayLogos": "Logos",
+  "dashboard.manageServices": "Manage services",
   "dashboard.noServicesFound": "No services found",
   "dashboard.noServicesFoundDescription": "Try another name or category.",
   "dashboard.noEnabledServices": "No enabled services",
@@ -183,6 +187,8 @@ export const englishCatalog = {
   "settings.urlPlaceholder": "https://192.168.1.10:8443",
   "settings.urlHelp": "HTTP(S) only. Credentials cannot be embedded in URLs.",
   "settings.category": "Category",
+  "settings.categoryHelp":
+    "Services with the same category appear together in a dashboard tab. Enter a new name to create one.",
   "settings.icon": "Icon",
   "settings.accent": "Accent",
   "settings.accentViolet": "Violet",

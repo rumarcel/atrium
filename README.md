@@ -5,7 +5,7 @@ services. Built with Tauri v2, React, TypeScript and Vite.
 
 ## Current scope
 
-Phase 1 through Phase 7.3 are implemented: the desktop shell, responsive
+Phase 1 through Phase 7.4 are implemented: the desktop shell, responsive
 dashboard, validated service configuration, asynchronous service health checks,
 session-preserving native service tabs, live Glances monitoring and three
 server-only Windows desktop cards. Phase 7.0 adds a native Settings surface,
@@ -13,13 +13,15 @@ writable per-user service configuration and Windows-backed credential storage;
 Phase 7.1 adds explicit, origin-bound authentication adapters and safe native
 validation state; Phase 7.2 adds the persistent opt-in card manager, tray and
 safe close-to-background lifecycle; Phase 7.3 adds persisted appearance,
-safe theme packs and Turkish/English localization.
-Through Phase 7.3, the dashboard keeps its original Phase 6 composition; the
-desktop cards are separate native surfaces rather than an in-app widget editor.
+safe theme packs and Turkish/English localization; Phase 7.4 keeps the original
+dashboard composition while adding category-based service tabs and a persistent
+card/logo presentation switch. Service categories, icons and visibility remain
+managed by the existing Settings surface rather than a full dashboard editor.
+The desktop cards are separate native surfaces rather than an in-app widget editor.
 The server summary now exposes Glances uptime, and an
 explicit service-tab close tears down its native WebView so media cannot remain
-audible invisibly. The planned Homarr-style Dashboard Composer, service
-discovery and deeper Windows integrations remain in later phases. The remaining
+audible invisibly. Service discovery and deeper Windows integrations remain in
+later phases. The remaining
 work is tracked in
 [`ROADMAP.md`](ROADMAP.md).
 
