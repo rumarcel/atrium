@@ -26,6 +26,7 @@
     "allow-delete-service-credential",
     "allow-get-service-authentication-status",
     "allow-validate-service-authentication",
+    "allow-discover-homarr-services",
     "allow-open-service-webview",
     "allow-activate-service-webview",
     "allow-hide-service-webviews",

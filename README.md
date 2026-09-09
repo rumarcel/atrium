@@ -5,7 +5,7 @@ services. Built with Tauri v2, React, TypeScript and Vite.
 
 ## Current scope
 
-Phase 1 through Phase 7.4 are implemented: the desktop shell, responsive
+Phase 1 through Phase 7.5 are implemented: the desktop shell, responsive
 dashboard, validated service configuration, asynchronous service health checks,
 session-preserving native service tabs, live Glances monitoring and three
 server-only Windows desktop cards. Phase 7.0 adds a native Settings surface,
@@ -15,13 +15,17 @@ validation state; Phase 7.2 adds the persistent opt-in card manager, tray and
 safe close-to-background lifecycle; Phase 7.3 adds persisted appearance,
 safe theme packs and Turkish/English localization; Phase 7.4 keeps the original
 dashboard composition while adding category-based service tabs and a persistent
-card/logo presentation switch. Service categories, icons and visibility remain
-managed by the existing Settings surface rather than a full dashboard editor.
+card/logo presentation switch. Phase 7.5 adds authenticated, read-only Homarr
+application discovery, review-before-add, duplicate detection, automatic local
+icon matching and bounded custom SVG/WebP storage. Service categories, icons and
+visibility remain managed by the existing Settings surface rather than a full
+dashboard editor.
 The desktop cards are separate native surfaces rather than an in-app widget editor.
 The server summary now exposes Glances uptime, and an
 explicit service-tab close tears down its native WebView so media cannot remain
-audible invisibly. Service discovery and deeper Windows integrations remain in
-later phases. The remaining
+audible invisibly. Remote Docker/Podman inventory waits for the restricted
+server channel instead of requiring an exposed Docker daemon. Download Center
+and deeper Windows integrations remain in later phases. The remaining
 work is tracked in
 [`ROADMAP.md`](ROADMAP.md).
 
@@ -37,11 +41,14 @@ work is tracked in
   token resolution, native persistence client and live Appearance provider.
 - `src/features/health`: native health-check client, bounded polling and runtime
   status types.
+- `src/features/discovery`: exact-shape Homarr discovery client, duplicate-safe
+  review models and the Settings review surface.
 - `src/features/i18n`: typed English/Turkish catalogs, system-language
   resolution and locale-aware server-value formatters.
 - `src/features/monitoring`: validated Glances metrics, visibility-aware polling
   and the dashboard monitoring panel.
-- `src/features/services`: configuration parsing, loading state and service cards.
+- `src/features/services`: configuration parsing, service cards, automatic
+  built-in icon matching and bounded custom icon storage.
 - `src/features/settings`: service editing, recovery controls and secret-presence
   UI plus safe provider-authentication status backed by native commands.
 - `src/features/tabs`: tab state, measured native viewport and the serialized

@@ -50,8 +50,8 @@ const turkishOverrides = {
   "dashboard.description":
     "Ev sunucunuzda çalışan servisler için sakin bir komuta merkezi.",
   "dashboard.currentPhase": "Geçerli uygulama aşaması",
-  "dashboard.phaseLabel": "Aşama 7.4",
-  "dashboard.phaseDescription": "Sade servis görünümleri",
+  "dashboard.phaseLabel": "Aşama 7.5",
+  "dashboard.phaseDescription": "Servis keşfi ve ikonlar",
   "dashboard.configurationUnavailableTitle":
     "Servis yapılandırması kullanılamıyor",
   "dashboard.settingsNoticeTitle": "Servis ayarları bildirimi",
@@ -153,6 +153,34 @@ const turkishOverrides = {
   "service.edit": "Servisi düzenle",
   "service.gridLoading": "Servis yapılandırması yükleniyor",
 
+  "discovery.kicker": "Keşif",
+  "discovery.title": "Servisleri bul",
+  "discovery.readOnly": "Salt okunur",
+  "discovery.description":
+    "Kayıtlı bir Homarr servisinden uygulamaları oku, tüm sonuçları incele ve eklenecekleri seç.",
+  "discovery.noHomarrSource":
+    "Keşfi etkinleştirmek için Homarr API kimlik doğrulamalı bir Homarr servisi ekleyip kaydedin, ardından API anahtarını kasaya yazın.",
+  "discovery.source": "Homarr kaynağı",
+  "discovery.scan": "Homarr'ı tara",
+  "discovery.scanning": "Taranıyor…",
+  "discovery.saveBeforeScan":
+    "Yeni tarama başlatmadan önce mevcut katalog değişikliklerini kaydedin veya geri alın.",
+  "discovery.found": "{{count}} uygulama bulundu",
+  "discovery.skipped": "{{count}} geçersiz veya fazla kayıt atlandı",
+  "discovery.empty": "Homarr herhangi bir uygulama döndürmedi.",
+  "discovery.missingUrl": "Açılış URL'si yok — Homarr'da inceleyin",
+  "discovery.duplicate": "Zaten {{serviceName}} olarak mevcut",
+  "discovery.reviewRequired": "URL gerekli",
+  "discovery.confidence.high": "İkon eşleşti",
+  "discovery.confidence.medium": "Olası ikon",
+  "discovery.confidence.low": "Genel ikon",
+  "discovery.reviewHelp":
+    "Seçilen uygulamalar kaydetmeden önce inceleyebilmeniz için taslak olarak eklenir.",
+  "discovery.addSelected": "Seçilenleri ekle ({{count}})",
+  "discovery.addedToDraft": "Keşfedilen {{count}} servis kaydedilmemiş taslak olarak eklendi.",
+  "discovery.containerDeferred":
+    "Uzak Docker ve Podman keşfi Phase 9'daki kısıtlı sunucu kanalını kullanacak; dışarı açılmış Docker TCP soketi gerekmeyecek.",
+
   "tabs.openViews": "Açık görünümler",
   "tabs.listLabel": "Personal Hub sekmeleri",
   "tabs.dashboard": "Pano",
@@ -195,6 +223,13 @@ const turkishOverrides = {
   "settings.categoryHelp":
     "Aynı kategorideki servisler panoda aynı sekmede görünür. Yeni bir sekme oluşturmak için yeni bir ad girin.",
   "settings.icon": "Simge",
+  "settings.detectIcon": "Otomatik algıla",
+  "settings.importCustomIcon": "SVG/WebP seç",
+  "settings.importingIcon": "İkon denetleniyor…",
+  "settings.automaticIconApplied": "En yakın gömülü ikon seçildi.",
+  "settings.customIconImported": "Özel ikon yerel olarak saklandı. Uygulamak için kaydedin.",
+  "settings.iconHelp":
+    "Gömülü ikonlar çevrimdışı çalışır. Özel SVG veya WebP bir kez seçilir, doğrulanır ve yerel olarak saklanır (en fazla 256 KiB).",
   "settings.accent": "Vurgu",
   "settings.accentViolet": "Mor",
   "settings.accentAmber": "Kehribar",

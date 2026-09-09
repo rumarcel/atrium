@@ -2,6 +2,7 @@ import type {
   DashboardService,
   ServiceConfiguration,
 } from "../services/service.types";
+import type { ServiceDiscoveryClient } from "../discovery/discovery.types";
 
 export const SERVICE_CREDENTIAL_KINDS = [
   "api-key",
@@ -139,6 +140,8 @@ export interface SettingsPageProps {
   initialServiceId?: string;
   /** Injectable for tests or an alternate host; defaults to the Tauri client. */
   client?: ServiceSettingsClient;
+  /** Injectable read-only discovery transport; defaults to the Tauri client. */
+  discoveryClient?: ServiceDiscoveryClient;
   /** Replaces the dashboard catalog and metadata after native persistence. */
   onConfigurationApplied?: (
     snapshot: ServiceConfigurationSnapshot,

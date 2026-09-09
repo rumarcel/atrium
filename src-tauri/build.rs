@@ -22,6 +22,7 @@ fn main() {
         "delete_service_credential",
         "get_service_authentication_status",
         "validate_service_authentication",
+        "discover_homarr_services",
         "open_service_webview",
         "activate_service_webview",
         "hide_service_webviews",

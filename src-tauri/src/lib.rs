@@ -5,6 +5,7 @@ mod desktop_widgets;
 mod health;
 mod monitoring;
 mod provider_auth;
+mod service_discovery;
 mod service_settings;
 mod service_webviews;
 
@@ -46,6 +47,10 @@ pub fn run() {
                 .expect("the Glances HTTP clients could not be initialized"),
         )
         .manage(provider_auth)
+        .manage(
+            service_discovery::ServiceDiscoveryClients::new()
+                .expect("the service-discovery HTTP clients could not be initialized"),
+        )
         .manage(appearance_settings)
         .manage(background_runtime)
         .manage(service_webviews::ServiceWebviewRegistry::default())
@@ -75,6 +80,7 @@ pub fn run() {
             credential_vault::delete_service_credential,
             provider_auth::get_service_authentication_status,
             provider_auth::validate_service_authentication,
+            service_discovery::discover_homarr_services,
             service_webviews::open_service_webview,
             service_webviews::activate_service_webview,
             service_webviews::hide_service_webviews,

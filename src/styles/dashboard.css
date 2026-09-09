@@ -679,6 +679,13 @@
   border-radius: 14px;
 }
 
+.service-icon__image {
+  display: block;
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+}
+
 .service-icon--violet {
   color: #c895ff;
   background: rgba(175, 82, 222, 0.11);

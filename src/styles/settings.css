@@ -351,6 +351,143 @@
   background: rgba(8, 9, 12, 0.34);
 }
 
+.discovery-description,
+.discovery-hint,
+.discovery-safety-note {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+
+.discovery-toolbar {
+  display: flex;
+  margin-top: 12px;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.discovery-toolbar .settings-field {
+  width: min(360px, 100%);
+}
+
+.discovery-hint,
+.discovery-safety-note {
+  margin-top: 9px;
+}
+
+.discovery-safety-note {
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.discovery-error {
+  padding: 9px 10px;
+  margin-top: 10px;
+  border: 1px solid rgba(255, 69, 58, 0.2);
+  border-radius: 9px;
+  color: #f18a84;
+  background: rgba(255, 69, 58, 0.045);
+  font-size: 0.63rem;
+}
+
+.discovery-results {
+  display: grid;
+  margin-top: 12px;
+  gap: 9px;
+}
+
+.discovery-results__summary,
+.discovery-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--color-text-tertiary);
+  font-size: 0.6rem;
+}
+
+.discovery-list {
+  display: grid;
+  max-height: 330px;
+  gap: 6px;
+  overflow: auto;
+}
+
+.discovery-item {
+  display: grid;
+  min-width: 0;
+  padding: 8px 10px;
+  align-items: center;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: rgba(8, 9, 12, 0.25);
+  cursor: pointer;
+}
+
+.discovery-item--unavailable {
+  opacity: 0.58;
+  cursor: default;
+}
+
+.discovery-item > input {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  accent-color: var(--color-accent);
+}
+
+.discovery-item__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+.discovery-item__icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.discovery-item__copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.discovery-item__copy strong,
+.discovery-item__copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.discovery-item__copy strong {
+  font-size: 0.68rem;
+  font-weight: 620;
+}
+
+.discovery-item__copy span,
+.discovery-item__meta {
+  color: var(--color-text-tertiary);
+  font-size: 0.56rem;
+}
+
+.discovery-item__meta {
+  max-width: 180px;
+  text-align: right;
+}
+
+.discovery-actions {
+  padding-top: 3px;
+}
+
+.discovery-actions > span {
+  max-width: 620px;
+  line-height: 1.45;
+}
+
 .settings-service-picker {
   display: grid;
   min-width: min(360px, 100%);
@@ -581,6 +718,43 @@
   color: var(--color-text-tertiary);
   font-size: 0.57rem;
   line-height: 1.35;
+}
+
+.settings-icon-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.settings-file-button {
+  position: relative;
+  display: inline-flex;
+  min-height: 34px;
+  padding: 7px 11px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  color: var(--color-text-primary);
+  background: #111216;
+  font-size: 0.67rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-file-button:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.settings-file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .settings-authentication-optin {
@@ -879,6 +1053,26 @@
 
   .settings-service-picker {
     min-width: 0;
+  }
+
+  .discovery-toolbar,
+  .discovery-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .discovery-toolbar .settings-field {
+    width: 100%;
+  }
+
+  .discovery-item {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+
+  .discovery-item__meta {
+    grid-column: 3;
+    max-width: none;
+    text-align: left;
   }
 
   .settings-service-toolbar__actions > button {

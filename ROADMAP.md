@@ -42,6 +42,8 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - Phase 7.3: persisted appearance, four bundled themes, safe Theme Studio packs
   and Turkish/English localization.
 - Phase 7.4: category-based service tabs plus persistent card/logo views.
+- Phase 7.5: authenticated Homarr discovery, review-before-add and automatic
+  local service icons.
 
 ## Phase 6.1 — Windows desktop cards (completed)
 
@@ -180,14 +182,28 @@ Theme Studio and safe theme packs are part of this phase:
 - Service add, edit, enable/disable, icon and category controls stay in the
   existing Settings surface so the dashboard itself remains uncluttered.
 
-### Phase 7.5 — Service discovery and icons
+### Phase 7.5 — Service discovery and icons (completed)
 
-- Authenticated Homarr import using the Phase 7.1 provider plus read-only
-  Docker/Podman inventory.
-- Later mDNS, SSDP and optional narrowly scoped port discovery.
-- Review-before-add flow, duplicate detection and confidence levels.
-- A local Dashboard Icons-based SVG/WebP catalog with dark/light variants.
-- Custom icon import with validated storage and a bounded cache.
+- Authenticated, read-only Homarr v1 application discovery through
+  `GET /api/apps`, using the Phase 7.1 API-key provider. Credentials stay in the
+  native vault, remain bound to the configured Homarr origin and are never
+  returned to the frontend.
+- Every result enters a review list. Missing URLs and existing URL/name matches
+  are clearly marked and cannot be silently imported; selected entries become
+  unsaved service drafts and still use the existing atomic Settings save path.
+- Automatic IDs, categories, accents and icons are suggested from the service
+  name, host/path and Homarr icon hint. Low-confidence matches retain a generic
+  local icon and remain editable before saving.
+- An expanded built-in vector catalog covers common media, download,
+  automation and server-management services and works fully offline.
+- Optional custom SVG/WebP icons are selected once, validated as inert image
+  content, limited to 256 KiB and kept in a versioned, 32-entry/2 MiB local
+  cache. Invalid storage falls back safely to the built-in icon.
+- Remote Docker/Podman discovery is deliberately deferred to the restricted
+  server channel in Phase 9. Exposing an unauthenticated Docker TCP daemon would
+  grant much broader host control than a read-only UI operation implies.
+- mDNS, SSDP and narrowly scoped port discovery remain optional future provider
+  adapters rather than a requirement for this phase.
 
 ### Phase 7.6 — Download Center
 
@@ -217,6 +233,9 @@ Theme Studio and safe theme packs are part of this phase:
 - No raw root password or unrestricted SSH access.
 - Local operation history, reboot/offline tracking and return-online notification.
 - Optional later Wake-on-LAN, container/service restart and maintenance status.
+- The restricted server agent may expose an allowlisted, read-only
+  Docker/Podman inventory endpoint for service discovery without sharing the
+  raw container socket with the desktop app.
 
 ## Phase 10 — Linux desktop support
 

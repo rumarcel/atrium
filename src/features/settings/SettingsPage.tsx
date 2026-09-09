@@ -11,11 +11,17 @@ import { CloseIcon, SettingsIcon } from "../../components/icons/AppIcons";
 import { AppearanceSettingsPanel } from "../appearance";
 import { BackgroundRuntimeSettings } from "../backgroundRuntime";
 import {
+  nativeServiceDiscoveryClient,
+  ServiceDiscoveryPanel,
+} from "../discovery";
+import {
   useTranslation,
   type TranslationKeysWithoutParameters,
   type Translator,
 } from "../i18n";
 import { ServiceIcon } from "../services/components/ServiceIcon";
+import { importCustomServiceIcon } from "../services/icons/customServiceIcons";
+import { suggestServiceIcon } from "../services/icons/iconCatalog";
 import {
   parseServiceConfiguration,
   ServiceConfigurationError,
@@ -287,6 +293,7 @@ export function SettingsPage({
   initialConfiguration,
   initialServiceId,
   client = nativeServiceSettingsClient,
+  discoveryClient = nativeServiceDiscoveryClient,
   onConfigurationApplied,
   onClose,
   className,
@@ -333,6 +340,7 @@ export function SettingsPage({
     null,
   );
   const [authenticationOperation, setAuthenticationOperation] = useState(false);
+  const [isIconImporting, setIsIconImporting] = useState(false);
   const initialSelectionApplied = useRef(false);
   const credentialStatusRequestGeneration = useRef(0);
   const authenticationRequestGeneration = useRef(0);
@@ -401,7 +409,8 @@ export function SettingsPage({
     isLoading ||
     operation !== null ||
     credentialOperation !== null ||
-    authenticationOperation;
+    authenticationOperation ||
+    isIconImporting;
   const credentialsReady =
     selectedService !== null && !isDirty && !isLoading;
   const selectedServiceId = selectedService?.id ?? null;
@@ -576,6 +585,45 @@ export function SettingsPage({
     [isBusy, isSelectedServiceIdPersisted, updateSelectedService],
   );
 
+  const applyAutomaticIcon = useCallback(() => {
+    if (selectedService === null || isBusy) {
+      return;
+    }
+    const suggestion = suggestServiceIcon({
+      name: selectedService.name,
+      url: selectedService.url,
+    });
+    updateSelectedService((service) => ({
+      ...service,
+      icon: suggestion.icon,
+      accent: suggestion.accent,
+    }));
+    setNotice(t("settings.automaticIconApplied"));
+  }, [isBusy, selectedService, t, updateSelectedService]);
+
+  const importServiceIcon = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.currentTarget.files?.[0];
+      event.currentTarget.value = "";
+      if (file === undefined || selectedService === null || isBusy) {
+        return;
+      }
+      setIsIconImporting(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const reference = await importCustomServiceIcon(file);
+        updateSelectedService((service) => ({ ...service, icon: reference }));
+        setNotice(t("settings.customIconImported"));
+      } catch (reason) {
+        setError(describeSettingsError(reason));
+      } finally {
+        setIsIconImporting(false);
+      }
+    },
+    [isBusy, selectedService, t, updateSelectedService],
+  );
+
   const addService = useCallback(() => {
     if (isBusy) {
       return;
@@ -615,6 +663,23 @@ export function SettingsPage({
     );
     setError(null);
   }, [draft?.services.length, isBusy, selectedIndex, selectedService, t]);
+
+  const addDiscoveredServices = useCallback(
+    (services: readonly DashboardService[]) => {
+      if (services.length === 0 || isBusy) {
+        return;
+      }
+      const firstAddedIndex = draft?.services.length ?? 0;
+      setDraft((current) => ({
+        version: 1,
+        services: [...(current?.services ?? []), ...services],
+      }));
+      setSelectedIndex(firstAddedIndex);
+      setNotice(t("discovery.addedToDraft", { count: services.length }));
+      setError(null);
+    },
+    [draft?.services.length, isBusy, t],
+  );
 
   const discardEdits = useCallback(() => {
     if (isBusy || baseline === null) {
@@ -983,6 +1048,14 @@ export function SettingsPage({
 
         <BackgroundRuntimeSettings />
 
+        <ServiceDiscoveryPanel
+          persistedServices={baseline?.services ?? []}
+          existingServices={draft?.services ?? []}
+          disabled={isBusy || isDirty}
+          client={discoveryClient}
+          onAdd={addDiscoveredServices}
+        />
+
         <section className="settings-panel" aria-labelledby="service-settings-heading">
           <div className="settings-panel__heading">
             <div>
@@ -1131,9 +1204,10 @@ export function SettingsPage({
                   />
                   <small>{t("settings.categoryHelp")}</small>
                 </label>
-                <label className="settings-field">
+                <div className="settings-field">
                   <span>{t("settings.icon")}</span>
                   <input
+                    aria-label={t("settings.icon")}
                     value={selectedService.icon}
                     onChange={handleTextField("icon")}
                     disabled={isBusy}
@@ -1142,7 +1216,28 @@ export function SettingsPage({
                     autoComplete="off"
                     required
                   />
-                </label>
+                  <div className="settings-icon-actions">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={applyAutomaticIcon}
+                    >
+                      {t("settings.detectIcon")}
+                    </button>
+                    <label className="settings-file-button">
+                      <input
+                        type="file"
+                        accept="image/svg+xml,image/webp,.svg,.webp"
+                        disabled={isBusy}
+                        onChange={(event) => void importServiceIcon(event)}
+                      />
+                      {isIconImporting
+                        ? t("settings.importingIcon")
+                        : t("settings.importCustomIcon")}
+                    </label>
+                  </div>
+                  <small>{t("settings.iconHelp")}</small>
+                </div>
                 <label className="settings-field">
                   <span>{t("settings.accent")}</span>
                   <select

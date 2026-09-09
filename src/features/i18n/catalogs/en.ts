@@ -44,8 +44,8 @@ export const englishCatalog = {
   "dashboard.description":
     "A calm command center for the services running on your home server.",
   "dashboard.currentPhase": "Current implementation phase",
-  "dashboard.phaseLabel": "Phase 7.4",
-  "dashboard.phaseDescription": "Simple service views",
+  "dashboard.phaseLabel": "Phase 7.5",
+  "dashboard.phaseDescription": "Service discovery and icons",
   "dashboard.configurationUnavailableTitle":
     "Service configuration unavailable",
   "dashboard.settingsNoticeTitle": "Service settings notice",
@@ -148,6 +148,34 @@ export const englishCatalog = {
   "service.edit": "Edit service",
   "service.gridLoading": "Loading service configuration",
 
+  "discovery.kicker": "Discovery",
+  "discovery.title": "Find services",
+  "discovery.readOnly": "Read only",
+  "discovery.description":
+    "Read applications from a saved Homarr service, review every result, and choose what to add.",
+  "discovery.noHomarrSource":
+    "Add and save a Homarr service with Homarr API authentication, then store its API key to enable discovery.",
+  "discovery.source": "Homarr source",
+  "discovery.scan": "Scan Homarr",
+  "discovery.scanning": "Scanning…",
+  "discovery.saveBeforeScan":
+    "Save or discard the current catalog changes before starting another scan.",
+  "discovery.found": "{{count}} applications found",
+  "discovery.skipped": "{{count}} invalid or excess entries skipped",
+  "discovery.empty": "Homarr did not return any applications.",
+  "discovery.missingUrl": "No launch URL — review in Homarr",
+  "discovery.duplicate": "Already present as {{serviceName}}",
+  "discovery.reviewRequired": "URL required",
+  "discovery.confidence.high": "Icon matched",
+  "discovery.confidence.medium": "Likely icon",
+  "discovery.confidence.low": "Generic icon",
+  "discovery.reviewHelp":
+    "Selected applications are added as unsaved drafts so you can review them before saving.",
+  "discovery.addSelected": "Add selected ({{count}})",
+  "discovery.addedToDraft": "{{count}} discovered services added as unsaved drafts.",
+  "discovery.containerDeferred":
+    "Remote Docker and Podman discovery will use the restricted server channel in Phase 9; an exposed Docker TCP socket is not required.",
+
   "tabs.openViews": "Open views",
   "tabs.listLabel": "Personal Hub tabs",
   "tabs.dashboard": "Dashboard",
@@ -190,6 +218,13 @@ export const englishCatalog = {
   "settings.categoryHelp":
     "Services with the same category appear together in a dashboard tab. Enter a new name to create one.",
   "settings.icon": "Icon",
+  "settings.detectIcon": "Detect automatically",
+  "settings.importCustomIcon": "Choose SVG/WebP",
+  "settings.importingIcon": "Checking icon…",
+  "settings.automaticIconApplied": "The closest bundled icon was selected.",
+  "settings.customIconImported": "The custom icon was stored locally. Save to apply it.",
+  "settings.iconHelp":
+    "Bundled icons work offline. A custom SVG or WebP is selected once, validated, and stored locally (maximum 256 KiB).",
   "settings.accent": "Accent",
   "settings.accentViolet": "Violet",
   "settings.accentAmber": "Amber",
