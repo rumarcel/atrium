@@ -58,6 +58,7 @@ export const SERVICE_API_AUTHENTICATIONS = [
   "homarr-api-key",
   "glances-http-basic",
   "glances-bearer",
+  "qbittorrent-web-api",
 ] as const;
 
 export type ServiceApiAuthentication =

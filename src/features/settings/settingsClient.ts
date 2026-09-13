@@ -251,6 +251,9 @@ function expectedAuthenticationCredentialKinds(
     case "glances-bearer":
       required.add("bearer-token");
       break;
+    case "qbittorrent-web-api":
+      required.add("username-password");
+      break;
   }
   if (snapshot.browserAdapter === "http-basic") {
     required.add("http-basic");

@@ -187,6 +187,7 @@ html[data-theme="translucent"] .settings-page {
 
 html[data-theme="translucent"] .monitoring-summary,
 html[data-theme="translucent"] .monitoring-metric,
+html[data-theme="translucent"] .download-center,
 html[data-theme="translucent"] .service-card,
 html[data-theme="translucent"] .settings-panel {
   box-shadow: var(--shadow-window), inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 7%, transparent);
@@ -194,6 +195,7 @@ html[data-theme="translucent"] .settings-panel {
 
 html[data-theme="custom"] .monitoring-summary,
 html[data-theme="custom"] .monitoring-metric,
+html[data-theme="custom"] .download-center,
 html[data-theme="custom"] .service-card,
 html[data-theme="custom"] .settings-panel {
   box-shadow: var(--shadow-window);
@@ -213,6 +215,7 @@ html[data-theme="code"] .settings-kicker::before {
 
 html[data-theme-decoration="minimal"] .monitoring-summary,
 html[data-theme-decoration="minimal"] .monitoring-metric,
+html[data-theme-decoration="minimal"] .download-center,
 html[data-theme-decoration="minimal"] .service-card,
 html[data-theme-decoration="minimal"] .settings-panel,
 html[data-theme-decoration="minimal"] .service-context-menu,
@@ -549,6 +552,7 @@ html:is(:not([data-theme="default"]), [data-color-mode="light"])
   html[data-appearance-ready="true"] .tab-bar,
   html[data-appearance-ready="true"] .monitoring-summary,
   html[data-appearance-ready="true"] .monitoring-metric,
+  html[data-appearance-ready="true"] .download-center,
   html[data-appearance-ready="true"] .service-card,
   html[data-appearance-ready="true"] .settings-panel {
     transition:

@@ -2,6 +2,7 @@ mod appearance_settings;
 mod background_runtime;
 mod credential_vault;
 mod desktop_widgets;
+mod download_center;
 mod health;
 mod monitoring;
 mod provider_auth;
@@ -46,6 +47,10 @@ pub fn run() {
             monitoring::GlancesClients::new(provider_auth.clone())
                 .expect("the Glances HTTP clients could not be initialized"),
         )
+        .manage(
+            download_center::DownloadCenterClients::new()
+                .expect("the download-center HTTP clients could not be initialized"),
+        )
         .manage(provider_auth)
         .manage(
             service_discovery::ServiceDiscoveryClients::new()
@@ -81,6 +86,7 @@ pub fn run() {
             provider_auth::get_service_authentication_status,
             provider_auth::validate_service_authentication,
             service_discovery::discover_homarr_services,
+            download_center::get_download_center_snapshot,
             service_webviews::open_service_webview,
             service_webviews::activate_service_webview,
             service_webviews::hide_service_webviews,

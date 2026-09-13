@@ -44,6 +44,7 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - Phase 7.4: category-based service tabs plus persistent card/logo views.
 - Phase 7.5: authenticated Homarr discovery, review-before-add and automatic
   local service icons.
+- Phase 7.6: read-only qBittorrent Download Center with safe native sessions.
 
 ## Phase 6.1 — Windows desktop cards (completed)
 
@@ -205,14 +206,26 @@ Theme Studio and safe theme packs are part of this phase:
 - mDNS, SSDP and narrowly scoped port discovery remain optional future provider
   adapters rather than a requirement for this phase.
 
-### Phase 7.6 — Download Center
+### Phase 7.6 — Download Center (completed)
 
-- A read-only qBittorrent provider first: active downloads, progress, speed, ETA,
-  state, provider badge, categories and tags.
-- Sonarr/Radarr source attribution where it can be determined reliably.
-- Controlled session renewal and backoff after invalid credentials.
-- Pause/resume only after the read-only path is proven safe.
-- Adapter path for Transmission, SABnzbd and aria2.
+- An optional, compact and read-only qBittorrent section: incomplete downloads,
+  progress, speed, ETA, normalized state, provider badge, categories and tags.
+  No configured adapter means no empty dashboard block or polling work.
+- Server-side progress sorting and a 200-item cap keep completed archives from
+  crowding out incomplete, paused or errored downloads. The speed summary covers
+  the displayed items; one enabled provider is selected deterministically by ID.
+- Username/password values stay in the native vault and are bound to the exact
+  configured origin. Dynamic qBittorrent session-cookie names are retained only
+  in native memory; neither credentials nor cookies reach React or repository
+  files.
+- Redirect-free login, bounded responses, one controlled session renewal and
+  shared authentication backoff prevent hidden retry loops after an invalid
+  credential or expired session.
+- Sonarr/Radarr attribution is limited to exact known category/tag markers.
+  Torrent names and filesystem paths are not used for heuristic guesses.
+- Pause/resume, delete and all other mutations remain deferred until a separate
+  explicitly authorized control phase. The provider boundary leaves room for
+  later Transmission, SABnzbd and aria2 adapters.
 
 ## Phase 8 — Windows desktop integration
 

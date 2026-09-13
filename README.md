@@ -5,7 +5,7 @@ services. Built with Tauri v2, React, TypeScript and Vite.
 
 ## Current scope
 
-Phase 1 through Phase 7.5 are implemented: the desktop shell, responsive
+Phase 1 through Phase 7.6 are implemented: the desktop shell, responsive
 dashboard, validated service configuration, asynchronous service health checks,
 session-preserving native service tabs, live Glances monitoring and three
 server-only Windows desktop cards. Phase 7.0 adds a native Settings surface,
@@ -20,12 +20,15 @@ application discovery, review-before-add, duplicate detection, automatic local
 icon matching and bounded custom SVG/WebP storage. Service categories, icons and
 visibility remain managed by the existing Settings surface rather than a full
 dashboard editor.
+Phase 7.6 adds a read-only qBittorrent Download Center with native session
+handling, bounded retry backoff and reliable Sonarr/Radarr attribution when the
+download category or tag carries an exact provider marker.
 The desktop cards are separate native surfaces rather than an in-app widget editor.
 The server summary now exposes Glances uptime, and an
 explicit service-tab close tears down its native WebView so media cannot remain
 audible invisibly. Remote Docker/Podman inventory waits for the restricted
-server channel instead of requiring an exposed Docker daemon. Download Center
-and deeper Windows integrations remain in later phases. The remaining
+server channel instead of requiring an exposed Docker daemon. Deeper Windows
+integrations remain in later phases. The remaining
 work is tracked in
 [`ROADMAP.md`](ROADMAP.md).
 
@@ -43,6 +46,8 @@ work is tracked in
   status types.
 - `src/features/discovery`: exact-shape Homarr discovery client, duplicate-safe
   review models and the Settings review surface.
+- `src/features/downloads`: strict Download Center response parsing,
+  visibility-aware polling and the compact read-only qBittorrent surface.
 - `src/features/i18n`: typed English/Turkish catalogs, system-language
   resolution and locale-aware server-value formatters.
 - `src/features/monitoring`: validated Glances metrics, visibility-aware polling
@@ -113,8 +118,8 @@ validation returns only closed state/reason enums and an opaque revision. It
 never returns a username, secret, request header, response body or upstream
 error text.
 
-The allowlisted API adapters are Homarr `ApiKey`, Glances HTTP Basic and Glances
-Bearer. Exact-origin HTTP Basic is also available for WebView2's native browser
+The allowlisted API adapters are Homarr `ApiKey`, Glances HTTP Basic, Glances
+Bearer and qBittorrent Web API login. Exact-origin HTTP Basic is also available for WebView2's native browser
 challenge flow. Credentials over plaintext HTTP are blocked unless the user
 explicitly enables the local/private-network exception for that service.
 Requests never follow redirects while carrying authentication, invalid attempts
@@ -244,6 +249,46 @@ service explicitly selects its HTTP Basic or Bearer adapter, every version probe
 and plugin request receives the origin-bound credential in Rust. The same
 redirect, transport and backoff rules apply; unauthenticated Glances remains the
 default.
+
+## Download Center
+
+Phase 7.6 adds a compact Download Center above the service area when an enabled
+service selects the `qbittorrent-web-api` adapter. If no matching provider is
+configured, the section is omitted completely. The first release is deliberately
+read-only: it shows incomplete downloads (including paused/error states), progress, transfer rate,
+ETA, normalized state, category and tags, but exposes no pause, resume or delete
+command.
+
+The list is limited to 200 incomplete downloads, with the least-complete first.
+Sorting and limiting happen on the server so a large completed/seeding archive
+does not crowd out unfinished downloads. The displayed total speed is the sum
+for the displayed list. When several providers are configured, the enabled
+provider with the alphabetically first service ID is selected.
+
+The frontend cannot supply a provider URL or receive the stored username,
+password or session cookie. Rust selects the trusted catalog entry, performs the
+form login against the exact configured origin and retains the server-selected
+session-cookie name/value only in memory. Redirects are rejected, responses and
+item counts are bounded, old and new qBittorrent state names are normalized and
+an authentication rejection enters bounded backoff before polling can try again.
+A 401/403 response invalidates the cached session and permits at most one
+controlled login-and-retry for that refresh.
+
+Sonarr/Radarr attribution is shown only for exact, case-normalized category or
+tag markers such as `tv-sonarr`, `sonarr` and `radarr`; torrent names and local
+filesystem paths are never guessed or returned. Custom Servarr categories remain
+unattributed until a later explicit source-rule setting exists. Existing saved
+catalogs are not silently rewritten: select the qBittorrent adapter and store its
+provider-login credential in Settings. The bundled first-run seed already makes
+that adapter available for its qBittorrent entry.
+Local HTTP credential transmission remains disabled by default. For a trusted
+private HTTP endpoint, explicitly enable the existing local-HTTP option in
+Settings before validating the stored provider-login username and password.
+This API session powers the Download Center; it does not log the embedded
+qBittorrent WebUI into a browser session.
+
+Provider behavior follows the official
+[qBittorrent WebUI API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29).
 
 ## Windows desktop cards
 

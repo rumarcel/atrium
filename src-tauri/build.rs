@@ -23,6 +23,7 @@ fn main() {
         "get_service_authentication_status",
         "validate_service_authentication",
         "discover_homarr_services",
+        "get_download_center_snapshot",
         "open_service_webview",
         "activate_service_webview",
         "hide_service_webviews",

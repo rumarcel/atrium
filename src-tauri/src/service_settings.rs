@@ -2,6 +2,7 @@ use crate::{
     background_runtime::schedule_catalog_reconcile,
     credential_vault::delete_all_service_credentials,
     desktop_widgets::{refresh_after_catalog_change, DesktopWidgetBroker},
+    download_center::DownloadCenterClients,
     service_webviews::{revoke_stale_service_webviews, ServiceCatalog, ServiceWebviewRegistry},
 };
 use serde::{Deserialize, Serialize};
@@ -57,6 +58,7 @@ pub(crate) enum ServiceApiAuthentication {
     HomarrApiKey,
     GlancesHttpBasic,
     GlancesBearer,
+    QbittorrentWebApi,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -670,6 +672,8 @@ fn reconcile_catalog_change(
     broker: &DesktopWidgetBroker,
 ) -> Vec<String> {
     let mut notices = Vec::new();
+
+    app.state::<DownloadCenterClients>().clear_sessions();
 
     let registry = app.state::<ServiceWebviewRegistry>();
     if revoke_stale_service_webviews(app, catalog, &registry).is_err() {

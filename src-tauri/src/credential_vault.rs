@@ -1,4 +1,5 @@
 use crate::{
+    download_center::DownloadCenterClients,
     service_settings::{ServiceBrowserAuthentication, ServiceSettings},
     service_webviews::{with_service_webview_revoked, ServiceCatalog, ServiceWebviewRegistry},
 };
@@ -8,7 +9,7 @@ use std::{
     fmt,
     sync::{Mutex, OnceLock},
 };
-use tauri::{AppHandle, Webview};
+use tauri::{AppHandle, Manager, Webview};
 
 const MAIN_WEBVIEW_LABEL: &str = "main";
 const CREDENTIAL_TARGET_PREFIX: &str = "PersonalHub/credentials/v1";
@@ -85,7 +86,7 @@ impl SensitiveString {
         }
     }
 
-    fn new(value: String) -> Self {
+    pub(crate) fn new(value: String) -> Self {
         Self(value)
     }
 
@@ -252,6 +253,8 @@ pub fn set_service_credential(
     } else {
         mutation()?;
     }
+    app.state::<DownloadCenterClients>()
+        .clear_service_session(&service_id);
     Ok(CredentialStatus { kind, exists: true })
 }
 
@@ -282,6 +285,8 @@ pub fn delete_service_credential(
     } else {
         mutation()?;
     }
+    app.state::<DownloadCenterClients>()
+        .clear_service_session(&request.service_id);
     Ok(CredentialStatus {
         kind: request.kind,
         exists: false,

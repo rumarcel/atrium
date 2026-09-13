@@ -50,7 +50,12 @@
       "icon": "qbittorrent",
       "category": "Downloads",
       "enabled": true,
-      "accent": "blue"
+      "accent": "blue",
+      "authentication": {
+        "api": "qbittorrent-web-api",
+        "browser": "none",
+        "allowInsecureLocalHttp": false
+      }
     },
     {
       "id": "crafty-controller",

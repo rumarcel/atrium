@@ -94,7 +94,8 @@
             "none",
             "homarr-api-key",
             "glances-http-basic",
-            "glances-bearer"
+            "glances-bearer",
+            "qbittorrent-web-api"
           ]
         },
         "browser": {

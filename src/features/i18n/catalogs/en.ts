@@ -44,8 +44,8 @@ export const englishCatalog = {
   "dashboard.description":
     "A calm command center for the services running on your home server.",
   "dashboard.currentPhase": "Current implementation phase",
-  "dashboard.phaseLabel": "Phase 7.5",
-  "dashboard.phaseDescription": "Service discovery and icons",
+  "dashboard.phaseLabel": "Phase 7.6",
+  "dashboard.phaseDescription": "Read-only Download Center",
   "dashboard.configurationUnavailableTitle":
     "Service configuration unavailable",
   "dashboard.settingsNoticeTitle": "Service settings notice",
@@ -126,6 +126,47 @@ export const englishCatalog = {
   "monitoring.volumeCountOne": "{{count}} volume",
   "monitoring.volumeCountOther": "{{count}} volumes",
   "monitoring.uptimeUnavailable": "Unavailable",
+
+  "downloadCenter.title": "Download Center",
+  "downloadCenter.readOnly": "Read only",
+  "downloadCenter.loading": "Connecting to the download provider…",
+  "downloadCenter.summary": "{{count}} incomplete · {{speed}} listed total",
+  "downloadCenter.refresh": "Refresh downloads",
+  "downloadCenter.noPendingTitle": "No incomplete downloads",
+  "downloadCenter.noPendingDescription":
+    "qBittorrent is connected and has no pending downloads.",
+  "downloadCenter.authenticationTitle": "qBittorrent needs attention",
+  "downloadCenter.unavailableTitle": "Downloads are temporarily unavailable",
+  "downloadCenter.openSettings": "Open settings",
+  "downloadCenter.pendingDownloads": "Incomplete downloads",
+  "downloadCenter.lastKnownDownloads": "Last known downloads",
+  "downloadCenter.limitNote": "Shows up to 200 incomplete downloads. Speed totals cover the items shown.",
+  "downloadCenter.reason.authentication":
+    "Store or verify the qBittorrent provider login in Settings.",
+  "downloadCenter.reason.timeout": "The qBittorrent request timed out.",
+  "downloadCenter.reason.tls": "TLS validation blocked the qBittorrent request.",
+  "downloadCenter.reason.connection": "qBittorrent could not be reached.",
+  "downloadCenter.reason.apiUnavailable":
+    "The qBittorrent Web API is unavailable.",
+  "downloadCenter.reason.invalidData":
+    "qBittorrent returned an invalid response.",
+  "downloadCenter.reason.backoff":
+    "Login attempts are paused. Try again in about {{count}} seconds.",
+  "downloadCenter.state.downloading": "Downloading",
+  "downloadCenter.state.queued": "Queued",
+  "downloadCenter.state.stalled": "Stalled",
+  "downloadCenter.state.paused": "Paused",
+  "downloadCenter.state.checking": "Checking",
+  "downloadCenter.state.metadata": "Fetching metadata",
+  "downloadCenter.state.error": "Error",
+  "downloadCenter.state.other": "Pending",
+  "downloadCenter.speed": "Speed {{speed}}",
+  "downloadCenter.eta": "ETA {{eta}}",
+  "downloadCenter.etaUnavailable": "Unknown",
+  "downloadCenter.category": "Category {{category}}",
+  "downloadCenter.tags": "Tags {{tags}}",
+  "downloadCenter.source": "Source · {{source}}",
+  "downloadCenter.progress": "{{name}} download progress",
 
   "service.checking": "Checking",
   "service.notChecked": "Not checked",
@@ -330,6 +371,7 @@ export const englishCatalog = {
   "credentials.apiHomarr": "Homarr API key",
   "credentials.apiGlancesBasic": "Glances HTTP Basic",
   "credentials.apiGlancesBearer": "Glances bearer token",
+  "credentials.apiQbittorrent": "qBittorrent Web API",
   "credentials.browserProfile": "Persistent browser profile",
   "credentials.browserHttpBasic": "Exact-origin HTTP Basic",
 

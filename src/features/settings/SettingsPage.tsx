@@ -98,6 +98,7 @@ const API_AUTHENTICATION_LABELS: Readonly<
   "homarr-api-key": "credentials.apiHomarr",
   "glances-http-basic": "credentials.apiGlancesBasic",
   "glances-bearer": "credentials.apiGlancesBearer",
+  "qbittorrent-web-api": "credentials.apiQbittorrent",
 };
 
 const BROWSER_AUTHENTICATION_LABELS: Readonly<

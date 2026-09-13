@@ -2,12 +2,17 @@ use crate::{
     credential_vault::{
         credential_revision, inspect_origin_bound_credential, read_origin_bound_credential,
         CredentialBindingState, CredentialKind, CredentialReadResult, OriginBoundCredential,
+        SensitiveString,
     },
     service_settings::{ServiceApiAuthentication, ServiceBrowserAuthentication},
     service_webviews::{ServiceCatalog, TrustedAuthenticationTarget},
 };
 use futures_util::future::{BoxFuture, FutureExt, Shared};
-use reqwest::{header::HeaderValue, redirect::Policy, Client, RequestBuilder, StatusCode};
+use reqwest::{
+    header::{HeaderMap, HeaderValue, CONTENT_TYPE, COOKIE, SET_COOKIE},
+    redirect::Policy,
+    Client, RequestBuilder, StatusCode,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -23,6 +28,9 @@ const AUTH_TIMEOUT: Duration = Duration::from_millis(3_000);
 const AUTH_USER_AGENT: &str = "PersonalHub/0.1 provider-auth";
 const MAX_HOMARR_INFO_BYTES: usize = 64 * 1024;
 const MAX_HOMARR_VERSION_LENGTH: usize = 128;
+const MAX_QBITTORRENT_LOGIN_BYTES: usize = 4 * 1024;
+const MAX_QBITTORRENT_VERSION_BYTES: usize = 4 * 1024;
+const MAX_QBITTORRENT_COOKIE_PAIR_BYTES: usize = 1024;
 const BACKOFF_STEPS: [Duration; 3] = [
     Duration::from_secs(5),
     Duration::from_secs(30),
@@ -85,6 +93,7 @@ enum ApiCredential {
     HomarrApiKey(Arc<OriginBoundCredential>),
     GlancesHttpBasic(Arc<OriginBoundCredential>),
     GlancesBearer(Arc<OriginBoundCredential>),
+    QbittorrentUsernamePassword(Arc<OriginBoundCredential>),
 }
 
 /// Native-only request material. Every plaintext credential is held behind an
@@ -143,6 +152,7 @@ impl ProviderAuthMaterial {
                 }
                 request = request.bearer_auth(credential.secret());
             }
+            Some(ApiCredential::QbittorrentUsernamePassword(_)) => {}
             None => {}
         }
 
@@ -170,6 +180,26 @@ impl ProviderAuthMaterial {
             ProviderAuthError::new(
                 ProviderAuthErrorKind::InvalidData,
                 "The stored HTTP Basic credential is invalid.",
+            )
+        })?;
+        Ok((username, credential.secret()))
+    }
+
+    pub(crate) fn qbittorrent_credentials_for(
+        &self,
+        request_url: &Url,
+    ) -> Result<(&str, &str), ProviderAuthError> {
+        self.ensure_exact_origin(request_url)?;
+        let Some(ApiCredential::QbittorrentUsernamePassword(credential)) = &self.api else {
+            return Err(ProviderAuthError::new(
+                ProviderAuthErrorKind::InvalidData,
+                "No qBittorrent Web API credential is configured.",
+            ));
+        };
+        let username = credential.username().ok_or_else(|| {
+            ProviderAuthError::new(
+                ProviderAuthErrorKind::InvalidData,
+                "The stored qBittorrent username/password credential is invalid.",
             )
         })?;
         Ok((username, credential.secret()))
@@ -424,6 +454,20 @@ impl ProviderAuthManager {
         self.load_material(target, false, revision).map(Some)
     }
 
+    pub(crate) fn revision_for_target(&self, target: &TrustedAuthenticationTarget) -> String {
+        self.revision_for(target)
+    }
+
+    pub(crate) fn retry_after_ms_for_target(
+        &self,
+        target: &TrustedAuthenticationTarget,
+    ) -> Option<u64> {
+        let revision = self.revision_for(target);
+        let (_, _, retry_after_ms) =
+            self.runtime_snapshot(&target.service_id, &revision, (self.inner.clock)());
+        retry_after_ms
+    }
+
     pub(crate) fn report_success(&self, service_id: &str, revision: &str) {
         let mut runtime = self.lock_runtime();
         let Some(entry) = runtime.get_mut(service_id) else {
@@ -447,6 +491,17 @@ impl ProviderAuthManager {
             ValidationRecord {
                 state: SnapshotValidationState::Invalid,
                 reason: Some(SnapshotReasonCode::Unauthorized),
+            },
+        );
+    }
+
+    pub(crate) fn report_rate_limited(&self, service_id: &str, revision: &str) {
+        self.record_failure(
+            service_id,
+            revision,
+            ValidationRecord {
+                state: SnapshotValidationState::TemporarilyUnavailable,
+                reason: Some(SnapshotReasonCode::RateLimited),
             },
         );
     }
@@ -514,6 +569,11 @@ impl ProviderAuthManager {
                 ServiceApiAuthentication::GlancesBearer => Some(ApiCredential::GlancesBearer(
                     self.read_credential(target, CredentialKind::BearerToken)?,
                 )),
+                ServiceApiAuthentication::QbittorrentWebApi => {
+                    Some(ApiCredential::QbittorrentUsernamePassword(
+                        self.read_credential(target, CredentialKind::UsernamePassword)?,
+                    ))
+                }
             }
         } else {
             None
@@ -882,6 +942,13 @@ impl ProviderAuthManager {
                     first
                 }
             }
+            ServiceApiAuthentication::QbittorrentWebApi => {
+                let login_url = provider_url(&target.url, "api/v2/auth/login");
+                let version_url = provider_url(&target.url, "api/v2/app/webapiVersion");
+                let logout_url = provider_url(&target.url, "api/v2/auth/logout");
+                validate_qbittorrent_login(client, material, login_url, version_url, logout_url)
+                    .await
+            }
             ServiceApiAuthentication::None => {
                 validate_url(client, material, Some(target.url.clone())).await
             }
@@ -987,6 +1054,325 @@ async fn validate_homarr_info(
     }
 }
 
+async fn validate_qbittorrent_login(
+    client: &Client,
+    material: &ProviderAuthMaterial,
+    login_url: Option<Url>,
+    version_url: Option<Url>,
+    logout_url: Option<Url>,
+) -> ValidationRecord {
+    let (Some(login_url), Some(version_url), Some(logout_url)) =
+        (login_url, version_url, logout_url)
+    else {
+        return ValidationRecord {
+            state: SnapshotValidationState::TemporarilyUnavailable,
+            reason: Some(SnapshotReasonCode::InvalidData),
+        };
+    };
+    let (username, password) = match material.qbittorrent_credentials_for(&login_url) {
+        Ok(credentials) => credentials,
+        Err(error) => return validation_record_for_provider_error(error),
+    };
+    let referer = format!("{}/", material.expected_origin.trim_end_matches('/'));
+    let request = match material.apply(client.post(login_url.clone()), &login_url) {
+        Ok(request) => request,
+        Err(error) => return validation_record_for_provider_error(error),
+    };
+    let login_body = qbittorrent_login_form(username, password);
+    let request = request
+        .header("Origin", material.expected_origin.as_str())
+        .header("Referer", referer.as_str())
+        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(login_body.expose().to_owned());
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(error) => return validation_record_for_request_error(&error),
+    };
+    let session_cookie = extract_qbittorrent_session_cookie(response.headers());
+    let record = validate_qbittorrent_login_response(
+        client,
+        material,
+        response,
+        &session_cookie,
+        &version_url,
+        &referer,
+    )
+    .await;
+
+    // Validation owns a temporary session. Release it even when the login
+    // body or subsequent version check is rejected, truncated, or unavailable.
+    if let Ok(session_cookie) = &session_cookie {
+        if let Ok(cookie_header) = qbittorrent_cookie_header(session_cookie) {
+            if let Ok(logout_request) = material.apply(client.post(logout_url.clone()), &logout_url)
+            {
+                let _ = logout_request
+                    .header("Origin", material.expected_origin.as_str())
+                    .header("Referer", referer.as_str())
+                    .header(COOKIE, cookie_header)
+                    .send()
+                    .await;
+            }
+        }
+    }
+    record
+}
+
+async fn validate_qbittorrent_login_response(
+    client: &Client,
+    material: &ProviderAuthMaterial,
+    mut response: reqwest::Response,
+    session_cookie: &Result<SensitiveString, ProviderAuthError>,
+    version_url: &Url,
+    referer: &str,
+) -> ValidationRecord {
+    let status = response.status();
+    if status != StatusCode::OK && status != StatusCode::NO_CONTENT {
+        return validation_record_for_status(status);
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_QBITTORRENT_LOGIN_BYTES as u64)
+    {
+        return ValidationRecord {
+            state: SnapshotValidationState::TemporarilyUnavailable,
+            reason: Some(SnapshotReasonCode::InvalidData),
+        };
+    }
+
+    let mut body = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                if body.len().saturating_add(chunk.len()) > MAX_QBITTORRENT_LOGIN_BYTES {
+                    body.fill(0);
+                    return ValidationRecord {
+                        state: SnapshotValidationState::TemporarilyUnavailable,
+                        reason: Some(SnapshotReasonCode::InvalidData),
+                    };
+                }
+                body.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(error) => {
+                body.fill(0);
+                return validation_record_for_request_error(&error);
+            }
+        }
+    }
+
+    let rejected = status == StatusCode::OK && trim_ascii_whitespace(&body) == b"Fails.";
+    body.fill(0);
+    if rejected {
+        return ValidationRecord {
+            state: SnapshotValidationState::Invalid,
+            reason: Some(SnapshotReasonCode::Unauthorized),
+        };
+    }
+
+    let session_cookie = match session_cookie {
+        Ok(cookie) => cookie,
+        Err(error) => return validation_record_for_provider_error(error.clone()),
+    };
+
+    let cookie_header = match qbittorrent_cookie_header(session_cookie) {
+        Ok(header) => header,
+        Err(error) => return validation_record_for_provider_error(error),
+    };
+    let version_request = match material.apply(client.get(version_url.clone()), version_url) {
+        Ok(request) => request,
+        Err(error) => return validation_record_for_provider_error(error),
+    };
+    let mut response = match version_request
+        .header("Origin", material.expected_origin.as_str())
+        .header("Referer", referer)
+        .header(COOKIE, cookie_header)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => return validation_record_for_request_error(&error),
+    };
+    if response.status() != StatusCode::OK {
+        return validation_record_for_status(response.status());
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_QBITTORRENT_VERSION_BYTES as u64)
+    {
+        return ValidationRecord {
+            state: SnapshotValidationState::TemporarilyUnavailable,
+            reason: Some(SnapshotReasonCode::InvalidData),
+        };
+    }
+    let mut version = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                if version.len().saturating_add(chunk.len()) > MAX_QBITTORRENT_VERSION_BYTES {
+                    version.fill(0);
+                    return ValidationRecord {
+                        state: SnapshotValidationState::TemporarilyUnavailable,
+                        reason: Some(SnapshotReasonCode::InvalidData),
+                    };
+                }
+                version.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(error) => {
+                version.fill(0);
+                return validation_record_for_request_error(&error);
+            }
+        }
+    }
+    let valid_version = std::str::from_utf8(trim_ascii_whitespace(&version))
+        .ok()
+        .is_some_and(|value| {
+            !value.is_empty()
+                && value.chars().count() <= 128
+                && !value.chars().any(char::is_control)
+        });
+    version.fill(0);
+    if valid_version {
+        ValidationRecord {
+            state: SnapshotValidationState::Valid,
+            reason: None,
+        }
+    } else {
+        ValidationRecord {
+            state: SnapshotValidationState::TemporarilyUnavailable,
+            reason: Some(SnapshotReasonCode::InvalidData),
+        }
+    }
+}
+
+pub(crate) fn extract_qbittorrent_session_cookie(
+    headers: &HeaderMap,
+) -> Result<SensitiveString, ProviderAuthError> {
+    let mut fallback = None;
+    let mut fallback_is_ambiguous = false;
+
+    for value in headers.get_all(SET_COOKIE) {
+        let raw = value.to_str().map_err(|_| {
+            ProviderAuthError::new(
+                ProviderAuthErrorKind::InvalidData,
+                "qBittorrent returned an invalid session cookie.",
+            )
+        })?;
+        let Some(pair) = parse_cookie_pair(raw) else {
+            continue;
+        };
+        let cookie_name = pair.split_once('=').map(|(name, _)| name).unwrap_or("");
+        if cookie_name == "SID" || cookie_name.starts_with("QBT_SID_") {
+            return Ok(SensitiveString::new(pair));
+        }
+
+        if fallback.is_some() {
+            fallback_is_ambiguous = true;
+        } else {
+            fallback = Some(pair);
+        }
+    }
+
+    fallback
+        .filter(|_| !fallback_is_ambiguous)
+        .map(SensitiveString::new)
+        .ok_or_else(|| {
+            ProviderAuthError::new(
+                ProviderAuthErrorKind::InvalidData,
+                "qBittorrent did not return an unambiguous session cookie.",
+            )
+        })
+}
+
+pub(crate) fn qbittorrent_cookie_header(
+    cookie: &SensitiveString,
+) -> Result<HeaderValue, ProviderAuthError> {
+    let mut value = HeaderValue::from_str(cookie.expose()).map_err(|_| {
+        ProviderAuthError::new(
+            ProviderAuthErrorKind::InvalidData,
+            "The qBittorrent session cookie is invalid.",
+        )
+    })?;
+    value.set_sensitive(true);
+    Ok(value)
+}
+
+pub(crate) fn qbittorrent_login_form(username: &str, password: &str) -> SensitiveString {
+    let mut body = String::with_capacity(username.len().saturating_add(password.len() + 19));
+    body.push_str("username=");
+    append_form_component(&mut body, username);
+    body.push_str("&password=");
+    append_form_component(&mut body, password);
+    SensitiveString::new(body)
+}
+
+fn append_form_component(output: &mut String, value: &str) {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'*' | b'-' | b'.' | b'_' => {
+                output.push(char::from(byte));
+            }
+            b' ' => output.push('+'),
+            _ => {
+                output.push('%');
+                output.push(char::from(HEX[usize::from(byte >> 4)]));
+                output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+            }
+        }
+    }
+}
+
+fn parse_cookie_pair(value: &str) -> Option<String> {
+    let pair = value.split(';').next()?.trim();
+    if pair.is_empty() || pair.len() > MAX_QBITTORRENT_COOKIE_PAIR_BYTES {
+        return None;
+    }
+    let (name, cookie_value) = pair.split_once('=')?;
+    if name.is_empty()
+        || cookie_value.is_empty()
+        || !name.bytes().all(is_cookie_token_byte)
+        || cookie_value
+            .bytes()
+            .any(|byte| byte <= 0x20 || byte >= 0x7f || byte == b';' || byte == b',')
+    {
+        return None;
+    }
+    Some(format!("{name}={cookie_value}"))
+}
+
+fn is_cookie_token_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric()
+        || matches!(
+            byte,
+            b'!' | b'#'
+                | b'$'
+                | b'%'
+                | b'&'
+                | b'\''
+                | b'*'
+                | b'+'
+                | b'-'
+                | b'.'
+                | b'^'
+                | b'_'
+                | b'`'
+                | b'|'
+                | b'~'
+        )
+}
+
+fn trim_ascii_whitespace(mut value: &[u8]) -> &[u8] {
+    while value.first().is_some_and(u8::is_ascii_whitespace) {
+        value = &value[1..];
+    }
+    while value.last().is_some_and(u8::is_ascii_whitespace) {
+        value = &value[..value.len() - 1];
+    }
+    value
+}
+
 fn validation_record_for_status(status: StatusCode) -> ValidationRecord {
     let (state, reason) = if status.is_success() {
         (SnapshotValidationState::Valid, None)
@@ -1074,7 +1460,9 @@ fn required_credential_kinds(target: &TrustedAuthenticationTarget) -> Vec<Creden
                 target.authentication.api == ServiceApiAuthentication::GlancesHttpBasic
                     || target.authentication.browser == ServiceBrowserAuthentication::HttpBasic
             }
-            CredentialKind::UsernamePassword => false,
+            CredentialKind::UsernamePassword => {
+                target.authentication.api == ServiceApiAuthentication::QbittorrentWebApi
+            }
         })
         .collect()
 }
@@ -1469,6 +1857,36 @@ mod tests {
         );
         assert!(canonical_origin(&Url::parse("ftp://example.test/file").unwrap()).is_none());
         assert!(canonical_origin(&Url::parse("https://user@example.test/").unwrap()).is_none());
+    }
+
+    #[test]
+    fn qbittorrent_login_form_uses_standard_form_encoding() {
+        let body = qbittorrent_login_form("user name+ü", "p&=word");
+        assert_eq!(
+            body.expose(),
+            "username=user+name%2B%C3%BC&password=p%26%3Dword"
+        );
+    }
+
+    #[test]
+    fn qbittorrent_cookie_selection_prefers_known_names_and_rejects_ambiguity() {
+        let mut headers = HeaderMap::new();
+        headers.append(SET_COOKIE, HeaderValue::from_static("proxy=one; HttpOnly"));
+        headers.append(
+            SET_COOKIE,
+            HeaderValue::from_static("QBT_SID_8080=secret; HttpOnly; SameSite=Strict"),
+        );
+        assert_eq!(
+            extract_qbittorrent_session_cookie(&headers)
+                .unwrap()
+                .expose(),
+            "QBT_SID_8080=secret"
+        );
+
+        let mut ambiguous = HeaderMap::new();
+        ambiguous.append(SET_COOKIE, HeaderValue::from_static("custom_a=one"));
+        ambiguous.append(SET_COOKIE, HeaderValue::from_static("custom_b=two"));
+        assert!(extract_qbittorrent_session_cookie(&ambiguous).is_err());
     }
 
     #[test]

@@ -6,6 +6,7 @@ import {
   OPEN_SETTINGS_EVENT,
 } from "../features/backgroundRuntime";
 import { AppHeader } from "../features/dashboard/components/AppHeader";
+import { DownloadCenter } from "../features/downloads";
 import { useServiceHealth } from "../features/health/hooks/useServiceHealth";
 import { useTranslation } from "../features/i18n";
 import { ServerMonitoring } from "../features/monitoring";
@@ -184,6 +185,14 @@ export function DashboardPage() {
   const enabledServices = useMemo(
     () => services.filter((service) => service.enabled),
     [services],
+  );
+  const downloadProviders = useMemo(
+    () =>
+      enabledServices.filter(
+        (service) =>
+          service.authentication.api === "qbittorrent-web-api",
+      ),
+    [enabledServices],
   );
   const enabledServiceById = useMemo(
     () => new Map(enabledServices.map((service) => [service.id, service])),
@@ -716,7 +725,20 @@ export function DashboardPage() {
               </div>
             </section>
 
-            <ServerMonitoring enabled={isDashboardActive} />
+            <div className="dashboard-live-sections">
+              <ServerMonitoring enabled={isDashboardActive} />
+              <DownloadCenter
+                providers={downloadProviders}
+                enabled={isDashboardActive}
+                onOpenSettings={(serviceId) =>
+                  handleOpenSettings(
+                    serviceId === null
+                      ? undefined
+                      : enabledServiceById.get(serviceId),
+                  )
+                }
+              />
+            </div>
 
             {catalogStatus === "error" ? (
               <div className="configuration-alert" role="alert">

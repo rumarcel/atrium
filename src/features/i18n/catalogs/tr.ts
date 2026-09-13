@@ -50,8 +50,8 @@ const turkishOverrides = {
   "dashboard.description":
     "Ev sunucunuzda çalışan servisler için sakin bir komuta merkezi.",
   "dashboard.currentPhase": "Geçerli uygulama aşaması",
-  "dashboard.phaseLabel": "Aşama 7.5",
-  "dashboard.phaseDescription": "Servis keşfi ve ikonlar",
+  "dashboard.phaseLabel": "Aşama 7.6",
+  "dashboard.phaseDescription": "Salt okunur İndirme Merkezi",
   "dashboard.configurationUnavailableTitle":
     "Servis yapılandırması kullanılamıyor",
   "dashboard.settingsNoticeTitle": "Servis ayarları bildirimi",
@@ -131,6 +131,47 @@ const turkishOverrides = {
   "monitoring.volumeCountOne": "{{count}} birim",
   "monitoring.volumeCountOther": "{{count}} birim",
   "monitoring.uptimeUnavailable": "Kullanılamıyor",
+
+  "downloadCenter.title": "İndirme Merkezi",
+  "downloadCenter.readOnly": "Salt okunur",
+  "downloadCenter.loading": "İndirme sağlayıcısına bağlanılıyor…",
+  "downloadCenter.summary": "{{count}} tamamlanmamış · listede toplam {{speed}}",
+  "downloadCenter.refresh": "İndirmeleri yenile",
+  "downloadCenter.noPendingTitle": "Tamamlanmamış indirme yok",
+  "downloadCenter.noPendingDescription":
+    "qBittorrent bağlı ve bekleyen bir indirme yok.",
+  "downloadCenter.authenticationTitle": "qBittorrent için işlem gerekiyor",
+  "downloadCenter.unavailableTitle": "İndirmeler geçici olarak kullanılamıyor",
+  "downloadCenter.openSettings": "Ayarları aç",
+  "downloadCenter.pendingDownloads": "Tamamlanmamış indirmeler",
+  "downloadCenter.lastKnownDownloads": "Bilinen son indirmeler",
+  "downloadCenter.limitNote": "En fazla 200 tamamlanmamış indirme gösterilir. Toplam hız, gösterilen öğelere aittir.",
+  "downloadCenter.reason.authentication":
+    "qBittorrent sağlayıcı oturumunu Ayarlar'da kaydedin veya doğrulayın.",
+  "downloadCenter.reason.timeout": "qBittorrent isteği zaman aşımına uğradı.",
+  "downloadCenter.reason.tls": "TLS doğrulaması qBittorrent isteğini engelledi.",
+  "downloadCenter.reason.connection": "qBittorrent servisine ulaşılamadı.",
+  "downloadCenter.reason.apiUnavailable":
+    "qBittorrent Web API kullanılamıyor.",
+  "downloadCenter.reason.invalidData":
+    "qBittorrent geçersiz bir yanıt döndürdü.",
+  "downloadCenter.reason.backoff":
+    "Oturum denemelerine ara verildi. Yaklaşık {{count}} saniye sonra yeniden deneyin.",
+  "downloadCenter.state.downloading": "İndiriliyor",
+  "downloadCenter.state.queued": "Sırada",
+  "downloadCenter.state.stalled": "Bekliyor",
+  "downloadCenter.state.paused": "Duraklatıldı",
+  "downloadCenter.state.checking": "Kontrol ediliyor",
+  "downloadCenter.state.metadata": "Meta veri alınıyor",
+  "downloadCenter.state.error": "Hata",
+  "downloadCenter.state.other": "Bekliyor",
+  "downloadCenter.speed": "Hız {{speed}}",
+  "downloadCenter.eta": "Kalan {{eta}}",
+  "downloadCenter.etaUnavailable": "Bilinmiyor",
+  "downloadCenter.category": "Kategori {{category}}",
+  "downloadCenter.tags": "Etiketler {{tags}}",
+  "downloadCenter.source": "Kaynak · {{source}}",
+  "downloadCenter.progress": "{{name}} indirme ilerlemesi",
 
   "service.checking": "Kontrol ediliyor",
   "service.notChecked": "Kontrol edilmedi",
@@ -335,6 +376,7 @@ const turkishOverrides = {
   "credentials.apiHomarr": "Homarr API anahtarı",
   "credentials.apiGlancesBasic": "Glances HTTP Basic",
   "credentials.apiGlancesBearer": "Glances bearer belirteci",
+  "credentials.apiQbittorrent": "qBittorrent Web API",
   "credentials.browserProfile": "Kalıcı tarayıcı profili",
   "credentials.browserHttpBasic": "Tam kaynaklı HTTP Basic",
 

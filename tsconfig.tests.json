@@ -19,6 +19,7 @@
     "src/features/backgroundRuntime/backgroundRuntimeClient.ts",
     "src/features/backgroundRuntime/backgroundRuntimeSaveGeneration.ts",
     "src/features/desktopWidgets/desktopWidgetClient.ts",
+    "src/features/downloads/downloadsClient.ts",
     "src/features/i18n/catalog.types.ts",
     "src/features/i18n/catalogs/en.ts",
     "src/features/i18n/catalogs/index.ts",

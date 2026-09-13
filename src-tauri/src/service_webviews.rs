@@ -88,6 +88,18 @@ pub(crate) struct TrustedAuthenticationTarget {
     pub(crate) catalog_revision: u64,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct TrustedDownloadProvider {
+    pub(crate) name: String,
+    pub(crate) target: TrustedAuthenticationTarget,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct TrustedServiceIdentity {
+    pub(crate) id: String,
+    pub(crate) name: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct BrowserAuthenticationFingerprint {
     method: ServiceBrowserAuthentication,
@@ -211,6 +223,68 @@ impl ServiceCatalog {
             // revision have been captured as one coherent catalog snapshot.
             catalog_revision: self.revision.load(Ordering::Acquire),
         })
+    }
+
+    pub(crate) fn find_download_provider(
+        &self,
+        adapter: crate::service_settings::ServiceApiAuthentication,
+    ) -> Result<Option<TrustedDownloadProvider>, String> {
+        let services = self
+            .services
+            .read()
+            .map_err(|_| "The trusted service catalog is unavailable.".to_string())?;
+        let Some(service) = services
+            .values()
+            .filter(|service| service.authentication.api == adapter)
+            .min_by(|left, right| {
+                // An enabled provider wins over a disabled duplicate. The ID
+                // tie-break keeps selection deterministic across HashMap runs.
+                (!left.enabled, left.id.as_str()).cmp(&(!right.enabled, right.id.as_str()))
+            })
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(TrustedDownloadProvider {
+            name: service.name.clone(),
+            target: TrustedAuthenticationTarget {
+                service_id: service.id.clone(),
+                enabled: service.enabled,
+                url: service.url.clone(),
+                canonical_origin: service.canonical_origin.clone(),
+                allow_invalid_local_certificate: service.tls_policy
+                    == TlsPolicy::AllowInvalidLocalCertificate,
+                authentication: service.authentication,
+                catalog_revision: self.revision.load(Ordering::Acquire),
+            },
+        }))
+    }
+
+    pub(crate) fn find_enabled_service_identity(
+        &self,
+        conventional_id: &str,
+        conventional_name: &str,
+    ) -> Result<Option<TrustedServiceIdentity>, String> {
+        let services = self
+            .services
+            .read()
+            .map_err(|_| "The trusted service catalog is unavailable.".to_string())?;
+        let service = services
+            .values()
+            .filter(|service| {
+                service.enabled
+                    && (service.id == conventional_id
+                        || service.name.eq_ignore_ascii_case(conventional_name))
+            })
+            .min_by(|left, right| {
+                (left.id != conventional_id, left.id.as_str())
+                    .cmp(&(right.id != conventional_id, right.id.as_str()))
+            });
+
+        Ok(service.map(|service| TrustedServiceIdentity {
+            id: service.id.clone(),
+            name: service.name.clone(),
+        }))
     }
 
     pub(crate) fn canonical_origin_for_service(&self, service_id: &str) -> Result<String, String> {
