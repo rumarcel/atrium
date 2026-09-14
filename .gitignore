@@ -16,6 +16,13 @@ src-tauri/target/
 src-tauri/tauri.signing.conf.json
 *.pfx
 *.p12
+# Server agent credentials/certificates are local enrollment material.
+server-agent/*.pem
+server-agent/*.key
+server-agent/*.crt
+server-agent/token
+server-agent/config.json
+__pycache__/
 
 # Logs
 *.log

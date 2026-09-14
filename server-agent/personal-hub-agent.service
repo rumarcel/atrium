@@ -1,0 +1,34 @@
+[Unit]
+Description=Personal Hub restricted server control (dry-run by default)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=personalhub-agent
+Group=personalhub-agent
+ExecStart=/usr/bin/python3 -B /opt/personal-hub-agent/personal_hub_agent.py
+WorkingDirectory=/opt/personal-hub-agent
+StateDirectory=personal-hub-agent
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/personal-hub-agent
+# sudo needs privilege elevation; do NOT set NoNewPrivileges=true. The only
+# permitted privileged argv are the two exact entries in the reviewed sudoers.
+# Do not add seccomp-backed hardening (RestrictAddressFamilies, LockPersonality,
+# RestrictRealtime, RestrictSUIDSGID, ProtectKernel*): on supported systemd
+# versions those can IMPLY NoNewPrivileges despite the explicit value below.
+# Do not grant CAP_SYS_ADMIN to work around that. See README's runtime check.
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target

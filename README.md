@@ -27,12 +27,15 @@ Phase 8 adds Windows startup controls, single-instance activation, main-window
 geometry persistence, optional server notifications, real About/build metadata
 and English/Turkish NSIS packaging. Release signing requires the publisher's own
 certificate; unsigned builds are never shown as verified.
+Phase 9 now includes an opt-in, fixed-target server-control panel and a restricted
+Linux companion agent. Its implementation is present; enrollment and the manual
+server-side dry-run check remain required before enabling real power control.
 The desktop cards are separate native surfaces rather than an in-app widget editor.
 The server summary now exposes Glances uptime, and an
 explicit service-tab close tears down its native WebView so media cannot remain
 audible invisibly. Remote Docker/Podman inventory waits for the restricted
-server channel instead of requiring an exposed Docker daemon. Deeper Windows
-integrations remain in later phases. The remaining
+server channel instead of requiring an exposed Docker daemon. Optional advanced
+server operations, Linux desktop support and mobile remain later work. The remaining
 work is tracked in
 [`ROADMAP.md`](ROADMAP.md).
 
@@ -52,6 +55,10 @@ work is tracked in
   review models and the Settings review surface.
 - `src/features/downloads`: strict Download Center response parsing,
   visibility-aware polling and the compact read-only qBittorrent surface.
+- `src/features/serverControl`: main-UI-only enrollment, explicit power
+  confirmations, operation countdown and history.
+- `server-agent`: optional standard-library Linux HTTPS companion with exactly
+  two allowlisted power actions; dry-run by default, never auto-installed.
 - `src/features/i18n`: typed English/Turkish catalogs, system-language
   resolution and locale-aware server-value formatters.
 - `src/features/monitoring`: validated Glances metrics, visibility-aware polling
@@ -330,7 +337,7 @@ new service-view opens and destroys every service child WebView; Jellyfin and
 other media therefore cannot remain audible invisibly. A teardown failure keeps
 the main window visible. The tray provides Open Personal Hub, Settings, the
 master and per-card switches, geometry reset and an explicit Quit action. When
-no effective card or enabled notification category exists—or close-to-tray is off—closing the main window exits
+no effective card, enabled notification category or active server operation exists—or close-to-tray is off—closing the main window exits
 normally. Cards use Tauri's supported always-below layer; Explorer/WorkerW
 desktop embedding is not enabled. If Windows tray creation fails, Settings shows
 that limitation and close-to-tray is disabled so the application cannot become
@@ -364,6 +371,42 @@ See [Windows release notes](docs/windows-release.md) for the manual GitHub build
 workflow, optional signing configuration and installed-build smoke checklist.
 The generated local/workflow package is unsigned unless a real signing setup is
 provided; certificate files are not part of the project.
+
+## Trusted server control
+
+Settings → Server control is disabled by default. This integration does not depend
+on Homarr or Glances and cannot power off the local Windows computer. The only
+endpoint is `https://192.168.1.10:9473`, independent of editable service URLs.
+
+The desktop exclusively trusts the manually enrolled public TLS certificate,
+retains certificate validity/IP checks, and disables proxy inheritance, redirects
+and HTTP retries. A separate Windows Credential Manager entry holds the agent's
+64-hex token; it is never returned to React or written into a config document.
+
+The user chooses reboot/shutdown, reviews target and dry-run/live mode, then types
+`192.168.1.10` in a short-lived second confirmation. Rust consumes the confirmation
+once and binds the request to the observed boot identity and agent mode. The agent
+enforces a 30-second countdown and accepts cancellation only before dispatch.
+Closing Personal Hub does **not** cancel a request already accepted by the agent.
+
+The latest 50 operation records are stored locally (12 shown in Settings). A lost
+response remains uncertain and is never automatically retried. Native monitoring
+reconciles the matching agent journal and boot identity; an unreachable server is
+not reported as successfully shut down. Tracking is bounded to ten minutes, with
+one reconciliation after desktop restart even for older pending records. A
+verified new boot after an executed operation can issue a generic Windows toast;
+delivery still depends on Windows notification settings. Fully exiting Personal
+Hub pauses monitoring until the next launch. An active server operation also
+counts as background work when the existing close-to-tray preference is on and
+the tray is available; it does not silently enable that preference.
+
+See the [server agent installation guide](server-agent/README.md). Install and
+enroll in **dry-run first**; real power additionally requires a reviewed, exact
+sudoers allowlist and an explicit `--allow-power` service override. Neither is
+deployed or enabled automatically. The included focused tests never issue power
+commands; live Linux/systemd/TLS enrollment still needs a manual check on the
+actual server. Wake-on-LAN, Docker inventory and container/service restarts are
+not included in this power-control phase.
 
 ## Appearance and languages
 

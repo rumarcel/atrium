@@ -13,6 +13,11 @@ use tauri::{AppHandle, Manager, Webview};
 
 const MAIN_WEBVIEW_LABEL: &str = "main";
 const CREDENTIAL_TARGET_PREFIX: &str = "PersonalHub/credentials/v1";
+// This privileged credential deliberately lives outside the editable service
+// catalog namespace. Service credential IPC and service-removal cleanup cannot
+// name, replace, or delete it.
+const SERVER_CONTROL_CREDENTIAL_TARGET: &str = "PersonalHub/server-control/v1/192.168.1.10:9473";
+const SERVER_CONTROL_ORIGIN: &str = "https://192.168.1.10:9473";
 const MAX_SERVICE_ID_LENGTH: usize = 64;
 const MAX_SECRET_BYTES: usize = 2_560;
 const MAX_USERNAME_UTF16_UNITS: usize = 513;
@@ -433,6 +438,61 @@ pub(crate) fn read_origin_bound_credential(
     validate_service_id(service_id)?;
     validate_origin_metadata(expected_origin)?;
     platform::read_origin_bound_credential(&credential_target(service_id, kind), expected_origin)
+}
+
+/// Returns presence only; privileged token material never crosses IPC.
+pub(crate) fn inspect_server_control_token() -> Result<bool, String> {
+    match platform::inspect_origin_binding(SERVER_CONTROL_CREDENTIAL_TARGET, SERVER_CONTROL_ORIGIN)?
+    {
+        CredentialBindingState::Missing => Ok(false),
+        CredentialBindingState::Available => Ok(true),
+        CredentialBindingState::NeedsRebind => {
+            Err("The server control token has an invalid origin binding. Save it again.".into())
+        }
+    }
+}
+
+pub(crate) fn read_server_control_token() -> Result<OriginBoundCredential, String> {
+    match platform::read_origin_bound_credential(
+        SERVER_CONTROL_CREDENTIAL_TARGET,
+        SERVER_CONTROL_ORIGIN,
+    )? {
+        CredentialReadResult::Missing => Err("No server control token is stored.".into()),
+        CredentialReadResult::NeedsRebind => {
+            Err("The server control token has an invalid origin binding. Save it again.".into())
+        }
+        CredentialReadResult::Available(credential) => {
+            validate_server_control_token(credential.secret())?;
+            if credential.username().is_some() {
+                return Err("The stored server control token is invalid.".into());
+            }
+            Ok(credential)
+        }
+    }
+}
+
+pub(crate) fn write_server_control_token(mut secret: SensitiveString) -> Result<(), String> {
+    validate_server_control_token(secret.expose())?;
+    // Move the existing allocation to the platform writer, which clears its
+    // buffer after the Windows call, instead of making another plaintext copy.
+    platform::write_credential(
+        SERVER_CONTROL_CREDENTIAL_TARGET.into(),
+        None,
+        std::mem::take(&mut secret.0),
+        SERVER_CONTROL_ORIGIN,
+    )
+}
+
+pub(crate) fn delete_server_control_token() -> Result<(), String> {
+    platform::delete_credential(SERVER_CONTROL_CREDENTIAL_TARGET)
+}
+
+pub(crate) fn validate_server_control_token(secret: &str) -> Result<(), String> {
+    if secret.len() == 64 && secret.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Ok(())
+    } else {
+        Err("The server control token must contain exactly 64 ASCII hexadecimal characters.".into())
+    }
 }
 
 fn origin_metadata(canonical_origin: &str) -> String {
@@ -1005,5 +1065,55 @@ mod tests {
         assert!(first_latest > first_after);
         assert_eq!(credential_revision(first_service), first_latest);
         assert_eq!(credential_revision(second_service), second_before);
+    }
+
+    #[test]
+    fn server_control_token_validation_is_strict_and_redacted() {
+        assert!(validate_server_control_token(&"0123456789abcdef".repeat(4)).is_ok());
+        assert!(validate_server_control_token(&"ABCDEF0123456789".repeat(4)).is_ok());
+        for invalid in [
+            String::new(),
+            "a".repeat(63),
+            "a".repeat(65),
+            "g".repeat(64),
+            "é".repeat(32),
+            format!("{}\n", "a".repeat(63)),
+            format!("{}\0", "a".repeat(63)),
+        ] {
+            let error = validate_server_control_token(&invalid).unwrap_err();
+            if !invalid.is_empty() {
+                assert!(!error.contains(&invalid));
+            }
+        }
+    }
+
+    #[test]
+    fn server_control_credential_is_not_addressable_by_service_cleanup() {
+        assert_eq!(
+            SERVER_CONTROL_CREDENTIAL_TARGET,
+            "PersonalHub/server-control/v1/192.168.1.10:9473"
+        );
+        assert!(!SERVER_CONTROL_CREDENTIAL_TARGET.starts_with(CREDENTIAL_TARGET_PREFIX));
+        delete_all_service_credentials_with("server-control", |target| {
+            assert_ne!(target, SERVER_CONTROL_CREDENTIAL_TARGET);
+            Ok(())
+        })
+        .unwrap();
+        assert!(validate_service_id("../server-control/v1/192.168.1.10:9473").is_err());
+        assert!(origin_metadata_matches(
+            Some(&origin_metadata(SERVER_CONTROL_ORIGIN)),
+            SERVER_CONTROL_ORIGIN
+        )
+        .unwrap());
+        for other in [
+            "http://192.168.1.10:9473",
+            "https://192.168.1.10:9474",
+            "https://192.168.0.14:9473",
+        ] {
+            assert!(
+                !origin_metadata_matches(Some(&origin_metadata(other)), SERVER_CONTROL_ORIGIN)
+                    .unwrap()
+            );
+        }
     }
 }

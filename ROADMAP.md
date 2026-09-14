@@ -46,6 +46,8 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
   local service icons.
 - Phase 7.6: read-only qBittorrent Download Center with safe native sessions.
 - Phase 8: Windows integration, optional server notifications and NSIS packaging.
+- Phase 9.0/9.1: fixed-target server-control implementation and restricted Linux
+  agent; manual enrollment/dry-run validation remain required before activation.
 
 ## Phase 6.1 — Windows desktop cards (completed)
 
@@ -247,17 +249,39 @@ Theme Studio and safe theme packs are part of this phase:
 - Desktop cards continue to represent the server, not the local Windows machine.
 - No reboot or shutdown command in this phase.
 
-## Phase 9 — Trusted server control
+## Phase 9 — Trusted server control (implementation ready; enrollment pending)
 
-- A narrowly scoped Personal Hub Server Agent or restricted SSH account.
-- Reboot and shutdown target only the configured `192.168.1.10` server.
-- Main-UI-only commands, explicit target display, two-step confirmation and countdown.
-- No raw root password or unrestricted SSH access.
-- Local operation history, reboot/offline tracking and return-online notification.
-- Optional later Wake-on-LAN, container/service restart and maintenance status.
-- The restricted server agent may expose an allowlisted, read-only
-  Docker/Podman inventory endpoint for service discovery without sharing the
-  raw container socket with the desktop app.
+### Phase 9.0 — Restricted connection
+
+- Optional Python-standard-library Linux Server Agent, not a dependency of the
+  existing dashboard/providers. Requires a systemd server and a dedicated user.
+- Fixed `https://192.168.1.10:9473` endpoint, manually enrolled private TLS public
+  certificate, strict IP/expiry checks and a separate Windows-backed token vault.
+- No arbitrary endpoint, HTTP fallback, relaxed certificate checks, inherited
+  proxy, redirect following, raw root password or general SSH/shell access.
+- Default-disabled desktop controls and default dry-run agent. Manual deployment
+  instructions, protected systemd service and two-command sudoers allowlist are
+  in [server-agent/README.md](server-agent/README.md). Nothing is auto-installed.
+
+### Phase 9.1 — Reboot/shutdown
+
+- Main-UI-only Settings panel, explicit server-only target, two-step confirmation
+  with typed IP, one-use expiring nonce and boot/mode binding.
+- Server-enforced 30-second countdown and explicit cancellation before dispatch;
+  graceful reboot/poweroff only, no force flag. Closing the UI does not cancel it.
+- Durable local operation intent before dispatch, bounded history and read-only
+  recovery. Ambiguous power requests are never automatically sent again.
+- Background operation monitoring, matching journal/boot-identity reconciliation
+  and verified return-online toast. Loss of reachability alone is not success.
+- Narrow safety/contract tests use fake clocks, temporary journals and mocked
+  dispatch. Live server enrollment, systemd/sudo compatibility and Windows toast
+  delivery remain manual deployment checks; no real power action was tested.
+
+### Phase 9.2 — Optional later server management (not implemented)
+
+- Wake-on-LAN, container/service restart and maintenance status.
+- Allowlisted read-only Docker/Podman inventory over the restricted channel;
+  never expose the raw container socket to the desktop app.
 
 ## Phase 10 — Linux desktop support
 

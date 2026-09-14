@@ -11,6 +11,7 @@ import { CloseIcon, SettingsIcon } from "../../components/icons/AppIcons";
 import { AppearanceSettingsPanel } from "../appearance";
 import { BackgroundRuntimeSettings } from "../backgroundRuntime";
 import { DesktopIntegrationSettings } from "../desktopIntegration";
+import { ServerControlSettings } from "../serverControl";
 import {
   nativeServiceDiscoveryClient,
   ServiceDiscoveryPanel,
@@ -1051,6 +1052,8 @@ export function SettingsPage({
         <BackgroundRuntimeSettings />
 
         <DesktopIntegrationSettings />
+
+        <ServerControlSettings />
 
         <ServiceDiscoveryPanel
           persistedServices={baseline?.services ?? []}

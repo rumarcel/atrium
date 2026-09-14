@@ -29,6 +29,7 @@
     "src/features/i18n/language.ts",
     "src/features/i18n/translate.ts",
     "src/features/monitoring/monitoringFormatters.ts",
+    "src/features/serverControl/serverControlClient.ts",
     "src/features/services/hooks/catalogRequestGeneration.ts",
     "src/features/settings/settingsClient.ts",
     "src/features/tabs/nativeServiceWebviewClient.ts"

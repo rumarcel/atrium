@@ -1,0 +1,94 @@
+.server-control__setup,
+.server-control__history {
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-medium);
+}
+
+.server-control summary {
+  color: var(--color-text-primary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.server-control__setup > :not(summary) {
+  margin-top: 12px;
+}
+
+.server-control__setup textarea {
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.server-control__status,
+.server-control__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.server-control__status {
+  justify-content: space-between;
+}
+
+.server-control__confirmation,
+.server-control__operation {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-medium);
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.server-control__confirmation {
+  border-color: rgba(255, 159, 10, 0.5);
+}
+
+.server-control__confirmation h3,
+.server-control__confirmation p,
+.server-control__operation p {
+  margin: 0;
+}
+
+.server-control__confirmation h3,
+.server-control__confirmation strong,
+.server-control__operation strong {
+  color: var(--color-text-primary);
+  font-size: 0.78rem;
+}
+
+.server-control__operation button {
+  justify-self: start;
+}
+
+.server-control__history ul {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.server-control__history li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 0.68rem;
+}
+
+.server-control__history li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.server-control code {
+  overflow-wrap: anywhere;
+}

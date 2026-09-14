@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-dismiss-server-control-confirmation"
+description = "Enables the dismiss_server_control_confirmation command without any pre-configured scope."
+commands.allow = ["dismiss_server_control_confirmation"]
+
+[[permission]]
+identifier = "deny-dismiss-server-control-confirmation"
+description = "Denies the dismiss_server_control_confirmation command without any pre-configured scope."
+commands.deny = ["dismiss_server_control_confirmation"]

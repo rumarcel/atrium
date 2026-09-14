@@ -8,6 +8,7 @@ mod download_center;
 mod health;
 mod monitoring;
 mod provider_auth;
+mod server_control;
 mod service_discovery;
 mod service_settings;
 mod service_webviews;
@@ -39,9 +40,12 @@ pub fn run() {
     let background_runtime =
         background_runtime::BackgroundRuntimeSettings::initialize(configuration_directory.clone())
             .expect("the background runtime settings could not be initialized");
-    let desktop_integration =
-        desktop_integration::DesktopIntegrationSettings::initialize(configuration_directory)
-            .expect("the desktop integration settings could not be initialized");
+    let desktop_integration = desktop_integration::DesktopIntegrationSettings::initialize(
+        configuration_directory.clone(),
+    )
+    .expect("the desktop integration settings could not be initialized");
+    let server_control = server_control::ServerControl::initialize(configuration_directory)
+        .expect("the server control settings could not be initialized");
 
     let builder = tauri::Builder::default();
     #[cfg(windows)]
@@ -83,6 +87,7 @@ pub fn run() {
         .manage(appearance_settings)
         .manage(background_runtime)
         .manage(desktop_integration)
+        .manage(server_control)
         .manage(service_webviews::ServiceWebviewRegistry::default())
         .manage(settings)
         .manage(catalog)
@@ -99,6 +104,13 @@ pub fn run() {
             desktop_integration::get_desktop_integration_settings,
             desktop_integration::save_desktop_integration_settings,
             desktop_integration::set_desktop_startup_enabled,
+            server_control::get_server_control_snapshot,
+            server_control::save_server_control_settings,
+            server_control::refresh_server_control_status,
+            server_control::prepare_server_control_action,
+            server_control::confirm_server_control_action,
+            server_control::cancel_server_control_operation,
+            server_control::dismiss_server_control_confirmation,
             appearance_settings::get_appearance_settings,
             appearance_settings::save_appearance_preferences,
             appearance_settings::reset_appearance_preferences,
@@ -126,6 +138,7 @@ pub fn run() {
             background_runtime::setup(app)?;
             appearance_settings::apply_current_appearance(app.handle())?;
             desktop_notifications::setup(app.handle())?;
+            server_control::setup(app.handle())?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -139,11 +152,14 @@ pub fn run() {
             let app = window.app_handle().clone();
             let settings = app.state::<background_runtime::BackgroundRuntimeSettings>();
             let catalog = app.state::<service_webviews::ServiceCatalog>();
-            let notifications_enabled = app
+            let background_work_enabled = app
                 .state::<desktop_integration::DesktopIntegrationSettings>()
-                .background_notifications_enabled();
+                .background_notifications_enabled()
+                || app
+                    .state::<server_control::ServerControl>()
+                    .has_active_operation();
             let should_background =
-                match settings.should_close_to_tray(&catalog, notifications_enabled) {
+                match settings.should_close_to_tray(&catalog, background_work_enabled) {
                     Ok(should_background) => should_background,
                     Err(error) => {
                         api.prevent_close();

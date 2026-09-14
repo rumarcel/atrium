@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cancel-server-control-operation"
+description = "Enables the cancel_server_control_operation command without any pre-configured scope."
+commands.allow = ["cancel_server_control_operation"]
+
+[[permission]]
+identifier = "deny-cancel-server-control-operation"
+description = "Denies the cancel_server_control_operation command without any pre-configured scope."
+commands.deny = ["cancel_server_control_operation"]

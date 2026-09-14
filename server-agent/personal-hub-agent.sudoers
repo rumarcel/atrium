@@ -1,0 +1,4 @@
+# Install with visudo validation only after dry-run enrollment is reviewed.
+# Verify /usr/bin/systemctl is root-owned and not writable by this account.
+# No wildcard arguments, shell, restart, service name, or arbitrary unit access.
+personalhub-agent ALL=(root) NOPASSWD: /usr/bin/systemctl reboot, /usr/bin/systemctl poweroff
