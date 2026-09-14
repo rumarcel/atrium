@@ -401,7 +401,7 @@ export function BackgroundRuntimeSettings({
                 checked={
                   snapshot.trayAvailable && snapshot.preferences.closeToTray
                 }
-                disabled={isBusy || !masterEnabled || !snapshot.trayAvailable}
+                disabled={isBusy || !snapshot.trayAvailable}
                 onChange={(event) => {
                   const closeToTray = event.currentTarget.checked;
                   void savePreferences(

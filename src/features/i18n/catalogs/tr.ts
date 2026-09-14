@@ -50,8 +50,8 @@ const turkishOverrides = {
   "dashboard.description":
     "Ev sunucunuzda çalışan servisler için sakin bir komuta merkezi.",
   "dashboard.currentPhase": "Geçerli uygulama aşaması",
-  "dashboard.phaseLabel": "Aşama 7.6",
-  "dashboard.phaseDescription": "Salt okunur İndirme Merkezi",
+  "dashboard.phaseLabel": "Aşama 8",
+  "dashboard.phaseDescription": "Windows masaüstü entegrasyonu",
   "dashboard.configurationUnavailableTitle":
     "Servis yapılandırması kullanılamıyor",
   "dashboard.settingsNoticeTitle": "Servis ayarları bildirimi",
@@ -475,23 +475,52 @@ const turkishOverrides = {
   "background.cardDisabledNotice": "{{card}} kartı devre dışı bırakıldı.",
   "background.keepInTray": "Personal Hub'ı bildirim alanında tut",
   "background.trayAvailableDescription":
-    "Ana pencereyi kapatmak etkin kartları çalışır durumda tutar. Personal Hub'ı tamamen durdurmak için tepsi menüsündeki Çık seçeneğini kullanın.",
+    "Ana pencereyi kapatmak etkin kartları veya sunucu bildirimlerini çalışır durumda tutar. Personal Hub'ı tamamen durdurmak için tepsi menüsündeki Çık seçeneğini kullanın.",
   "background.trayUnavailableDescription":
     "Bu Windows oturumunda bildirim alanı entegrasyonu kullanılamıyor; ana pencereyi kapatmak Personal Hub'dan güvenle çıkar.",
   "background.closeToTrayEnabled": "Tepsiye kapatma etkinleştirildi.",
   "background.closeQuits": "Ana pencere kapatıldığında Personal Hub'dan çıkılacak.",
   "background.runtimeOff":
-    "Masaüstü kartları kapalı. Ana pencere kapatıldığında Personal Hub normal şekilde sonlanır.",
+    "Masaüstü kartları kapalı. Tepsiye kapatma açıksa etkin sunucu bildirimleri arka planda çalışmaya devam edebilir.",
   "background.runtimeTrayUnavailableOne":
     "{{count}} masaüstü kartı kullanılabilir; ancak tepsi entegrasyonu olmadığından ana pencere kapatılınca Personal Hub sonlanır.",
   "background.runtimeTrayUnavailableOther":
     "{{count}} masaüstü kartı kullanılabilir; ancak tepsi entegrasyonu olmadığından ana pencere kapatılınca Personal Hub sonlanır.",
   "background.runtimeNoneAvailable":
-    "Seçili kartların hiçbiri şu anda kullanılamıyor; pencereyi kapatmak boşta bir arka plan çalışma zamanı bırakmaz.",
+    "Seçili kartların hiçbiri şu anda kullanılamıyor. Tepsiye kapatma açıksa etkin sunucu bildirimleri arka planda çalışmaya devam edebilir.",
   "background.runtimeAvailableOne":
     "{{count}} masaüstü kartı arka planda çalıştırılabilir.",
   "background.runtimeAvailableOther":
     "{{count}} masaüstü kartı arka planda çalıştırılabilir.",
+
+  "desktop.kicker": "Masaüstü",
+  "desktop.title": "Windows entegrasyonu",
+  "desktop.reload": "Durumu yenile",
+  "desktop.preview": "Bu kontroller tarayıcı önizlemesinde salt okunurdur. Windows ayarlarını değiştirmek için masaüstü uygulamasını açın.",
+  "desktop.recovery": "Kaydedilen masaüstü ayarları okunamadı. Bir ayarı yeniden kaydedene kadar bildirimler kapalıdır.",
+  "desktop.failed": "İşlem tamamlanamadı. Mümkün olan ayarlar yeniden okundu; durumu yenileyip tekrar deneyin.",
+  "desktop.saved": "Masaüstü ayarları güncellendi.",
+  "desktop.startup": "Windows ile başlat",
+  "desktop.startupDescription": "Windows'ta oturum açtığınızda Personal Hub'ı açar. Siz etkinleştirene kadar kapalıdır.",
+  "desktop.startupUnavailable": "Başlangıç kaydı, Windows uygulamasının yayın sürümünde kullanılabilir.",
+  "desktop.notificationsDescription": "Sunucu bildirimleri isteğe bağlıdır ve varsayılan olarak kapalıdır. Windows bildirimleri için kurulu uygulama gerekir; Windows bildirim ayarları ve Rahatsız etmeyin modu gösterimi etkileyebilir.",
+  "desktop.serviceOutages": "Servis kesintileri",
+  "desktop.serviceOutagesDescription": "İzlenen bir sunucu servisine art arda yapılan kontrollerde ulaşılamadığında bildirir.",
+  "desktop.storagePressure": "Depolama doluluğu",
+  "desktop.storagePressureDescription": "İzlenen bir sunucu diski en az %90 dolduğunda bildirir. Glances gerektirir.",
+  "desktop.downloadCompletion": "Tamamlanan indirmeler",
+  "desktop.downloadCompletionDescription": "İzlenen bir qBittorrent indirmesi tamamlandığında bildirir. Yapılandırılmış API bağlantısı gerektirir.",
+  "desktop.notificationPrivacy": "Bildirimler genel ifadeler kullanır; servis adreslerini, giriş bilgilerini veya indirme adlarını içermez.",
+  "desktop.backgroundNote": "Pencere kapatıldıktan sonra bildirimlerin sürmesi için yukarıdaki “Personal Hub'ı bildirim alanında tut” seçeneğini açın. Tepsi menüsündeki Çık, uygulamayı ve bildirimlerini durdurur.",
+  "desktop.windowMemory": "Pencere düzenini hatırla",
+  "desktop.windowMemoryDescription": "Masaüstü uygulaması kayıtlı pencere boyutunu, konumunu ve büyütülmüş durumunu geri yükler. Ekran dışındaki konumlar kullanılabilir bir monitöre taşınır.",
+  "desktop.about": "Personal Hub hakkında",
+  "desktop.version": "Sürüm {{version}}",
+  "desktop.build": "{{profile}} · {{platform}} · {{architecture}}",
+  "desktop.debugBuild": "Geliştirme derlemesi",
+  "desktop.releaseBuild": "Yayın derlemesi",
+  "desktop.signingNotVerified": "Kod imzası: uygulama tarafından doğrulanmadı.",
+  "desktop.aboutUnavailable": "Sürüm ve derleme bilgileri masaüstü uygulamasında kullanılabilir.",
 
   "widget.disableFailed": "Bu masaüstü kartı devre dışı bırakılamadı.",
   "widget.moveFailed": "Bu masaüstü kartı taşınamadı.",

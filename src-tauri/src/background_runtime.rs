@@ -409,14 +409,19 @@ impl BackgroundRuntimeSettings {
         self.tray_available.load(Ordering::Acquire)
     }
 
-    pub(crate) fn should_close_to_tray(&self, catalog: &ServiceCatalog) -> Result<bool, String> {
+    pub(crate) fn should_close_to_tray(
+        &self,
+        catalog: &ServiceCatalog,
+        notifications_enabled: bool,
+    ) -> Result<bool, String> {
         let document = self.document()?;
         let availability = DesktopCardAvailabilityMap::from_catalog(catalog);
         Ok(self.tray_available()
             && document.preferences.close_to_tray
-            && DesktopWidgetKind::all()
-                .into_iter()
-                .any(|kind| effective_card_enabled(&document.preferences, &availability, kind)))
+            && (notifications_enabled
+                || DesktopWidgetKind::all().into_iter().any(|kind| {
+                    effective_card_enabled(&document.preferences, &availability, kind)
+                })))
     }
 }
 
@@ -932,7 +937,7 @@ fn mutate_from_tray(app: &AppHandle, menu_id: &str) -> Result<(), String> {
     finish_runtime_change(app, &force_recreate).map(|_| ())
 }
 
-fn show_main_window(app: &AppHandle, open_settings: bool) -> Result<(), String> {
+pub(crate) fn show_main_window(app: &AppHandle, open_settings: bool) -> Result<(), String> {
     let resume_app = app.clone();
     std::thread::Builder::new()
         .name("personal-hub-tray-open".into())

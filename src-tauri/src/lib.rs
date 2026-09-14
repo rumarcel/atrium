@@ -1,6 +1,8 @@
 mod appearance_settings;
 mod background_runtime;
 mod credential_vault;
+mod desktop_integration;
+mod desktop_notifications;
 mod desktop_widgets;
 mod download_center;
 mod health;
@@ -35,10 +37,32 @@ pub fn run() {
         appearance_settings::AppearanceSettings::initialize(configuration_directory.clone())
             .expect("the appearance settings could not be initialized");
     let background_runtime =
-        background_runtime::BackgroundRuntimeSettings::initialize(configuration_directory)
+        background_runtime::BackgroundRuntimeSettings::initialize(configuration_directory.clone())
             .expect("the background runtime settings could not be initialized");
+    let desktop_integration =
+        desktop_integration::DesktopIntegrationSettings::initialize(configuration_directory)
+            .expect("the desktop integration settings could not be initialized");
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(windows)]
+    let builder = builder
+        // Must be registered first: a second launch restores the existing host.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            let _ = background_runtime::show_main_window(app, false);
+        }))
+        .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_filter(|label| label == "main")
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        );
+
+    builder
         .manage(
             health::HealthClients::new()
                 .expect("the health-check HTTP clients could not be initialized"),
@@ -58,6 +82,7 @@ pub fn run() {
         )
         .manage(appearance_settings)
         .manage(background_runtime)
+        .manage(desktop_integration)
         .manage(service_webviews::ServiceWebviewRegistry::default())
         .manage(settings)
         .manage(catalog)
@@ -71,6 +96,9 @@ pub fn run() {
             background_runtime::save_background_runtime_preferences,
             background_runtime::get_desktop_widget_runtime_state,
             background_runtime::disable_desktop_widget,
+            desktop_integration::get_desktop_integration_settings,
+            desktop_integration::save_desktop_integration_settings,
+            desktop_integration::set_desktop_startup_enabled,
             appearance_settings::get_appearance_settings,
             appearance_settings::save_appearance_preferences,
             appearance_settings::reset_appearance_preferences,
@@ -97,6 +125,7 @@ pub fn run() {
         .setup(|app| {
             background_runtime::setup(app)?;
             appearance_settings::apply_current_appearance(app.handle())?;
+            desktop_notifications::setup(app.handle())?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -110,16 +139,20 @@ pub fn run() {
             let app = window.app_handle().clone();
             let settings = app.state::<background_runtime::BackgroundRuntimeSettings>();
             let catalog = app.state::<service_webviews::ServiceCatalog>();
-            let should_background = match settings.should_close_to_tray(&catalog) {
-                Ok(should_background) => should_background,
-                Err(error) => {
-                    api.prevent_close();
-                    eprintln!(
+            let notifications_enabled = app
+                .state::<desktop_integration::DesktopIntegrationSettings>()
+                .background_notifications_enabled();
+            let should_background =
+                match settings.should_close_to_tray(&catalog, notifications_enabled) {
+                    Ok(should_background) => should_background,
+                    Err(error) => {
+                        api.prevent_close();
+                        eprintln!(
                         "Personal Hub stayed open because its close policy is unavailable: {error}"
                     );
-                    return;
-                }
-            };
+                        return;
+                    }
+                };
 
             if !should_background {
                 app.exit(0);

@@ -1,0 +1,32 @@
+name: Windows installer
+
+# Manual builds produce a workflow artifact, not a GitHub release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned package manager
+        run: npm install --global pnpm@11.19.0
+      - name: Prepare Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build unsigned Windows installer
+        run: pnpm build:windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: personal-hub-windows-unsigned
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14

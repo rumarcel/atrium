@@ -15,7 +15,7 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     error::Error,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -244,6 +244,102 @@ pub async fn get_download_center_snapshot(
     clients: tauri::State<'_, DownloadCenterClients>,
 ) -> Result<DownloadCenterSnapshot, String> {
     ensure_trusted_caller(&caller)?;
+    collect_download_snapshot(&catalog, &authentication, &clients, &TorrentQuery::Active).await
+}
+
+enum TorrentQuery<'a> {
+    Active,
+    Hashes(&'a [String]),
+}
+
+/// Native-only observation. Hashes stay in memory and never enter a toast.
+pub(crate) struct DownloadNotificationSample {
+    pub(crate) provider_key: String,
+    pub(crate) incomplete_hashes: Vec<String>,
+    pub(crate) confirmed_completed: usize,
+}
+
+pub(crate) fn notification_provider_key(
+    catalog: &ServiceCatalog,
+    authentication: &ProviderAuthManager,
+) -> Option<String> {
+    let provider = catalog
+        .find_download_provider(ServiceApiAuthentication::QbittorrentWebApi)
+        .ok()??;
+    provider.target.enabled.then(|| {
+        format!(
+            "{}:{}",
+            provider.target.service_id,
+            authentication.revision_for_target(&provider.target)
+        )
+    })
+}
+
+pub(crate) async fn collect_download_notification_sample(
+    catalog: &ServiceCatalog,
+    authentication: &ProviderAuthManager,
+    clients: &DownloadCenterClients,
+    previous_provider: Option<&str>,
+    previous_hashes: &[String],
+) -> Result<Option<DownloadNotificationSample>, String> {
+    let Some(provider_key) = notification_provider_key(catalog, authentication) else {
+        return Ok(None);
+    };
+    let active =
+        collect_download_snapshot(catalog, authentication, clients, &TorrentQuery::Active).await?;
+    if !matches!(active.status, DownloadCenterStatus::Online) {
+        return Err("Download notifications are temporarily unavailable.".into());
+    }
+    let incomplete_hashes = active
+        .items
+        .into_iter()
+        .map(|item| item.id)
+        .collect::<Vec<_>>();
+    let mut confirmed_completed = 0;
+    if previous_provider == Some(provider_key.as_str()) {
+        let disappeared = previous_hashes
+            .iter()
+            .take(MAX_SNAPSHOT_ITEMS)
+            .filter(|hash| !incomplete_hashes.contains(hash))
+            .cloned()
+            .collect::<Vec<_>>();
+        // Keep URL sizes bounded even for long hashes. A deleted torrent returns
+        // no record and therefore cannot be mistaken for a completed download.
+        for hashes in disappeared.chunks(50) {
+            let confirmed = collect_download_snapshot(
+                catalog,
+                authentication,
+                clients,
+                &TorrentQuery::Hashes(hashes),
+            )
+            .await?;
+            if !matches!(confirmed.status, DownloadCenterStatus::Online) {
+                return Err("Download completion could not be confirmed.".into());
+            }
+            confirmed_completed += confirmed
+                .items
+                .iter()
+                .filter(|item| item.progress_percent == 100.0)
+                .count();
+        }
+    }
+    if notification_provider_key(catalog, authentication).as_deref() != Some(provider_key.as_str())
+    {
+        return Err("The download provider changed during notification polling.".into());
+    }
+    Ok(Some(DownloadNotificationSample {
+        provider_key,
+        incomplete_hashes,
+        confirmed_completed,
+    }))
+}
+
+async fn collect_download_snapshot(
+    catalog: &ServiceCatalog,
+    authentication: &ProviderAuthManager,
+    clients: &DownloadCenterClients,
+    query: &TorrentQuery<'_>,
+) -> Result<DownloadCenterSnapshot, String> {
     // Resolve credentials only after queued polls have obtained their turn.
     // A settings/credential change while waiting must not reuse an old target.
     let mut sessions = clients.sessions.lock().await;
@@ -342,6 +438,7 @@ pub async fn get_download_center_snapshot(
         &source_services,
         &authentication,
         &catalog,
+        query,
     )
     .await;
 
@@ -374,6 +471,7 @@ pub async fn get_download_center_snapshot(
                     &source_services,
                     &authentication,
                     &catalog,
+                    query,
                 )
                 .await;
             }
@@ -505,6 +603,7 @@ async fn read_torrents(
     source_services: &SourceServices,
     authentication: &ProviderAuthManager,
     catalog: &ServiceCatalog,
+    query: &TorrentQuery<'_>,
 ) -> Result<Vec<DownloadItemSnapshot>, DownloadFailure> {
     let mut endpoint = provider_url(&target.url, "api/v2/torrents/info").ok_or_else(|| {
         DownloadFailure::new(
@@ -521,6 +620,24 @@ async fn read_torrents(
         .append_pair("filter", "all")
         .append_pair("sort", "progress")
         .append_pair("limit", &MAX_SNAPSHOT_ITEMS.to_string());
+    if let TorrentQuery::Hashes(hashes) = query {
+        if hashes.is_empty()
+            || hashes.len() > 50
+            || hashes.iter().any(|hash| {
+                hash.is_empty()
+                    || hash.len() > MAX_ID_LENGTH
+                    || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+        {
+            return Err(DownloadFailure::new(
+                DownloadReason::InvalidData,
+                "Invalid completion identifiers.",
+            ));
+        }
+        endpoint
+            .query_pairs_mut()
+            .append_pair("hashes", &hashes.join("|"));
+    }
     let request = material
         .apply(client.get(endpoint.clone()), &endpoint)
         .map_err(DownloadFailure::from_provider_auth)?;
@@ -571,9 +688,23 @@ async fn read_torrents(
     }
 
     let mut items = Vec::new();
+    let mut seen_hashes = HashSet::new();
     for torrent in torrents {
-        if !should_include_torrent(&torrent) {
-            continue;
+        match query {
+            TorrentQuery::Active if !should_include_torrent(&torrent) => continue,
+            TorrentQuery::Hashes(hashes) => {
+                if !hashes.contains(&torrent.hash)
+                    || !torrent.progress.is_finite()
+                    || !(0.0..=1.0).contains(&torrent.progress)
+                    || !seen_hashes.insert(torrent.hash.clone())
+                {
+                    return Err(DownloadFailure::new(
+                        DownloadReason::InvalidData,
+                        "Invalid completion response.",
+                    ));
+                }
+            }
+            _ => {}
         }
         items.push(normalize_torrent(torrent, source_services)?);
         if items.len() == MAX_SNAPSHOT_ITEMS {

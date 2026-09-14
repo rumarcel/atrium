@@ -34,6 +34,17 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "shortDescription": "Your home server, in one place",
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English", "Turkish"],
+        "displayLanguageSelector": true,
+        "startMenuFolder": "Personal Hub",
+        "installerHooks": "installer/hooks.nsh"
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

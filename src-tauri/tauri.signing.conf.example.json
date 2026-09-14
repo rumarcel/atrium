@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "windows": {
+      "certificateThumbprint": "REPLACE_WITH_YOUR_CODE_SIGNING_CERTIFICATE_THUMBPRINT",
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "tsp": true
+    }
+  }
+}

@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:windows": "tauri build --bundles nsis",
     "typecheck": "tsc --noEmit",
     "test": "pnpm test:frontend",
     "test:frontend": "tsc -p tsconfig.tests.json && node --test tests/appearance.test.mjs tests/backgroundRuntimeClient.test.mjs tests/downloadsClient.test.mjs tests/i18n.test.mjs tests/nativeServiceWebviews.test.mjs tests/monitoringFormatters.test.mjs tests/settingsClient.test.mjs",

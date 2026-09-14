@@ -5,7 +5,7 @@ services. Built with Tauri v2, React, TypeScript and Vite.
 
 ## Current scope
 
-Phase 1 through Phase 7.6 are implemented: the desktop shell, responsive
+Phase 1 through Phase 8 are implemented: the desktop shell, responsive
 dashboard, validated service configuration, asynchronous service health checks,
 session-preserving native service tabs, live Glances monitoring and three
 server-only Windows desktop cards. Phase 7.0 adds a native Settings surface,
@@ -23,6 +23,10 @@ dashboard editor.
 Phase 7.6 adds a read-only qBittorrent Download Center with native session
 handling, bounded retry backoff and reliable Sonarr/Radarr attribution when the
 download category or tag carries an exact provider marker.
+Phase 8 adds Windows startup controls, single-instance activation, main-window
+geometry persistence, optional server notifications, real About/build metadata
+and English/Turkish NSIS packaging. Release signing requires the publisher's own
+certificate; unsigned builds are never shown as verified.
 The desktop cards are separate native surfaces rather than an in-app widget editor.
 The server summary now exposes Glances uptime, and an
 explicit service-tab close tears down its native WebView so media cannot remain
@@ -326,12 +330,40 @@ new service-view opens and destroys every service child WebView; Jellyfin and
 other media therefore cannot remain audible invisibly. A teardown failure keeps
 the main window visible. The tray provides Open Personal Hub, Settings, the
 master and per-card switches, geometry reset and an explicit Quit action. When
-no effective card exists—or close-to-tray is off—closing the main window exits
+no effective card or enabled notification category exists—or close-to-tray is off—closing the main window exits
 normally. Cards use Tauri's supported always-below layer; Explorer/WorkerW
 desktop embedding is not enabled. If Windows tray creation fails, Settings shows
 that limitation and close-to-tray is disabled so the application cannot become
 an unreachable hidden process. Runtime preference writes are serialized across
 processes, revision-checked and atomically replaced.
+
+## Windows integration and packaging
+
+Settings includes opt-in Windows startup and separate service-outage, server-disk
+pressure and download-completion notifications. Windows startup registration is
+available only in release builds; installation itself never enables it. Uninstall
+removes Personal Hub's startup entry. Windows toast delivery requires an installed
+application and depends on the user's Windows notification settings.
+
+The native notification runtime probes only enabled categories, on a bounded
+30-second schedule, including while the main window is in the tray. Initial
+observations are silent. Outages require consecutive failures; disk alerts use
+90%/85% trigger/rearm thresholds. Download completion must be confirmed by the
+provider for a previously observed incomplete torrent, not inferred from a missing
+list entry. Notifications contain generic text rather than torrent names or paths.
+
+Launching the app again restores the existing main window, including from the
+tray. Only main-window size/position/maximization is restored by the window-state
+plugin; experimental-card geometry stays independent. About displays the native
+version, debug/release profile, OS and architecture. Signature verification and
+automatic update checks are not claimed.
+
+Build the per-user English/Turkish NSIS installer using `pnpm build:windows`.
+The bundled icon is shared by the installer, window/taskbar and tray.
+See [Windows release notes](docs/windows-release.md) for the manual GitHub build
+workflow, optional signing configuration and installed-build smoke checklist.
+The generated local/workflow package is unsigned unless a real signing setup is
+provided; certificate files are not part of the project.
 
 ## Appearance and languages
 

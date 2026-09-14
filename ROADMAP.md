@@ -45,6 +45,7 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 - Phase 7.5: authenticated Homarr discovery, review-before-add and automatic
   local service icons.
 - Phase 7.6: read-only qBittorrent Download Center with safe native sessions.
+- Phase 8: Windows integration, optional server notifications and NSIS packaging.
 
 ## Phase 6.1 — Windows desktop cards (completed)
 
@@ -227,14 +228,22 @@ Theme Studio and safe theme packs are part of this phase:
   explicitly authorized control phase. The provider boundary leaves room for
   later Transmission, SABnzbd and aria2 adapters.
 
-## Phase 8 — Windows desktop integration
+## Phase 8 — Windows desktop integration (implemented)
 
-- NSIS installer, application/taskbar icons and startup registration.
+- Per-user English/Turkish NSIS installer and shared application/taskbar/tray icon.
+- Opt-in release-build startup registration, with uninstall cleanup.
 - Single-instance activation so launching Personal Hub again restores the
   existing tray/background process instead of creating duplicate UI surfaces.
-- Signed-release and installed-version visibility so the running build can be
-  identified from an About/update page.
-- Disk, download and service-outage notifications.
+- Main-window size, position and maximization persistence, independent of cards.
+- About shows actual native version, profile, platform and architecture. Signing
+  configuration and release instructions are provided; an actual signed release
+  requires the publisher's certificate and remains a distribution prerequisite.
+  Signature status is explicitly unverified, with no fake update check.
+- Optional server-disk, confirmed download-completion and debounced service-outage
+  notifications. Native polling continues in the tray when enabled; initial
+  observations are silent and generic bodies omit filenames and server addresses.
+- Manual GitHub build workflow creates unsigned installer artifacts without
+  publishing a release. Installed-build OS/notification smoke checks are documented.
 - Desktop cards continue to represent the server, not the local Windows machine.
 - No reboot or shutdown command in this phase.
 

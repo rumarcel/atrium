@@ -13,6 +13,9 @@ src-tauri/target/
 .env.*
 !.env.example
 *.local
+src-tauri/tauri.signing.conf.json
+*.pfx
+*.p12
 
 # Logs
 *.log

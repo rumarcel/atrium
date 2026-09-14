@@ -44,8 +44,8 @@ export const englishCatalog = {
   "dashboard.description":
     "A calm command center for the services running on your home server.",
   "dashboard.currentPhase": "Current implementation phase",
-  "dashboard.phaseLabel": "Phase 7.6",
-  "dashboard.phaseDescription": "Read-only Download Center",
+  "dashboard.phaseLabel": "Phase 8",
+  "dashboard.phaseDescription": "Windows desktop integration",
   "dashboard.configurationUnavailableTitle":
     "Service configuration unavailable",
   "dashboard.settingsNoticeTitle": "Service settings notice",
@@ -469,23 +469,52 @@ export const englishCatalog = {
   "background.cardDisabledNotice": "{{card}} card disabled.",
   "background.keepInTray": "Keep Personal Hub in the notification area",
   "background.trayAvailableDescription":
-    "Closing the main window keeps enabled cards running. Use Quit in the tray menu to stop Personal Hub completely.",
+    "Closing the main window keeps enabled cards or server notifications running. Use Quit in the tray menu to stop Personal Hub completely.",
   "background.trayUnavailableDescription":
     "Notification-area integration is unavailable in this Windows session, so closing the main window quits Personal Hub safely.",
   "background.closeToTrayEnabled": "Close-to-tray enabled.",
   "background.closeQuits": "Closing the main window will quit Personal Hub.",
   "background.runtimeOff":
-    "Desktop cards are off. Personal Hub exits normally when its main window closes.",
+    "Desktop cards are off. Enabled server notifications can still run in the background when close-to-tray is on.",
   "background.runtimeTrayUnavailableOne":
     "{{count}} desktop card is available, but Personal Hub will quit when its main window closes because tray integration is unavailable.",
   "background.runtimeTrayUnavailableOther":
     "{{count}} desktop cards are available, but Personal Hub will quit when its main window closes because tray integration is unavailable.",
   "background.runtimeNoneAvailable":
-    "No selected card is currently available; closing the window will not leave an idle background runtime.",
+    "No selected card is currently available. Enabled server notifications can still run in the background when close-to-tray is on.",
   "background.runtimeAvailableOne":
     "{{count}} desktop card is available to run in the background.",
   "background.runtimeAvailableOther":
     "{{count}} desktop cards are available to run in the background.",
+
+  "desktop.kicker": "Desktop",
+  "desktop.title": "Windows integration",
+  "desktop.reload": "Reload status",
+  "desktop.preview": "These controls are read-only in browser preview. Open the desktop app to change Windows settings.",
+  "desktop.recovery": "The saved desktop settings could not be read. Notifications are off until you save a setting again.",
+  "desktop.failed": "The operation could not be completed. Settings were refreshed where possible; reload the status and try again.",
+  "desktop.saved": "Desktop settings updated.",
+  "desktop.startup": "Start with Windows",
+  "desktop.startupDescription": "Open Personal Hub when you sign in to Windows. This is off until you enable it.",
+  "desktop.startupUnavailable": "Startup registration is available in the release Windows app.",
+  "desktop.notificationsDescription": "Server notifications are optional and off by default. Windows toast delivery requires the installed app; Windows notification settings and Do not disturb can affect delivery.",
+  "desktop.serviceOutages": "Service outages",
+  "desktop.serviceOutagesDescription": "Notify when a monitored server service cannot be reached on consecutive checks.",
+  "desktop.storagePressure": "Storage pressure",
+  "desktop.storagePressureDescription": "Notify when a monitored server volume is at least 90% full. Requires Glances.",
+  "desktop.downloadCompletion": "Completed downloads",
+  "desktop.downloadCompletionDescription": "Notify when an observed qBittorrent download finishes. Requires its configured API connection.",
+  "desktop.notificationPrivacy": "Notifications use generic wording and do not include service URLs, credentials or download names.",
+  "desktop.backgroundNote": "To keep notifications running after closing the window, enable “Keep Personal Hub in the notification area” above. Quit in the tray menu stops the app and its notifications.",
+  "desktop.windowMemory": "Remember window layout",
+  "desktop.windowMemoryDescription": "The desktop app restores its saved window size, position and maximized state. Off-screen positions are adjusted to an available monitor.",
+  "desktop.about": "About Personal Hub",
+  "desktop.version": "Version {{version}}",
+  "desktop.build": "{{profile}} · {{platform}} · {{architecture}}",
+  "desktop.debugBuild": "Development build",
+  "desktop.releaseBuild": "Release build",
+  "desktop.signingNotVerified": "Code signature: not verified by the app.",
+  "desktop.aboutUnavailable": "Version and build information are available from the desktop app.",
 
   "widget.disableFailed": "This desktop card could not be disabled.",
   "widget.moveFailed": "This desktop card could not be moved.",

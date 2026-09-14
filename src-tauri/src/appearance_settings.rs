@@ -643,6 +643,33 @@ pub(crate) fn current_native_theme(app: &AppHandle) -> Result<Option<Theme>, Str
     Ok(native_theme(color_mode))
 }
 
+pub(crate) fn notification_language_is_turkish(app: &AppHandle) -> bool {
+    let language = app
+        .state::<AppearanceSettings>()
+        .snapshot()
+        .map(|snapshot| snapshot.preferences.language)
+        .unwrap_or_default();
+    match language {
+        Language::Tr => true,
+        Language::En => false,
+        Language::System => {
+            #[cfg(windows)]
+            {
+                #[link(name = "Kernel32")]
+                extern "system" {
+                    fn GetUserDefaultUILanguage() -> u16;
+                }
+                // SAFETY: this Windows function takes no pointers or handles.
+                unsafe { GetUserDefaultUILanguage() & 0x03ff == 0x001f }
+            }
+            #[cfg(not(windows))]
+            {
+                false
+            }
+        }
+    }
+}
+
 fn finish_appearance_change(
     app: &AppHandle,
     settings: &AppearanceSettings,
