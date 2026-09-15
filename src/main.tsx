@@ -2,12 +2,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import "./styles/tokens.css";
-import "./styles/global.css";
-import "./styles/dashboard.css";
-import "./styles/tabs.css";
-import "./styles/monitoring.css";
-import "./features/downloads/downloads.css";
+import "./styles/foundation.css";
+import "./styles/shell.css";
+import "./styles/settings.css";
+import "./features/appearance/appearanceSettings.css";
+import "./features/serverControl/serverControl.css";
 import "./styles/appearance.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

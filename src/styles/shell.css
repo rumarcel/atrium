@@ -1,0 +1,441 @@
+/* The shell.
+ *
+ * One header row carries identity, the server's verdict and the two actions
+ * that are always available. The tab strip only exists once a service is open,
+ * so a fresh launch spends no row on a single tab that says "Dashboard".
+ */
+
+.shell {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-background);
+}
+
+.shell__header {
+  display: flex;
+  height: var(--shell-header);
+  padding: 0 var(--space-4);
+  flex: none;
+  align-items: center;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.shell__brand {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-2);
+  color: var(--color-text-primary);
+  font-size: var(--text-md);
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+
+.shell__mark {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-small);
+  color: var(--color-background);
+  background: var(--color-accent);
+}
+
+/* The verdict is the only thing in the header allowed to change colour, and
+   it only does so when the answer stops being "fine". */
+.verdict {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+}
+
+.verdict__text {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.verdict--warn .verdict__text {
+  color: var(--color-warning);
+}
+
+.verdict--bad .verdict__text {
+  color: var(--color-offline);
+}
+
+.verdict__detail {
+  flex: none;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+
+.shell__spacer {
+  flex: 1 1 auto;
+}
+
+.search {
+  display: flex;
+  width: min(280px, 34vw);
+  height: 32px;
+  padding: 0 var(--space-2);
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+  color: var(--color-text-tertiary);
+  background: var(--color-surface);
+}
+
+.search:focus-within {
+  border-color: var(--color-accent);
+}
+
+.search input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  color: var(--color-text-primary);
+  background: none;
+  font-size: var(--text-xs);
+}
+
+.search kbd {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--color-text-tertiary);
+  background: var(--color-surface-elevated);
+  font-family: inherit;
+  font-size: var(--text-2xs);
+}
+
+/* Tabs ------------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  padding: 0 var(--space-3);
+  flex: none;
+  align-items: stretch;
+  gap: var(--space-1);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border);
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: inline-flex;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  transition: color var(--motion-fast) ease;
+}
+
+.tab:hover {
+  color: var(--color-text-primary);
+}
+
+.tab--active {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.tab__close {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-tertiary);
+}
+
+.tab__close:hover {
+  color: var(--color-text-primary);
+}
+
+/* Content ---------------------------------------------------------------- */
+
+.shell__body {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.page {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.page__inner {
+  width: min(100%, var(--content-width));
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-5) var(--space-6);
+}
+
+/* Services --------------------------------------------------------------- */
+
+.services-row {
+  display: flex;
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.services-row h2 {
+  margin-right: auto;
+  font-size: var(--text-lg);
+  font-weight: 620;
+  letter-spacing: -0.015em;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.filter {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-small);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  transition:
+    color var(--motion-fast) ease,
+    background var(--motion-fast) ease;
+}
+
+.filter:hover {
+  color: var(--color-text-primary);
+}
+
+.filter--active {
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
+}
+
+.tiles {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+/* A tile is one button. There is nothing inside it to click past, so the whole
+   surface is the target and the hover state belongs to the whole surface. */
+.tile {
+  display: flex;
+  position: relative;
+  width: 100%;
+  padding: var(--space-4) var(--space-3);
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-medium);
+  background: var(--color-surface);
+  text-align: center;
+  transition:
+    border-color var(--motion-fast) ease,
+    background var(--motion-fast) ease;
+}
+
+.tile:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.tile__mark {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-medium);
+  color: var(--color-text-secondary);
+  background: var(--color-surface-elevated);
+}
+
+.tile__name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-weight: 560;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Only a tile with something wrong carries a dot. */
+.tile__state {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+}
+
+.tile--down {
+  border-color: color-mix(in srgb, var(--color-offline) 40%, var(--color-border));
+}
+
+.tile--attention {
+  border-color: color-mix(in srgb, var(--color-warning) 40%, var(--color-border));
+}
+
+.tile--loading {
+  height: 116px;
+  border-color: transparent;
+  background: var(--color-surface);
+  opacity: 0.5;
+}
+
+.tiles-empty {
+  padding: var(--space-6) 0;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+/* Accent marks ----------------------------------------------------------- */
+
+.tile__mark--violet { color: #bf8cff; }
+.tile__mark--amber { color: #ffb340; }
+.tile__mark--blue { color: #5ca8ff; }
+.tile__mark--cyan { color: #5ac8e8; }
+.tile__mark--green { color: #46d16b; }
+.tile__mark--red { color: #ff6b62; }
+.tile__mark--orange { color: #ff9f4a; }
+.tile__mark--slate { color: var(--color-text-secondary); }
+
+/* Activity --------------------------------------------------------------- */
+
+.activity {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.activity--stale {
+  opacity: 0.6;
+}
+
+.activity__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3) var(--space-6);
+}
+
+.reading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.reading__label {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+}
+
+.reading__value {
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+
+.reading__note {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.activity__more {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+}
+
+.activity__more:hover {
+  color: var(--color-text-primary);
+}
+
+.activity__more[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.volumes {
+  display: grid;
+  margin-top: var(--space-3);
+  gap: var(--space-2) var(--space-5);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.volume {
+  display: grid;
+  align-items: center;
+  gap: 0 var(--space-2);
+  grid-template-areas:
+    "name  value"
+    "track track"
+    "note  note";
+  grid-template-columns: 1fr auto;
+}
+
+.volume__name {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-2xs);
+  grid-area: name;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.volume__value {
+  color: var(--color-text-primary);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  grid-area: value;
+}
+
+.volume__track {
+  height: 3px;
+  margin: var(--space-1) 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-surface-elevated);
+  grid-area: track;
+}
+
+.volume__track > span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+
+.volume__note {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  grid-area: note;
+}

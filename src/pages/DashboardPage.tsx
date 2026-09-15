@@ -1,33 +1,36 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GridIcon, ListIcon, PlusIcon } from "../components/icons/AppIcons";
+import {
+  CloseIcon,
+  PlusIcon,
+  RefreshIcon,
+  SearchIcon,
+  ServerIcon as HomeIcon,
+  SettingsIcon,
+} from "../components/icons/AppIcons";
 import {
   MAIN_RESUMED_EVENT,
   OPEN_SETTINGS_EVENT,
 } from "../features/backgroundRuntime";
-import { AppHeader } from "../features/dashboard/components/AppHeader";
-import { DownloadCenter } from "../features/downloads";
 import { useServiceHealth } from "../features/health/hooks/useServiceHealth";
 import { useTranslation } from "../features/i18n";
-import { ServerMonitoring } from "../features/monitoring";
+import { useServerMetrics } from "../features/monitoring/hooks/useServerMetrics";
 import { SettingsPage } from "../features/settings";
 import {
   ServiceContextMenu,
   type ServiceContextMenuState,
 } from "../features/services/components/ServiceContextMenu";
-import { ServiceGrid } from "../features/services/components/ServiceGrid";
+import { useDownloadCenter } from "../features/downloads/hooks/useDownloadCenter";
+import { ActivityBar } from "../shell/ActivityBar";
+import { ServiceGrid } from "../shell/ServiceGrid";
+import { useServerVerdict } from "../shell/ServerVerdict";
+import { serviceState } from "../shell/serviceState";
 import { useServiceCatalog } from "../features/services/hooks/useServiceCatalog";
-import {
-  loadServiceDisplayMode,
-  saveServiceDisplayMode,
-  type ServiceDisplayMode,
-} from "../features/services/serviceDisplayPreferences";
 import type {
   DashboardService,
   ServiceConfiguration,
 } from "../features/services/service.types";
 import { ServiceWebviewHost } from "../features/tabs/components/ServiceWebviewHost";
-import { TabBar } from "../features/tabs/components/TabBar";
 import { useServiceTabs } from "../features/tabs/hooks/useServiceTabs";
 import { useWindowFullscreen } from "../features/tabs/hooks/useWindowFullscreen";
 import {
@@ -89,11 +92,9 @@ async function copyText(value: string, unavailableMessage: string): Promise<void
 }
 
 export function DashboardPage() {
-  const { number, t } = useTranslation();
+  const { t } = useTranslation();
   const [searchValue, setSearchValue] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
-  const [serviceDisplayMode, setServiceDisplayMode] =
-    useState<ServiceDisplayMode>(loadServiceDisplayMode);
   const [contextMenu, setContextMenu] =
     useState<ServiceContextMenuState | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -121,9 +122,7 @@ export function DashboardPage() {
   const {
     status: catalogStatus,
     services,
-    error,
     reload,
-    recoveryNotice,
     applyConfiguration,
   } = useServiceCatalog();
 
@@ -187,14 +186,6 @@ export function DashboardPage() {
   const enabledServices = useMemo(
     () => services.filter((service) => service.enabled),
     [services],
-  );
-  const downloadProviders = useMemo(
-    () =>
-      enabledServices.filter(
-        (service) =>
-          service.authentication.api === "qbittorrent-web-api",
-      ),
-    [enabledServices],
   );
   const enabledServiceById = useMemo(
     () => new Map(enabledServices.map((service) => [service.id, service])),
@@ -471,14 +462,6 @@ export function DashboardPage() {
     setSettingsView({ initialServiceId: null, startWithNewService: true });
   }, []);
 
-  const handleServiceDisplayModeChange = useCallback(
-    (mode: ServiceDisplayMode) => {
-      setServiceDisplayMode(mode);
-      saveServiceDisplayMode(mode);
-    },
-    [],
-  );
-
   useEffect(() => {
     if (!isDesktopRuntime()) {
       return;
@@ -571,16 +554,31 @@ export function DashboardPage() {
     [announce, t],
   );
 
-  const {
-    healthById,
-    refresh: refreshHealth,
-    summary: healthSummary,
-  } = useServiceHealth(enabledServices, catalogStatus === "ready");
+  const { healthById, refresh: refreshHealth } = useServiceHealth(
+    enabledServices,
+    catalogStatus === "ready",
+  );
 
-  const servicesNeedingAttention =
-    catalogStatus === "ready"
-      ? healthSummary.offline + healthSummary.warning
-      : 0;
+  const monitor = useServerMetrics({ enabled: isDashboardActive });
+  const downloads = useDownloadCenter({ enabled: isDashboardActive });
+  const attention = useMemo(() => {
+    let down = 0;
+    let look = 0;
+    for (const service of enabledServices) {
+      const state = serviceState(healthById[service.id]);
+      if (state === "down") {
+        down += 1;
+      } else if (state === "attention") {
+        look += 1;
+      }
+    }
+    return { down, look };
+  }, [enabledServices, healthById]);
+  const verdict = useServerVerdict({
+    monitor,
+    servicesDown: attention.down,
+    servicesAttention: attention.look,
+  });
 
   const serviceCategories = useMemo(
     () => [
@@ -613,7 +611,6 @@ export function DashboardPage() {
     });
   }, [activeCategory, enabledServices, searchValue]);
 
-  const hasEnabledServices = enabledServices.length > 0;
   const serviceHostStatus =
     activeService && nativeViewState.serviceId === activeService.id
       ? nativeViewState.status === "idle"
@@ -622,33 +619,118 @@ export function DashboardPage() {
       : "loading";
 
   return (
-    <div
-      className={
-        isServiceFullscreen
-          ? "app-shell app-shell--service-fullscreen"
-          : "app-shell"
-      }
-    >
+    <div className={isServiceFullscreen ? "shell shell--fullscreen" : "shell"}>
       {settingsView === null ? (
-        <AppHeader
-          searchValue={searchValue}
-          onSearchChange={setSearchValue}
-          searchInputRef={searchInputRef}
-          onSettingsClick={() => handleOpenSettings()}
-        />
+        <header className="shell__header">
+          <span className="shell__brand">
+            <span className="shell__mark" aria-hidden="true">
+              <HomeIcon width={16} height={16} />
+            </span>
+            {t("app.name")}
+          </span>
+
+          <p className={`verdict verdict--${verdict.tone}`} role="status">
+            <span className={`dot dot--${verdict.tone}`} aria-hidden="true" />
+            <span className="verdict__text">{verdict.text}</span>
+            {verdict.detail ? (
+              <span className="verdict__detail">{verdict.detail}</span>
+            ) : null}
+          </p>
+
+          <span className="shell__spacer" />
+
+          <label className="search">
+            <SearchIcon width={15} height={15} />
+            <span className="visually-hidden">{t("header.searchServices")}</span>
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={searchValue}
+              placeholder={t("header.searchServices")}
+              autoComplete="off"
+              onChange={(event) => setSearchValue(event.currentTarget.value)}
+            />
+            <kbd>{t("header.searchShortcut")}</kbd>
+          </label>
+
+          <button
+            type="button"
+            className="ghost-button"
+            aria-label={t("monitoring.refresh")}
+            title={t("monitoring.refresh")}
+            disabled={monitor.isRefreshing}
+            onClick={() => {
+              monitor.refresh();
+              refreshHealth();
+            }}
+          >
+            <RefreshIcon
+              className={monitor.isRefreshing ? "is-spinning" : undefined}
+              width={16}
+              height={16}
+            />
+          </button>
+
+          <button
+            type="button"
+            className="ghost-button"
+            aria-label={t("header.openSettings")}
+            title={t("header.openSettings")}
+            onClick={() => handleOpenSettings()}
+          >
+            <SettingsIcon width={17} height={17} />
+          </button>
+        </header>
       ) : null}
 
-      {settingsView === null ? (
-        <TabBar
-          activeTabId={tabs.activeTabId}
-          services={openTabServices}
-          onActivate={tabs.activateTab}
-          onClose={handleCloseTab}
-          onReload={handleReloadTab}
-        />
+      {/* A tab strip for one permanent tab is a row that never earns itself. */}
+      {settingsView === null && openTabServices.length > 0 ? (
+        <nav className="tabs" aria-label={t("tabs.openViews")}>
+          <button
+            type="button"
+            className={isDashboardActive ? "tab tab--active" : "tab"}
+            onClick={() => tabs.activateTab(DASHBOARD_TAB_ID)}
+          >
+            {t("tabs.dashboard")}
+          </button>
+          {openTabServices.map((service) => {
+            const active = tabs.activeTabId === service.id;
+            return (
+              <span key={service.id} className={active ? "tab tab--active" : "tab"}>
+                <button
+                  type="button"
+                  className="tab__label"
+                  onClick={() => tabs.activateTab(service.id)}
+                >
+                  {service.name}
+                </button>
+                {active ? (
+                  <button
+                    type="button"
+                    className="tab__close"
+                    aria-label={t("tabs.reloadTab", { serviceName: service.name })}
+                    title={t("tabs.reloadService", { serviceName: service.name })}
+                    onClick={() => handleReloadTab(service.id)}
+                  >
+                    <RefreshIcon width={12} height={12} />
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="tab__close"
+                  aria-label={t("tabs.closeTab", { serviceName: service.name })}
+                  title={t("tabs.closeService", { serviceName: service.name })}
+                  onClick={() => handleCloseTab(service.id)}
+                >
+                  <CloseIcon width={12} height={12} />
+                </button>
+              </span>
+            );
+          })}
+        </nav>
       ) : null}
 
-      <div className="app-workspace">
+      <div className="shell__body">
         {settingsView ? (
           <SettingsPage
             key={
@@ -668,173 +750,53 @@ export function DashboardPage() {
 
         <div
           id="dashboard-panel"
-          className="dashboard-panel"
+          className="page"
           role="tabpanel"
           aria-label={t("dashboard.panelLabel")}
           hidden={!isDashboardActive}
         >
-          <main className="dashboard">
-            {/* The dashboard is opened many times a day, so it starts at the
-                server's live state rather than a standing introduction. The
-                heading stays for assistive technology and the panel label. */}
-            <h1 id="dashboard-title" className="visually-hidden">
-              {t("dashboard.panelLabel")}
-            </h1>
+          <main className="page__inner">
+            <h1 className="visually-hidden">{t("dashboard.panelLabel")}</h1>
 
-            <div className="dashboard-live-sections">
-              <ServerMonitoring
-                enabled={isDashboardActive}
-                onRefresh={refreshHealth}
-              />
-              <DownloadCenter
-                providers={downloadProviders}
-                enabled={isDashboardActive}
-                onOpenSettings={(serviceId) =>
-                  handleOpenSettings(
-                    serviceId === null
-                      ? undefined
-                      : enabledServiceById.get(serviceId),
-                  )
-                }
-              />
+            <div className="services-row">
+              <h2>{t("dashboard.servicesTitle")}</h2>
+
+              {serviceCategories.length > 1 ? (
+                <div className="filters" role="group" aria-label={t("dashboard.filterByCategory")}>
+                  {serviceCategories.map((category) => (
+                    <button
+                      type="button"
+                      key={category}
+                      className={activeCategory === category ? "filter filter--active" : "filter"}
+                      onClick={() => setActiveCategory(category)}
+                    >
+                      {category === "All" ? t("common.all") : category}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                className="ghost-button"
+                aria-label={t("dashboard.addService")}
+                title={t("dashboard.addService")}
+                disabled={catalogStatus !== "ready"}
+                onClick={handleAddService}
+              >
+                <PlusIcon width={16} height={16} />
+              </button>
             </div>
 
-            {catalogStatus === "error" ? (
-              <div className="configuration-alert" role="alert">
-                <div>
-                  <strong>{t("dashboard.configurationUnavailableTitle")}</strong>
-                  <p>{error}</p>
-                </div>
-                <button type="button" onClick={reload}>
-                  {t("common.tryAgain")}
-                </button>
-              </div>
-            ) : null}
+            <ServiceGrid
+              services={filteredServices}
+              health={healthById}
+              isLoading={catalogStatus === "loading"}
+              onOpen={handleOpenService}
+              onContextMenu={setContextMenu}
+            />
 
-            {recoveryNotice ? (
-              <div className="configuration-alert" role="status">
-                <div>
-                  <strong>{t("dashboard.settingsNoticeTitle")}</strong>
-                  <p>{recoveryNotice}</p>
-                </div>
-                <button type="button" onClick={() => handleOpenSettings()}>
-                  {t("dashboard.reviewSettings")}
-                </button>
-              </div>
-            ) : null}
-
-            <section className="services-section" aria-labelledby="services-heading">
-              {/* One row: what this is, how to narrow it, how to add to it.
-                  The catalog's provenance, a second refresh and a third route
-                  into Settings all lived here and all belonged elsewhere. */}
-              <div className="services-bar">
-                <div className="services-bar__title">
-                  <h2 id="services-heading">{t("dashboard.servicesTitle")}</h2>
-                  <span className="count-badge">
-                    {catalogStatus === "loading" ? "—" : filteredServices.length}
-                  </span>
-                  {servicesNeedingAttention > 0 ? (
-                    <span className="attention-badge" aria-live="polite">
-                      {t("dashboard.needsAttention", {
-                        count: number(servicesNeedingAttention),
-                      })}
-                    </span>
-                  ) : null}
-                </div>
-
-                {catalogStatus !== "error" ? (
-                  <>
-                    <div
-                      className="category-filter"
-                      role="group"
-                      aria-label={t("dashboard.filterByCategory")}
-                    >
-                      {serviceCategories.map((category) => (
-                        <button
-                          className={
-                            activeCategory === category
-                              ? "category-filter__button category-filter__button--active"
-                              : "category-filter__button"
-                          }
-                          type="button"
-                          key={category}
-                          onClick={() => setActiveCategory(category)}
-                        >
-                          {category === "All" ? t("common.all") : category}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div
-                      className="view-toggle"
-                      role="group"
-                      aria-label={t("dashboard.serviceDisplay")}
-                    >
-                      <button
-                        type="button"
-                        className={
-                          serviceDisplayMode === "logos"
-                            ? "view-toggle__button view-toggle__button--active"
-                            : "view-toggle__button"
-                        }
-                        aria-pressed={serviceDisplayMode === "logos"}
-                        title={t("dashboard.serviceDisplayLogos")}
-                        onClick={() => handleServiceDisplayModeChange("logos")}
-                      >
-                        <GridIcon width={15} height={15} />
-                      </button>
-                      <button
-                        type="button"
-                        className={
-                          serviceDisplayMode === "cards"
-                            ? "view-toggle__button view-toggle__button--active"
-                            : "view-toggle__button"
-                        }
-                        aria-pressed={serviceDisplayMode === "cards"}
-                        title={t("dashboard.serviceDisplayCards")}
-                        onClick={() => handleServiceDisplayModeChange("cards")}
-                      >
-                        <ListIcon width={15} height={15} />
-                      </button>
-                    </div>
-
-                    <button
-                      className="add-service-button"
-                      type="button"
-                      onClick={handleAddService}
-                      disabled={catalogStatus !== "ready"}
-                      aria-label={t("dashboard.addService")}
-                      title={t("dashboard.addService")}
-                    >
-                      <PlusIcon width={15} height={15} />
-                    </button>
-                  </>
-                ) : null}
-              </div>
-
-              {catalogStatus !== "error" ? (
-                <>
-                  <ServiceGrid
-                    services={filteredServices}
-                    displayMode={serviceDisplayMode}
-                    isLoading={catalogStatus === "loading"}
-                    healthById={healthById}
-                    emptyTitle={
-                      hasEnabledServices
-                        ? t("dashboard.noServicesFound")
-                        : t("dashboard.noEnabledServices")
-                    }
-                    emptyDescription={
-                      hasEnabledServices
-                        ? t("dashboard.noServicesFoundDescription")
-                        : t("dashboard.noEnabledServicesDescription")
-                    }
-                    onOpenService={handleOpenService}
-                    onOpenContextMenu={setContextMenu}
-                  />
-                </>
-              ) : null}
-            </section>
+            <ActivityBar monitor={monitor} downloads={downloads} />
           </main>
 
         </div>
