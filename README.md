@@ -13,7 +13,7 @@ writable per-user service configuration and Windows-backed credential storage;
 Phase 7.1 adds explicit, origin-bound authentication adapters and safe native
 validation state; Phase 7.2 adds the persistent opt-in card manager, tray and
 safe close-to-background lifecycle; Phase 7.3 adds persisted appearance,
-safe theme packs and Turkish/English localization; Phase 7.4 keeps the original
+safe theme packs and localization; Phase 7.4 keeps the original
 dashboard composition while adding category-based service tabs and a persistent
 card/logo presentation switch. Phase 7.5 adds authenticated, read-only Homarr
 application discovery, review-before-add, duplicate detection, automatic local
@@ -25,7 +25,7 @@ handling, bounded retry backoff and reliable Sonarr/Radarr attribution when the
 download category or tag carries an exact provider marker.
 Phase 8 adds Windows startup controls, single-instance activation, main-window
 geometry persistence, optional server notifications, real About/build metadata
-and English/Turkish NSIS packaging. Release signing requires the publisher's own
+and NSIS packaging. Release signing requires the publisher's own
 certificate; unsigned builds are never shown as verified.
 Phase 9 now includes an opt-in, fixed-target server-control panel and a restricted
 Linux companion agent. Its implementation is present; enrollment and the manual
@@ -63,8 +63,9 @@ work is tracked in
   confirmations, operation countdown and history.
 - `server-agent`: optional standard-library Linux HTTPS companion with exactly
   two allowlisted power actions; dry-run by default, never auto-installed.
-- `src/features/i18n`: typed English/Turkish catalogs, system-language
-  resolution and locale-aware server-value formatters.
+- `src/features/i18n`: typed catalogs, supported-language resolution and
+  locale-aware server-value formatters. English is the only language currently
+  offered; the Turkish catalog is retained and still covered by the parity test.
 - `src/features/monitoring`: validated Glances metrics, visibility-aware polling
   and the dashboard monitoring panel.
 - `src/features/services`: configuration parsing, service cards, automatic
@@ -178,6 +179,12 @@ reloading it, preserving that view's page, login state, cookies and in-memory
 session. Explicitly closing a tab has different semantics: it closes and removes
 the child WebView immediately. Reopening that service creates a new child view,
 so a Jellyfin player or other media source cannot continue running after close.
+
+The active service tab carries a reload control, so a view that rendered badly
+or went stale can be refreshed without closing it and losing its session. The
+frontend never supplies a URL: Rust reloads the view to the origin it was opened
+with, and only while that origin still matches the trusted catalog, so a reload
+cannot navigate a child view anywhere it was not already allowed to be.
 
 Phase 5.1 keeps up to six still-open service WebViews warm. When capacity is
 reached, the least-recently-used inactive view may be released; the active view
@@ -369,7 +376,9 @@ plugin; experimental-card geometry stays independent. About displays the native
 version, debug/release profile, OS and architecture. Signature verification and
 automatic update checks are not claimed.
 
-Build the per-user English/Turkish NSIS installer using `pnpm build:windows`.
+Build the per-user NSIS installer using `pnpm build:windows`; it offers English
+and Turkish for the installation flow itself, which is separate from the
+language the application runs in.
 The bundled icon is shared by the installer, window/taskbar and tray.
 See [Windows release notes](docs/windows-release.md) for the manual GitHub build
 workflow, optional signing configuration and installed-build smoke checklist.
@@ -460,10 +469,14 @@ out-of-range values are rejected by both TypeScript and Rust. The format is a
 safe future extension point for a repository-backed community catalog; this
 release does not execute or automatically download third-party theme content.
 
-English and Turkish are bundled, with an optional Windows-language mode and
-English fallback for missing copy. Capacity, transfer-rate, percentage, uptime
-and elapsed-duration values follow the selected locale. No clock, calendar,
-date widget or visible polling timestamp is added.
+The interface currently ships in English only, and Settings offers no language
+choice. The Turkish catalog remains in the repository and a test still checks it
+key-for-key against English, so offering it again is a change to the supported
+language list rather than a re-translation; a preference stored while it was
+offered stays valid and falls back to English until then. Capacity,
+transfer-rate, percentage, uptime and elapsed-duration values follow the
+resolved locale. No clock, calendar, date widget or visible polling timestamp is
+added.
 
 ## Publishing safely
 
