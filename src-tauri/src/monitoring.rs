@@ -111,6 +111,9 @@ pub(crate) enum MonitoringUnavailableReason {
 #[serde(rename_all = "camelCase")]
 pub struct DiskMetric {
     pub(crate) name: String,
+    /// Reported by the provider and shown verbatim; never used to decide
+    /// anything, so an unexpected value can only be an odd label.
+    pub(crate) file_system: Option<String>,
     pub(crate) mount_point: String,
     pub(crate) used_bytes: u64,
     pub(crate) total_bytes: u64,
@@ -219,6 +222,7 @@ struct SensorStats {
 #[derive(Debug, Deserialize)]
 struct FilesystemStats {
     device_name: Option<String>,
+    fs_type: Option<String>,
     mnt_point: Option<String>,
     used: Option<u64>,
     size: Option<u64>,
@@ -1028,6 +1032,10 @@ fn normalize_disks(stats: &[FilesystemStats]) -> Vec<DiskMetric> {
                     .device_name
                     .clone()
                     .unwrap_or_else(|| mount_point.clone()),
+                file_system: stat
+                    .fs_type
+                    .clone()
+                    .filter(|value| !value.is_empty() && value.chars().count() <= 24),
                 mount_point,
                 used_bytes,
                 total_bytes,

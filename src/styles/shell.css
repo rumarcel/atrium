@@ -928,3 +928,101 @@ button.card:active {
 .desktop-widget-metric--network .desktop-widget-metric__value {
   font-variant-numeric: tabular-nums;
 }
+
+/* Stat row and table ------------------------------------------------------
+   A page of numbers needs both: the totals that answer the question at a
+   glance, and the full listing underneath for when the totals raise one. */
+
+.stat-row {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.stat {
+  display: flex;
+  padding: var(--space-4);
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-large);
+  background: var(--surface-gradient);
+  box-shadow: var(--lift-edge), var(--lift-1);
+}
+
+.stat__label {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+}
+
+.stat__value {
+  color: var(--color-text-primary);
+  font-size: var(--text-xl);
+  font-weight: 640;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.stat__note {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+}
+
+.meter__track > span.is-full {
+  background: var(--color-warning);
+}
+
+.is-warning {
+  color: var(--color-warning);
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-large);
+  background: var(--surface-gradient);
+  box-shadow: var(--lift-edge), var(--lift-1);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table th {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+}
+
+.table tbody tr {
+  border-top: 1px solid var(--color-border);
+}
+
+.table td {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.table td:first-child {
+  color: var(--color-text-primary);
+  font-weight: 560;
+}
+
+.table__num {
+  text-align: right;
+}
+
+.table__path {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

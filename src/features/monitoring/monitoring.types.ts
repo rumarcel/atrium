@@ -11,6 +11,7 @@ export type MonitoringUnavailableReason =
 
 export interface DiskMetrics {
   name: string;
+  fileSystem: string | null;
   mountPoint: string;
   usedBytes: number;
   totalBytes: number;

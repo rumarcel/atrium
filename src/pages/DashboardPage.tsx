@@ -22,6 +22,7 @@ import { useDownloadCenter } from "../features/downloads/hooks/useDownloadCenter
 import { ActivityBar } from "../shell/ActivityBar";
 import { HomeView } from "../shell/HomeView";
 import { Sidebar, type ShellView } from "../shell/Sidebar";
+import { StorageView } from "../shell/StorageView";
 import { ServiceGrid } from "../shell/ServiceGrid";
 import { useServerVerdict } from "../shell/ServerVerdict";
 import { serviceState } from "../shell/serviceState";
@@ -707,6 +708,8 @@ export function DashboardPage() {
                 refreshHealth();
               }}
             />
+          ) : shellView === "storage" ? (
+            <StorageView monitor={monitor} />
           ) : shellView === "servers" ? (
             <>
               <header className="hero">

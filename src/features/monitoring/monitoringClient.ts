@@ -69,8 +69,14 @@ function normalizeDisk(value: unknown, index: number): DiskMetrics | null {
   const rawMountPoint =
     typeof value.mountPoint === "string" ? value.mountPoint.trim() : "";
 
+  // A label only: bounded and never interpreted, so an unexpected value can
+  // reach the screen but not any decision.
+  const rawFileSystem =
+    typeof value.fileSystem === "string" ? value.fileSystem.trim() : "";
+
   return {
     name: (rawName || rawMountPoint || `Disk ${index + 1}`).slice(0, 120),
+    fileSystem: rawFileSystem ? rawFileSystem.slice(0, 24) : null,
     mountPoint: rawMountPoint.slice(0, 260),
     usedBytes: Math.min(usedBytes, totalBytes),
     totalBytes,

@@ -7,11 +7,18 @@ import {
   PlayIcon,
   ServerIcon,
   SettingsIcon,
+  StorageIcon,
 } from "../components/icons/AppIcons";
 import { useTranslation } from "../features/i18n";
 import type { VerdictTone } from "./ServerVerdict";
 
-export type ShellView = "home" | "services" | "media" | "downloads" | "servers";
+export type ShellView =
+  | "home"
+  | "services"
+  | "media"
+  | "downloads"
+  | "storage"
+  | "servers";
 
 interface SidebarProps {
   view: ShellView;
@@ -30,12 +37,14 @@ const ITEMS: readonly {
     | "nav.services"
     | "nav.media"
     | "nav.downloads"
+    | "nav.storage"
     | "nav.servers";
 }[] = [
   { view: "home", icon: HomeIcon, labelKey: "nav.home" },
   { view: "services", icon: GridIcon, labelKey: "nav.services" },
   { view: "media", icon: PlayIcon, labelKey: "nav.media" },
   { view: "downloads", icon: DownloadIcon, labelKey: "nav.downloads" },
+  { view: "storage", icon: StorageIcon, labelKey: "nav.storage" },
   { view: "servers", icon: ServerIcon, labelKey: "nav.servers" },
 ];
 
