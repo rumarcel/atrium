@@ -1030,7 +1030,7 @@ fn ensure_trusted_caller(caller: &Webview) -> Result<(), String> {
     if caller.label() == MAIN_WEBVIEW_LABEL {
         Ok(())
     } else {
-        Err("The download center is available only to the trusted Personal Hub UI.".into())
+        Err("The download center is available only to the trusted Atrium UI.".into())
     }
 }
 

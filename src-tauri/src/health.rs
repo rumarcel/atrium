@@ -91,7 +91,7 @@ pub async fn check_service_health(
     clients: tauri::State<'_, HealthClients>,
 ) -> Result<HealthCheckResult, String> {
     if caller.label() != "main" {
-        return Err("Health checks are available only to the trusted Personal Hub UI.".into());
+        return Err("Health checks are available only to the trusted Atrium UI.".into());
     }
 
     let started_at = Instant::now();

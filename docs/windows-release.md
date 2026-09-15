@@ -13,7 +13,7 @@ in sync when preparing a new version; commit both lockfiles with dependency chan
 
 ## Signing
 
-Ordinary local/workflow builds are unsigned. Personal Hub does not claim that a
+Ordinary local/workflow builds are unsigned. Atrium does not claim that a
 binary's signature has been verified; Settings displays the actual running version
 and build profile, with signature status explicitly unverified.
 

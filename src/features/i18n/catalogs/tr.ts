@@ -9,7 +9,7 @@ import { englishCatalog } from "./en.js";
  * spread is also a deliberate last-resort fallback for future English keys.
  */
 const turkishOverrides = {
-  "app.name": "Personal Hub",
+  "app.name": "Atrium",
   "common.all": "Tümü",
   "common.available": "Kullanılabilir",
   "common.cancel": "İptal",
@@ -29,13 +29,13 @@ const turkishOverrides = {
   "common.unavailable": "Kullanılamıyor",
   "common.working": "İşleniyor…",
 
-  "errorBoundary.eyebrow": "Personal Hub",
+  "errorBoundary.eyebrow": "Atrium",
   "errorBoundary.title": "Bir şeyler ters gitti.",
   "errorBoundary.description":
     "Pano görüntülenemedi. Yeniden denemek için uygulamayı yeniden başlatın.",
   "errorBoundary.reload": "Panoyu yeniden yükle",
 
-  "header.brandLabel": "Personal Hub",
+  "header.brandLabel": "Atrium",
   "header.brandSubtitle": "Ev sunucusu",
   "header.searchServices": "Servislerde ara",
   "header.searchShortcut": "Ctrl K",
@@ -176,7 +176,7 @@ const turkishOverrides = {
   "service.offline": "Çevrimdışı",
   "service.refreshingStatus": "Durum yenileniyor…",
   "service.cardLabel": "{{serviceName}}, {{status}}",
-  "service.openInHub": "{{serviceName}} servisini Personal Hub'da aç",
+  "service.openInHub": "{{serviceName}} servisini Atrium'da aç",
   "service.actions": "{{serviceName}} işlemleri",
   "service.open": "Aç",
   "service.openInNewTab": "Yeni sekmede aç",
@@ -235,7 +235,7 @@ const turkishOverrides = {
     "Sunucu Ajanı yalnız rootful container'ların ayıklanmış Docker / Podman envanterini okur; rootless Podman henüz dahil değildir. Docker soketini dışarı açmaz ve container'ları değiştirmez.",
 
   "tabs.openViews": "Açık görünümler",
-  "tabs.listLabel": "Personal Hub sekmeleri",
+  "tabs.listLabel": "Atrium sekmeleri",
   "tabs.dashboard": "Pano",
   "tabs.closeTab": "{{serviceName}} sekmesini kapat",
   "tabs.closeService": "{{serviceName}} servisini kapat",
@@ -245,7 +245,7 @@ const turkishOverrides = {
   "serviceView.ready": "Servis görünümü hazır",
   "serviceView.opening": "Servis açılıyor…",
 
-  "settings.headerEyebrow": "Personal Hub",
+  "settings.headerEyebrow": "Atrium",
   "settings.title": "Ayarlar",
   "settings.description":
     "Görünüm, servisler, arka plan çalışma zamanı ve güvenli entegrasyon kimlik bilgileri.",
@@ -431,7 +431,7 @@ const turkishOverrides = {
   "authentication.notValidatedDescription":
     "Otomatik kimlik doğrulama henüz doğrulanmadı.",
   "authentication.validatingDescription":
-    "Personal Hub kimlik bilgisini açığa çıkarmadan bağdaştırıcıyı kontrol ediyor.",
+    "Atrium kimlik bilgisini açığa çıkarmadan bağdaştırıcıyı kontrol ediyor.",
   "authentication.validDescription":
     "Yerel bağdaştırıcı kayıtlı kimlik bilgisini kabul etti.",
   "authentication.invalidDescription":
@@ -477,7 +477,7 @@ const turkishOverrides = {
   "background.unavailable": "Arka plan çalışma zamanı tercihleri kullanılamıyor.",
   "background.allowCards": "Masaüstü kartlarına izin ver",
   "background.allowCardsDescription":
-    "Varsayılan olarak kapalıdır. Kapalıyken Personal Hub kart penceresi, WebView veya kart yoklama işi oluşturmaz.",
+    "Varsayılan olarak kapalıdır. Kapalıyken Atrium kart penceresi, WebView veya kart yoklama işi oluşturmaz.",
   "background.enabledNotice": "Deneysel masaüstü kartları etkinleştirildi.",
   "background.disabledNotice":
     "Deneysel masaüstü kartları ve arka plan işleri kapatıldı.",
@@ -485,19 +485,19 @@ const turkishOverrides = {
     "Kartlar desteklenen her zaman altta pencere katmanını kullanır. Bu deneyde Explorer masaüstü gömme özelliği etkin değildir.",
   "background.cardEnabledNotice": "{{card}} kartı etkinleştirildi.",
   "background.cardDisabledNotice": "{{card}} kartı devre dışı bırakıldı.",
-  "background.keepInTray": "Personal Hub'ı bildirim alanında tut",
+  "background.keepInTray": "Atrium'ı bildirim alanında tut",
   "background.trayAvailableDescription":
-    "Ana pencereyi kapatmak etkin kartları, sunucu bildirimlerini veya devam eden sunucu işlemlerini tepside çalışır tutar. Personal Hub'ı tamamen durdurmak için tepsi menüsündeki Çık seçeneğini kullanın.",
+    "Ana pencereyi kapatmak etkin kartları, sunucu bildirimlerini veya devam eden sunucu işlemlerini tepside çalışır tutar. Atrium'ı tamamen durdurmak için tepsi menüsündeki Çık seçeneğini kullanın.",
   "background.trayUnavailableDescription":
-    "Bu Windows oturumunda bildirim alanı entegrasyonu kullanılamıyor; ana pencereyi kapatmak Personal Hub'dan güvenle çıkar.",
+    "Bu Windows oturumunda bildirim alanı entegrasyonu kullanılamıyor; ana pencereyi kapatmak Atrium'dan güvenle çıkar.",
   "background.closeToTrayEnabled": "Tepsiye kapatma etkinleştirildi.",
-  "background.closeQuits": "Ana pencere kapatıldığında Personal Hub'dan çıkılacak.",
+  "background.closeQuits": "Ana pencere kapatıldığında Atrium'dan çıkılacak.",
   "background.runtimeOff":
     "Masaüstü kartları kapalı. Tepsiye kapatma açıksa etkin sunucu bildirimleri arka planda çalışmaya devam edebilir.",
   "background.runtimeTrayUnavailableOne":
-    "{{count}} masaüstü kartı kullanılabilir; ancak tepsi entegrasyonu olmadığından ana pencere kapatılınca Personal Hub sonlanır.",
+    "{{count}} masaüstü kartı kullanılabilir; ancak tepsi entegrasyonu olmadığından ana pencere kapatılınca Atrium sonlanır.",
   "background.runtimeTrayUnavailableOther":
-    "{{count}} masaüstü kartı kullanılabilir; ancak tepsi entegrasyonu olmadığından ana pencere kapatılınca Personal Hub sonlanır.",
+    "{{count}} masaüstü kartı kullanılabilir; ancak tepsi entegrasyonu olmadığından ana pencere kapatılınca Atrium sonlanır.",
   "background.runtimeNoneAvailable":
     "Seçili kartların hiçbiri şu anda kullanılamıyor. Tepsiye kapatma açıksa etkin sunucu bildirimleri arka planda çalışmaya devam edebilir.",
   "background.runtimeAvailableOne":
@@ -507,7 +507,7 @@ const turkishOverrides = {
 
   "serverControl.kicker": "Sunucu",
   "serverControl.title": "Güvenli sunucu kontrolü",
-  "serverControl.description": "Kısıtlı Personal Hub Server Agent üzerinden isteğe bağlı yeniden başlatma ve kapatma. Homarr veya Glances gerektirmez; varsayılan olarak kapalıdır.",
+  "serverControl.description": "Kısıtlı Atrium Server Agent üzerinden isteğe bağlı yeniden başlatma ve kapatma. Homarr veya Glances gerektirmez; varsayılan olarak kapalıdır.",
   "serverControl.target": "Kayıtlı sunucu",
   "serverControl.noAddress": "Kayıtlı adres yok",
   "serverControl.address": "Sunucu adresi",
@@ -585,7 +585,7 @@ const turkishOverrides = {
   "desktop.failed": "İşlem tamamlanamadı. Mümkün olan ayarlar yeniden okundu; durumu yenileyip tekrar deneyin.",
   "desktop.saved": "Masaüstü ayarları güncellendi.",
   "desktop.startup": "Windows ile başlat",
-  "desktop.startupDescription": "Windows'ta oturum açtığınızda Personal Hub'ı açar. Siz etkinleştirene kadar kapalıdır.",
+  "desktop.startupDescription": "Windows'ta oturum açtığınızda Atrium'ı açar. Siz etkinleştirene kadar kapalıdır.",
   "desktop.startupUnavailable": "Başlangıç kaydı, Windows uygulamasının yayın sürümünde kullanılabilir.",
   "desktop.notificationsDescription": "Sunucu bildirimleri isteğe bağlıdır ve varsayılan olarak kapalıdır. Windows bildirimleri için kurulu uygulama gerekir; Windows bildirim ayarları ve Rahatsız etmeyin modu gösterimi etkileyebilir.",
   "desktop.serviceOutages": "Servis kesintileri",
@@ -595,10 +595,10 @@ const turkishOverrides = {
   "desktop.downloadCompletion": "Tamamlanan indirmeler",
   "desktop.downloadCompletionDescription": "İzlenen bir qBittorrent indirmesi tamamlandığında bildirir. Yapılandırılmış API bağlantısı gerektirir.",
   "desktop.notificationPrivacy": "Bildirimler genel ifadeler kullanır; servis adreslerini, giriş bilgilerini veya indirme adlarını içermez.",
-  "desktop.backgroundNote": "Pencere kapatıldıktan sonra bildirimlerin sürmesi için yukarıdaki “Personal Hub'ı bildirim alanında tut” seçeneğini açın. Tepsi menüsündeki Çık, uygulamayı ve bildirimlerini durdurur.",
+  "desktop.backgroundNote": "Pencere kapatıldıktan sonra bildirimlerin sürmesi için yukarıdaki “Atrium'ı bildirim alanında tut” seçeneğini açın. Tepsi menüsündeki Çık, uygulamayı ve bildirimlerini durdurur.",
   "desktop.windowMemory": "Pencere düzenini hatırla",
   "desktop.windowMemoryDescription": "Masaüstü uygulaması kayıtlı pencere boyutunu, konumunu ve büyütülmüş durumunu geri yükler. Ekran dışındaki konumlar kullanılabilir bir monitöre taşınır.",
-  "desktop.about": "Personal Hub hakkında",
+  "desktop.about": "Atrium hakkında",
   "desktop.version": "Sürüm {{version}}",
   "desktop.build": "{{profile}} · {{platform}} · {{architecture}}",
   "desktop.debugBuild": "Geliştirme derlemesi",
@@ -668,7 +668,7 @@ const turkishOverrides = {
   "appearance.kicker": "Görünüm",
   "appearance.title": "Tema ve dil",
   "appearance.description":
-    "Personal Hub'ın nasıl görüneceğini ve hangi dili kullanacağını seçin.",
+    "Atrium'ın nasıl görüneceğini ve hangi dili kullanacağını seçin.",
   "appearance.colorMode": "Renk modu",
   "appearance.colorModeSystem": "Sistem",
   "appearance.colorModeDark": "Koyu",
@@ -684,7 +684,7 @@ const turkishOverrides = {
   "appearance.themeMinimal": "Minimal",
   "appearance.themeCustom": "Özel",
   "appearance.themeDefaultDescription":
-    "Personal Hub'ın özgün görünümü ve boşluk düzeni.",
+    "Atrium'ın özgün görünümü ve boşluk düzeni.",
   "appearance.themeCodeDescription":
     "Monospace yazılı, ölçülü bir kod editörü paleti.",
   "appearance.themeTranslucentDescription":
@@ -700,9 +700,9 @@ const turkishOverrides = {
   "appearance.languageSystemDescription":
     "Windows'un tercih ettiği dili kullanır.",
   "appearance.languageEnglishDescription":
-    "Personal Hub'ı İngilizce kullanır.",
+    "Atrium'ı İngilizce kullanır.",
   "appearance.languageTurkishDescription":
-    "Personal Hub'ı Türkçe kullanır.",
+    "Atrium'ı Türkçe kullanır.",
   "appearance.preview": "Canlı önizleme",
   "appearance.loading": "Kayıtlı görünüm ayarları okunuyor…",
   "appearance.unsavedChanges": "Kaydedilmemiş görünüm değişiklikleri",
@@ -760,9 +760,9 @@ const turkishOverrides = {
   "appearance.tokenBlur": "Bulanıklık",
   "appearance.importTheme": "Tema içe aktar",
   "appearance.importDescription":
-    "Bir Personal Hub görünüm JSON dosyası yapıştırın veya seçin. Önizlemeden önce katı biçimde doğrulanır.",
+    "Bir Atrium görünüm JSON dosyası yapıştırın veya seçin. Önizlemeden önce katı biçimde doğrulanır.",
   "appearance.importPasteLabel": "Görünüm JSON'u",
-  "appearance.importPlaceholder": "Bir Personal Hub görünüm paketi yapıştırın…",
+  "appearance.importPlaceholder": "Bir Atrium görünüm paketi yapıştırın…",
   "appearance.chooseFile": "JSON dosyası seç",
   "appearance.applyImport": "İçe aktarılan temayı önizle",
   "appearance.importReady":

@@ -292,7 +292,7 @@ pub async fn get_server_metrics(
     clients: tauri::State<'_, GlancesClients>,
 ) -> Result<ServerMetrics, String> {
     if caller.label() != "main" {
-        return Err("Monitoring is available only to the trusted Personal Hub UI.".into());
+        return Err("Monitoring is available only to the trusted Atrium UI.".into());
     }
 
     Ok(collect_server_metrics(&catalog, &clients).await)

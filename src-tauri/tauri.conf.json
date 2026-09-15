@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Personal Hub",
+  "productName": "Atrium",
   "version": "0.1.0",
   "identifier": "com.muhta.personal-hub",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Personal Hub",
+        "title": "Atrium",
         "width": 1280,
         "height": 820,
         "minWidth": 960,
@@ -41,7 +41,7 @@
         "installMode": "currentUser",
         "languages": ["English", "Turkish"],
         "displayLanguageSelector": true,
-        "startMenuFolder": "Personal Hub",
+        "startMenuFolder": "Atrium",
         "installerHooks": "installer/hooks.nsh"
       }
     },

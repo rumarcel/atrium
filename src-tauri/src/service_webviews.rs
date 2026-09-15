@@ -562,7 +562,7 @@ pub(crate) fn suspend_and_close_all_service_webviews(
         Ok(())
     } else {
         Err(format!(
-            "Personal Hub stayed open because {} service {} could not be released: {}",
+            "Atrium stayed open because {} service {} could not be released: {}",
             failures.len(),
             if failures.len() == 1 { "view" } else { "views" },
             failures.join(" ")
@@ -581,7 +581,7 @@ pub(crate) fn resume_service_webviews(registry: &ServiceWebviewRegistry) -> Resu
 
 fn ensure_service_webviews_active(inner: &RegistryInner) -> Result<(), String> {
     if inner.background_suspended {
-        Err("Service views are paused while Personal Hub is running in the background.".into())
+        Err("Service views are paused while Atrium is running in the background.".into())
     } else {
         Ok(())
     }
@@ -1264,7 +1264,7 @@ fn trim_service_webview_pool(
 
 fn ensure_trusted_caller(caller: &Webview) -> Result<(), String> {
     if caller.label() != MAIN_WEBVIEW_LABEL {
-        return Err("This command is available only to the trusted Personal Hub UI.".into());
+        return Err("This command is available only to the trusted Atrium UI.".into());
     }
 
     Ok(())

@@ -166,7 +166,7 @@ pub fn run() {
                     Err(error) => {
                         api.prevent_close();
                         eprintln!(
-                        "Personal Hub stayed open because its close policy is unavailable: {error}"
+                        "Atrium stayed open because its close policy is unavailable: {error}"
                     );
                         return;
                     }
@@ -201,7 +201,7 @@ pub fn run() {
                     if let Err(error) = background_result {
                         // Resume service creation only after the main window is
                         // visible again. This preserves the invariant that a
-                        // hidden Personal Hub cannot own a playing service
+                        // hidden Atrium cannot own a playing service
                         // renderer, even when native close or hide fails.
                         let unminimize_result = match worker_window.is_minimized() {
                             Ok(true) => worker_window.unminimize(),
@@ -213,7 +213,7 @@ pub fn run() {
                             let _ = worker_window.set_focus();
                             let _ = worker_window.emit("personal-hub://main-resumed", ());
                         }
-                        eprintln!("Personal Hub stayed open: {error}");
+                        eprintln!("Atrium stayed open: {error}");
                     }
 
                     worker_app
@@ -225,7 +225,7 @@ pub fn run() {
                 settings.end_close_to_tray();
                 let _ = window.show();
                 let _ = window.set_focus();
-                eprintln!("Personal Hub could not start its close-to-tray worker: {error}");
+                eprintln!("Atrium could not start its close-to-tray worker: {error}");
             }
         })
         .run(context)

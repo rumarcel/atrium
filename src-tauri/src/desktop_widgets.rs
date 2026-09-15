@@ -20,7 +20,7 @@ const HEALTH_CADENCE: Duration = Duration::from_secs(45);
 const SCHEDULER_TICK: Duration = Duration::from_millis(200);
 const MAX_TREND_SAMPLES: usize = 24;
 const MAX_CONCURRENT_HEALTH_CHECKS: usize = 8;
-const SERVER_NAME: &str = "Personal Hub Server";
+const SERVER_NAME: &str = "Atrium Server";
 // Shown only when no Glances endpoint is configured, in which case the card
 // already reports an unavailable provider. It must not name any real host.
 const UNKNOWN_SERVER_ADDRESS: &str = "—";

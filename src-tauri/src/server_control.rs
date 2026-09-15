@@ -1273,7 +1273,7 @@ fn notify_returned(app: &AppHandle) {
         let _ = app
             .notification()
             .builder()
-            .title("Personal Hub")
+            .title("Atrium")
             .body(body)
             .show();
     }

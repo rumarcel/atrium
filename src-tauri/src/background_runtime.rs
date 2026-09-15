@@ -668,21 +668,21 @@ struct CardWindowSpec {
 fn card_window_spec(kind: DesktopWidgetKind) -> CardWindowSpec {
     match kind {
         DesktopWidgetKind::Server => CardWindowSpec {
-            title: "Personal Hub — Server",
+            title: "Atrium — Server",
             width: 420.0,
             height: 380.0,
             min_width: 320.0,
             min_height: 300.0,
         },
         DesktopWidgetKind::Storage => CardWindowSpec {
-            title: "Personal Hub — Storage",
+            title: "Atrium — Storage",
             width: 400.0,
             height: 320.0,
             min_width: 320.0,
             min_height: 240.0,
         },
         DesktopWidgetKind::Services => CardWindowSpec {
-            title: "Personal Hub — Service alerts",
+            title: "Atrium — Service alerts",
             width: 400.0,
             height: 340.0,
             min_width: 320.0,
@@ -753,7 +753,7 @@ fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, String> {
     let availability = DesktopCardAvailabilityMap::from_catalog(&catalog);
     let master = document.preferences.experimental_desktop_cards;
 
-    let open = MenuItem::with_id(app, MENU_OPEN, "Open Personal Hub", true, None::<&str>)
+    let open = MenuItem::with_id(app, MENU_OPEN, "Open Atrium", true, None::<&str>)
         .map_err(menu_error)?;
     let open_settings = MenuItem::with_id(app, MENU_SETTINGS, "Settings", true, None::<&str>)
         .map_err(menu_error)?;
@@ -824,7 +824,7 @@ fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, String> {
 }
 
 fn menu_error(error: tauri::Error) -> String {
-    format!("The Personal Hub tray menu is unavailable: {error}")
+    format!("The Atrium tray menu is unavailable: {error}")
 }
 
 fn refresh_tray_menu(app: &AppHandle) -> Result<(), String> {
@@ -834,7 +834,7 @@ fn refresh_tray_menu(app: &AppHandle) -> Result<(), String> {
     let menu = build_tray_menu(app)?;
     let tray = app
         .tray_by_id(TRAY_ID)
-        .ok_or_else(|| "The Personal Hub tray icon is unavailable.".to_string())?;
+        .ok_or_else(|| "The Atrium tray icon is unavailable.".to_string())?;
     tray.set_menu(Some(menu)).map_err(menu_error)
 }
 
@@ -843,7 +843,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         let menu = build_tray_menu(app.handle())?;
         let mut tray = TrayIconBuilder::with_id(TRAY_ID)
             .menu(&menu)
-            .tooltip("Personal Hub")
+            .tooltip("Atrium")
             .show_menu_on_left_click(false)
             .on_menu_event(|app, event| handle_tray_menu(app.clone(), event.id().as_ref()))
             .on_tray_icon_event(|tray, event| {
@@ -870,7 +870,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         // A tray failure must not make the core dashboard unavailable. With
         // this flag cleared the close policy exits normally, so the app can
         // never become an unreachable hidden process.
-        eprintln!("Personal Hub started without its tray integration: {error}");
+        eprintln!("Atrium started without its tray integration: {error}");
     }
     if let Err(error) = reconcile_card_windows(app.handle(), &[]) {
         // Experimental card failures must not prevent the main application
@@ -895,7 +895,7 @@ fn handle_tray_menu(app: AppHandle, menu_id: &str) {
                 .name("personal-hub-tray-quit".into())
                 .spawn(move || quit_app(&quit_app_handle))
             {
-                eprintln!("Personal Hub could not start its quit worker: {error}");
+                eprintln!("Atrium could not start its quit worker: {error}");
                 app.exit(0);
             }
         }
@@ -903,7 +903,7 @@ fn handle_tray_menu(app: AppHandle, menu_id: &str) {
             let menu_id = menu_id.to_string();
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = mutate_from_tray(&app, &menu_id) {
-                    eprintln!("Personal Hub tray action failed: {error}");
+                    eprintln!("Atrium tray action failed: {error}");
                 }
             });
         }
@@ -949,7 +949,7 @@ pub(crate) fn show_main_window(app: &AppHandle, open_settings: bool) -> Result<(
                 std::thread::sleep(Duration::from_millis(10));
             }
             if let Err(error) = show_main_window_now(&resume_app, open_settings) {
-                eprintln!("Personal Hub could not reopen from the tray: {error}");
+                eprintln!("Atrium could not reopen from the tray: {error}");
             }
         })
         .map_err(|error| format!("The tray open action could not be scheduled: {error}"))?;
@@ -959,13 +959,13 @@ pub(crate) fn show_main_window(app: &AppHandle, open_settings: bool) -> Result<(
 fn show_main_window_now(app: &AppHandle, open_settings: bool) -> Result<(), String> {
     let main = app
         .get_webview_window(MAIN_WEBVIEW_LABEL)
-        .ok_or_else(|| "The Personal Hub main window is unavailable.".to_string())?;
+        .ok_or_else(|| "The Atrium main window is unavailable.".to_string())?;
     if main.is_minimized().unwrap_or(false) {
         main.unminimize()
-            .map_err(|error| format!("The Personal Hub window could not be restored: {error}"))?;
+            .map_err(|error| format!("The Atrium window could not be restored: {error}"))?;
     }
     main.show()
-        .map_err(|error| format!("The Personal Hub window could not be shown: {error}"))?;
+        .map_err(|error| format!("The Atrium window could not be shown: {error}"))?;
     let registry = app.state::<ServiceWebviewRegistry>();
     resume_service_webviews(&registry)?;
     let _ = main.emit(EVENT_MAIN_RESUMED, ());
@@ -973,7 +973,7 @@ fn show_main_window_now(app: &AppHandle, open_settings: bool) -> Result<(), Stri
         let _ = main.emit(EVENT_OPEN_SETTINGS, ());
     }
     main.set_focus()
-        .map_err(|error| format!("The Personal Hub window could not be focused: {error}"))?;
+        .map_err(|error| format!("The Atrium window could not be focused: {error}"))?;
     Ok(())
 }
 
@@ -1114,7 +1114,7 @@ fn acquire_document_write_lock() -> Result<DocumentWriteLock, String> {
         let _ = CloseHandle(handle);
     }
     if wait_result == WAIT_TIMEOUT {
-        Err("Another Personal Hub process is updating background settings. Try again.".into())
+        Err("Another Atrium process is updating background settings. Try again.".into())
     } else {
         Err(format!(
             "The background settings lock failed with native status {wait_result}."

@@ -223,7 +223,7 @@ impl DesktopIntegrationSettings {
 
 fn authorize_main(label: &str) -> Result<(), String> {
     if label != "main" {
-        return Err("Desktop settings are available only to the trusted Personal Hub UI.".into());
+        return Err("Desktop settings are available only to the trusted Atrium UI.".into());
     }
     Ok(())
 }
@@ -242,7 +242,7 @@ fn startup_manager() -> Result<auto_launch::AutoLaunch, String> {
     // Windows Run values are command lines. Quote the executable explicitly:
     // auto-launch 0.5 writes app_path verbatim, including installation spaces.
     auto_launch::AutoLaunchBuilder::new()
-        .set_app_name("Personal Hub")
+        .set_app_name("Atrium")
         .set_app_path(&format!("\"{path}\""))
         .build()
         .map_err(|_| "Windows startup integration is unavailable.".to_string())
@@ -412,7 +412,7 @@ fn acquire_document_write_lock() -> Result<DocumentWriteLock, String> {
     unsafe {
         let _ = CloseHandle(handle);
     }
-    Err("Another Personal Hub process is updating desktop settings. Try again.".into())
+    Err("Another Atrium process is updating desktop settings. Try again.".into())
 }
 
 #[cfg(not(windows))]

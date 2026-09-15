@@ -136,12 +136,12 @@ mod native {
             return;
         }
         let (title, body) = match (notification_language_is_turkish(app), kind) {
-            (true, Kind::Outage) => ("Servise erişilemiyor", "Bir veya daha fazla sunucu servisine art arda erişilemedi. Ayrıntılar için Personal Hub’ı açın."),
-            (false, Kind::Outage) => ("Service unavailable", "One or more server services could not be reached on consecutive checks. Open Personal Hub for details."),
-            (true, Kind::Storage) => ("Sunucu diski dolmak üzere", "Bir sunucu diskinin kullanımı %90 veya üzerine çıktı. Ayrıntılar için Personal Hub’ı açın."),
-            (false, Kind::Storage) => ("Server storage is nearly full", "A server volume is at least 90% full. Open Personal Hub for details."),
-            (true, Kind::Download) => ("İndirme tamamlandı", "İzlenen bir veya daha fazla indirme tamamlandı. Ayrıntılar için Personal Hub’ı açın."),
-            (false, Kind::Download) => ("Download completed", "One or more monitored downloads have finished. Open Personal Hub for details."),
+            (true, Kind::Outage) => ("Servise erişilemiyor", "Bir veya daha fazla sunucu servisine art arda erişilemedi. Ayrıntılar için Atrium’ı açın."),
+            (false, Kind::Outage) => ("Service unavailable", "One or more server services could not be reached on consecutive checks. Open Atrium for details."),
+            (true, Kind::Storage) => ("Sunucu diski dolmak üzere", "Bir sunucu diskinin kullanımı %90 veya üzerine çıktı. Ayrıntılar için Atrium’ı açın."),
+            (false, Kind::Storage) => ("Server storage is nearly full", "A server volume is at least 90% full. Open Atrium for details."),
+            (true, Kind::Download) => ("İndirme tamamlandı", "İzlenen bir veya daha fazla indirme tamamlandı. Ayrıntılar için Atrium’ı açın."),
+            (false, Kind::Download) => ("Download completed", "One or more monitored downloads have finished. Open Atrium for details."),
         };
         // Static text only: no service addresses, filenames, paths or secrets.
         let _ = app.notification().builder().title(title).body(body).show();

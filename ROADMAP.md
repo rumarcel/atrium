@@ -1,13 +1,13 @@
-# Personal Hub roadmap
+# Atrium roadmap
 
 This roadmap records product direction rather than promising fixed release dates.
-The current dark Personal Hub appearance remains the initial and fallback theme.
+The current dark Atrium appearance remains the initial and fallback theme.
 
 ## Product decisions
 
 - Do not add a dashboard clock, calendar or visible polling timestamps. Internal
   timestamps remain available only for scheduling, freshness and stale-data logic.
-- Theme changes apply to Personal Hub's dashboard, navigation and settings. Remote
+- Theme changes apply to Atrium's dashboard, navigation and settings. Remote
   service pages run in isolated native WebViews and keep their own appearance.
 - Invalid or missing appearance settings always fall back to the bundled default.
 - The bundled `Code` theme keeps the same navigation, content and features; it
@@ -53,7 +53,7 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 ## Phase 6.1 — Windows desktop cards (completed)
 
 - Three independent companion surfaces for server metrics, server storage and
-  server-service attention, outside the Personal Hub dashboard.
+  server-service attention, outside the Atrium dashboard.
 - At the end of Phase 6.1, the in-app dashboard remained in its Phase 6 layout
   with no widget editor, reordering or card-size controls.
 - Borderless transparent windows stay below ordinary applications, skip the
@@ -126,7 +126,7 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
   independent Server, Storage and Service-attention card switches.
 - Disabled cards create no window, WebView, polling claim or background work.
 - Close-to-tray behavior while background features are enabled, with explicit
-  `Open Personal Hub` and `Quit` actions.
+  `Open Atrium` and `Quit` actions.
 - Tray controls to show/hide cards, reset geometry and open Settings.
 - Supported `always below normal windows` mode as the default card layer.
 - A separate, clearly labeled Explorer desktop-layer experiment may be offered
@@ -148,7 +148,7 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
 
 ### Phase 7.3 — Appearance and languages (completed)
 
-- One versioned theme-token contract shared by trusted Personal Hub host
+- One versioned theme-token contract shared by trusted Atrium host
   surfaces and the optional desktop cards. Remote service WebViews remain
   intentionally isolated and keep each service's own appearance.
 - Bundled `Default`, `Code`, `Translucent` and `Minimal` themes.
@@ -236,7 +236,7 @@ Theme Studio and safe theme packs are part of this phase:
 
 - Per-user English/Turkish NSIS installer and shared application/taskbar/tray icon.
 - Opt-in release-build startup registration, with uninstall cleanup.
-- Single-instance activation so launching Personal Hub again restores the
+- Single-instance activation so launching Atrium again restores the
   existing tray/background process instead of creating duplicate UI surfaces.
 - Main-window size, position and maximization persistence, independent of cards.
 - About shows actual native version, profile, platform and architecture. Signing
@@ -318,7 +318,7 @@ Theme Studio and safe theme packs are part of this phase:
 - Reuse the validated service, monitoring, authentication and server-control
   contracts in a mobile-first Android/iOS interface.
 - Start with LAN-only operation; remote access requires an explicitly configured
-  trusted VPN path rather than exposing Personal Hub or service ports publicly.
+  trusted VPN path rather than exposing Atrium or service ports publicly.
 - Android Keystore and Apple Keychain-backed secrets, with biometric confirmation
   for reboot, shutdown and other privileged actions.
 - Android first; iOS builds follow when a macOS/Xcode build environment is

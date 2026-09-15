@@ -3,7 +3,7 @@
  * every bundled locale; keep keys semantic so copy can change independently.
  */
 export const englishCatalog = {
-  "app.name": "Personal Hub",
+  "app.name": "Atrium",
   "common.all": "All",
   "common.available": "Available",
   "common.cancel": "Cancel",
@@ -23,13 +23,13 @@ export const englishCatalog = {
   "common.unavailable": "Unavailable",
   "common.working": "Working…",
 
-  "errorBoundary.eyebrow": "Personal Hub",
+  "errorBoundary.eyebrow": "Atrium",
   "errorBoundary.title": "Something went wrong.",
   "errorBoundary.description":
     "The dashboard could not be rendered. Restart the app to try again.",
   "errorBoundary.reload": "Reload dashboard",
 
-  "header.brandLabel": "Personal Hub",
+  "header.brandLabel": "Atrium",
   "header.brandSubtitle": "Home server",
   "header.searchServices": "Search services",
   "header.searchShortcut": "Ctrl K",
@@ -171,7 +171,7 @@ export const englishCatalog = {
   "service.offline": "Offline",
   "service.refreshingStatus": "Refreshing status…",
   "service.cardLabel": "{{serviceName}}, {{status}}",
-  "service.openInHub": "Open {{serviceName}} in Personal Hub",
+  "service.openInHub": "Open {{serviceName}} in Atrium",
   "service.actions": "{{serviceName}} actions",
   "service.open": "Open",
   "service.openInNewTab": "Open in new tab",
@@ -230,7 +230,7 @@ export const englishCatalog = {
     "Server Agent reads sanitized Docker / Podman inventory for rootful containers only; rootless Podman is not included yet. It does not expose the Docker socket or change containers.",
 
   "tabs.openViews": "Open views",
-  "tabs.listLabel": "Personal Hub tabs",
+  "tabs.listLabel": "Atrium tabs",
   "tabs.dashboard": "Dashboard",
   "tabs.closeTab": "Close {{serviceName}} tab",
   "tabs.closeService": "Close {{serviceName}}",
@@ -240,7 +240,7 @@ export const englishCatalog = {
   "serviceView.ready": "Service view ready",
   "serviceView.opening": "Opening service…",
 
-  "settings.headerEyebrow": "Personal Hub",
+  "settings.headerEyebrow": "Atrium",
   "settings.title": "Settings",
   "settings.description":
     "Appearance, services, background runtime and secure integration credentials.",
@@ -425,7 +425,7 @@ export const englishCatalog = {
   "authentication.notValidatedDescription":
     "Automatic authentication has not been validated.",
   "authentication.validatingDescription":
-    "Personal Hub is checking the adapter without exposing its credential.",
+    "Atrium is checking the adapter without exposing its credential.",
   "authentication.validDescription":
     "The native adapter accepted the stored credential.",
   "authentication.invalidDescription":
@@ -471,7 +471,7 @@ export const englishCatalog = {
   "background.unavailable": "Background runtime preferences are unavailable.",
   "background.allowCards": "Allow desktop cards",
   "background.allowCardsDescription":
-    "Disabled by default. When off, Personal Hub creates no card windows, WebViews or card polling work.",
+    "Disabled by default. When off, Atrium creates no card windows, WebViews or card polling work.",
   "background.enabledNotice": "Experimental desktop cards enabled.",
   "background.disabledNotice":
     "Experimental desktop cards and their background work are off.",
@@ -479,19 +479,19 @@ export const englishCatalog = {
     "Cards use the supported always-below window layer. Explorer desktop embedding is not enabled in this experiment.",
   "background.cardEnabledNotice": "{{card}} card enabled.",
   "background.cardDisabledNotice": "{{card}} card disabled.",
-  "background.keepInTray": "Keep Personal Hub in the notification area",
+  "background.keepInTray": "Keep Atrium in the notification area",
   "background.trayAvailableDescription":
-    "Closing the main window keeps enabled cards, server notifications or active server operations running in the tray. Use Quit in the tray menu to stop Personal Hub completely.",
+    "Closing the main window keeps enabled cards, server notifications or active server operations running in the tray. Use Quit in the tray menu to stop Atrium completely.",
   "background.trayUnavailableDescription":
-    "Notification-area integration is unavailable in this Windows session, so closing the main window quits Personal Hub safely.",
+    "Notification-area integration is unavailable in this Windows session, so closing the main window quits Atrium safely.",
   "background.closeToTrayEnabled": "Close-to-tray enabled.",
-  "background.closeQuits": "Closing the main window will quit Personal Hub.",
+  "background.closeQuits": "Closing the main window will quit Atrium.",
   "background.runtimeOff":
     "Desktop cards are off. Enabled server notifications can still run in the background when close-to-tray is on.",
   "background.runtimeTrayUnavailableOne":
-    "{{count}} desktop card is available, but Personal Hub will quit when its main window closes because tray integration is unavailable.",
+    "{{count}} desktop card is available, but Atrium will quit when its main window closes because tray integration is unavailable.",
   "background.runtimeTrayUnavailableOther":
-    "{{count}} desktop cards are available, but Personal Hub will quit when its main window closes because tray integration is unavailable.",
+    "{{count}} desktop cards are available, but Atrium will quit when its main window closes because tray integration is unavailable.",
   "background.runtimeNoneAvailable":
     "No selected card is currently available. Enabled server notifications can still run in the background when close-to-tray is on.",
   "background.runtimeAvailableOne":
@@ -501,7 +501,7 @@ export const englishCatalog = {
 
   "serverControl.kicker": "Server",
   "serverControl.title": "Trusted server control",
-  "serverControl.description": "Optional reboot and shutdown through the restricted Personal Hub Server Agent. This does not depend on Homarr or Glances and is off by default.",
+  "serverControl.description": "Optional reboot and shutdown through the restricted Atrium Server Agent. This does not depend on Homarr or Glances and is off by default.",
   "serverControl.target": "Enrolled server",
   "serverControl.noAddress": "No address enrolled",
   "serverControl.address": "Server address",
@@ -579,7 +579,7 @@ export const englishCatalog = {
   "desktop.failed": "The operation could not be completed. Settings were refreshed where possible; reload the status and try again.",
   "desktop.saved": "Desktop settings updated.",
   "desktop.startup": "Start with Windows",
-  "desktop.startupDescription": "Open Personal Hub when you sign in to Windows. This is off until you enable it.",
+  "desktop.startupDescription": "Open Atrium when you sign in to Windows. This is off until you enable it.",
   "desktop.startupUnavailable": "Startup registration is available in the release Windows app.",
   "desktop.notificationsDescription": "Server notifications are optional and off by default. Windows toast delivery requires the installed app; Windows notification settings and Do not disturb can affect delivery.",
   "desktop.serviceOutages": "Service outages",
@@ -589,10 +589,10 @@ export const englishCatalog = {
   "desktop.downloadCompletion": "Completed downloads",
   "desktop.downloadCompletionDescription": "Notify when an observed qBittorrent download finishes. Requires its configured API connection.",
   "desktop.notificationPrivacy": "Notifications use generic wording and do not include service URLs, credentials or download names.",
-  "desktop.backgroundNote": "To keep notifications running after closing the window, enable “Keep Personal Hub in the notification area” above. Quit in the tray menu stops the app and its notifications.",
+  "desktop.backgroundNote": "To keep notifications running after closing the window, enable “Keep Atrium in the notification area” above. Quit in the tray menu stops the app and its notifications.",
   "desktop.windowMemory": "Remember window layout",
   "desktop.windowMemoryDescription": "The desktop app restores its saved window size, position and maximized state. Off-screen positions are adjusted to an available monitor.",
-  "desktop.about": "About Personal Hub",
+  "desktop.about": "About Atrium",
   "desktop.version": "Version {{version}}",
   "desktop.build": "{{profile}} · {{platform}} · {{architecture}}",
   "desktop.debugBuild": "Development build",
@@ -663,7 +663,7 @@ export const englishCatalog = {
   "appearance.kicker": "Appearance",
   "appearance.title": "Theme and language",
   "appearance.description":
-    "Choose how Personal Hub looks and which language it uses.",
+    "Choose how Atrium looks and which language it uses.",
   "appearance.colorMode": "Color mode",
   "appearance.colorModeSystem": "System",
   "appearance.colorModeDark": "Dark",
@@ -679,7 +679,7 @@ export const englishCatalog = {
   "appearance.themeMinimal": "Minimal",
   "appearance.themeCustom": "Custom",
   "appearance.themeDefaultDescription":
-    "The original Personal Hub look and spacing.",
+    "The original Atrium look and spacing.",
   "appearance.themeCodeDescription":
     "A restrained code-editor palette with monospace typography.",
   "appearance.themeTranslucentDescription":
@@ -694,8 +694,8 @@ export const englishCatalog = {
   "appearance.languageTurkish": "Turkish",
   "appearance.languageSystemDescription":
     "Use the language preferred by Windows.",
-  "appearance.languageEnglishDescription": "Use Personal Hub in English.",
-  "appearance.languageTurkishDescription": "Use Personal Hub in Turkish.",
+  "appearance.languageEnglishDescription": "Use Atrium in English.",
+  "appearance.languageTurkishDescription": "Use Atrium in Turkish.",
   "appearance.preview": "Live preview",
   "appearance.loading": "Reading saved appearance settings…",
   "appearance.unsavedChanges": "Unsaved appearance changes",
@@ -753,9 +753,9 @@ export const englishCatalog = {
   "appearance.tokenBlur": "Blur",
   "appearance.importTheme": "Import theme",
   "appearance.importDescription":
-    "Paste or choose a Personal Hub appearance JSON file. It is strictly validated before preview.",
+    "Paste or choose a Atrium appearance JSON file. It is strictly validated before preview.",
   "appearance.importPasteLabel": "Appearance JSON",
-  "appearance.importPlaceholder": "Paste a Personal Hub appearance pack…",
+  "appearance.importPlaceholder": "Paste a Atrium appearance pack…",
   "appearance.chooseFile": "Choose JSON file",
   "appearance.applyImport": "Preview imported theme",
   "appearance.importReady":

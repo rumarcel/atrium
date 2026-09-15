@@ -52,7 +52,7 @@ pub enum ThemeId {
 #[serde(rename_all = "kebab-case")]
 pub enum ColorMode {
     System,
-    // Personal Hub was dark-only before this contract. Keeping Dark as the
+    // Atrium was dark-only before this contract. Keeping Dark as the
     // first-run value guarantees that adopting appearance persistence does
     // not change an existing installation's visual language.
     #[default]
@@ -476,7 +476,7 @@ impl AppearanceSettings {
 
     /// Refreshes the in-memory document while the caller owns both the local
     /// operation mutex and the cross-process document mutex. Keeping reads on
-    /// the same boundary as writes prevents a second Personal Hub process
+    /// the same boundary as writes prevents a second Atrium process
     /// from leaving this process with a stale snapshot or export.
     fn refresh_document_from_disk(&self) -> Result<AppearanceDocument, String> {
         let cached = self.document()?;
@@ -717,7 +717,7 @@ fn authorize_reader(caller_label: &str) -> Result<(), String> {
     if TRUSTED_APPEARANCE_WEBVIEW_LABELS.contains(&caller_label) {
         Ok(())
     } else {
-        Err("Appearance settings are available only to a trusted Personal Hub window.".into())
+        Err("Appearance settings are available only to a trusted Atrium window.".into())
     }
 }
 
@@ -914,7 +914,7 @@ fn acquire_document_write_lock() -> Result<DocumentWriteLock, String> {
         let _ = CloseHandle(handle);
     }
     if wait_result == WAIT_TIMEOUT {
-        Err("Another Personal Hub process is updating appearance settings. Try again.".into())
+        Err("Another Atrium process is updating appearance settings. Try again.".into())
     } else {
         Err("The appearance settings lock is unavailable.".into())
     }

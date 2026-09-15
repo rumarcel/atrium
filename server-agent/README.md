@@ -1,4 +1,4 @@
-# Personal Hub restricted server agent — Phase 9
+# Atrium restricted server agent — Phase 9
 
 An optional **Linux server-side** companion for the Windows desktop app. It is
 not needed for dashboards, Glances, Homarr, qBittorrent or normal service tabs.
@@ -66,7 +66,7 @@ The examples assume Debian/Ubuntu-style command paths and an unused account name
    sudo openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 365 \
      -keyout /etc/personal-hub-agent/server.key \
      -out /etc/personal-hub-agent/server.crt \
-     -subj '/CN=Personal Hub Server' \
+     -subj '/CN=Atrium Server' \
      -addext 'subjectAltName=IP:192.168.1.10' \
      -addext 'extendedKeyUsage=serverAuth'
    sudo openssl rand -hex -out /etc/personal-hub-agent/token 32
@@ -87,7 +87,7 @@ The examples assume Debian/Ubuntu-style command paths and an unused account name
    ```
 
    Copy only the public `server.crt` into the desktop enrollment field. Transfer
-   the token through your trusted local secret-entry workflow into Personal Hub's
+   the token through your trusted local secret-entry workflow into Atrium's
    Windows-backed vault. **Never copy `server.key` to the desktop.** Confirm the
    fingerprint on the actual server, not from an unauthenticated network response.
    Changing this certificate later requires manual desktop re-enrollment.
@@ -101,7 +101,7 @@ The examples assume Debian/Ubuntu-style command paths and an unused account name
    sudo systemctl status personal-hub-agent.service
    ```
 
-   In Personal Hub verify the exact target, dry-run banner, connection, server
+   In Atrium verify the exact target, dry-run banner, connection, server
    uptime, countdown and cancellation. Let a dry-run complete once. It must show
    completed while the server boot ID/uptime remain unchanged. The application
    must not automatically turn off dry-run or deploy a privileged rule for you.
@@ -237,12 +237,12 @@ enumerated; an empty rootful result does **not** mean that user's containers are
 absent. Rootless publication needs a separately designed, account-scoped trust
 boundary and is deferred. Host-network containers and services with no published
 IPv4 TCP mapping need manual configuration. Docker/Podman is never required for
-the rest of Personal Hub.
+the rest of Atrium.
 
 ### Manual opt-in installation
 
 Review these files on the actual Linux host; these are **not** automatically run
-by Personal Hub. Install the regular agent and its `personal_hub_inventory.py`
+by Atrium. Install the regular agent and its `personal_hub_inventory.py`
 module first, including when upgrading a pre-inventory agent. Confirm the selected
 runtime executable is root-owned at `/usr/bin/docker` or `/usr/bin/podman` and
 that its normal **rootful** storage/configuration is the intended one.
@@ -366,7 +366,7 @@ claim to verify those host-specific integrations.
 To return to dry-run, remove only the `--allow-power` override using your normal
 systemd administration workflow, reload and restart the agent. Remove its sudoers
 entry if power access is no longer needed. To disable the integration, disable it
-in Personal Hub and stop/disable `personal-hub-agent.service` on the server.
+in Atrium and stop/disable `personal-hub-agent.service` on the server.
 Closing the desktop or disabling integration does **not** cancel an operation
 already accepted by the agent; cancel explicitly while its countdown permits it.
 An agent service restart interrupts scheduled work, but an executing system power

@@ -707,7 +707,7 @@ fn append_recovery_notices(response: &mut ServiceConfigurationResponse, notices:
 
 fn ensure_trusted_caller(caller: &Webview) -> Result<(), String> {
     if caller.label() != MAIN_WEBVIEW_LABEL {
-        return Err("This command is available only to the trusted Personal Hub UI.".into());
+        return Err("This command is available only to the trusted Atrium UI.".into());
     }
 
     Ok(())

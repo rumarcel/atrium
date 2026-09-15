@@ -1,4 +1,4 @@
-# Personal Hub
+# Atrium
 
 A lightweight, local-first Windows desktop control center for home-server
 services. Built with Tauri v2, React, TypeScript and Vite.
@@ -310,7 +310,7 @@ Provider behavior follows the official
 Phase 6.1 adds three lightweight, borderless companion windows: **Server**,
 **Storage** and **Service attention**. Every value describes the configured home
 server; the cards do not read or display local Windows CPU, GPU, memory, battery
-or storage data. They live outside the Personal Hub dashboard, stay below normal
+or storage data. They live outside the Atrium dashboard, stay below normal
 application windows, do not appear in the taskbar and contain no clock or date.
 
 A single Rust broker owns all polling. Server and storage cards share the same
@@ -339,7 +339,7 @@ With close-to-tray enabled and at least one effective card, closing the main
 window keeps those cards running. Before the main window is hidden, Rust blocks
 new service-view opens and destroys every service child WebView; Jellyfin and
 other media therefore cannot remain audible invisibly. A teardown failure keeps
-the main window visible. The tray provides Open Personal Hub, Settings, the
+the main window visible. The tray provides Open Atrium, Settings, the
 master and per-card switches, geometry reset and an explicit Quit action. When
 no effective card, enabled notification category or active server operation exists—or close-to-tray is off—closing the main window exits
 normally. Cards use Tauri's supported always-below layer; Explorer/WorkerW
@@ -353,7 +353,7 @@ processes, revision-checked and atomically replaced.
 Settings includes opt-in Windows startup and separate service-outage, server-disk
 pressure and download-completion notifications. Windows startup registration is
 available only in release builds; installation itself never enables it. Uninstall
-removes Personal Hub's startup entry. Windows toast delivery requires an installed
+removes Atrium's startup entry. Windows toast delivery requires an installed
 application and depends on the user's Windows notification settings.
 
 The native notification runtime probes only enabled categories, on a bounded
@@ -396,7 +396,7 @@ The user chooses reboot/shutdown, reviews target and dry-run/live mode, then typ
 the enrolled address in a short-lived second confirmation. Rust consumes the confirmation
 once and binds the request to the observed boot identity and agent mode. The agent
 enforces a 30-second countdown and accepts cancellation only before dispatch.
-Closing Personal Hub does **not** cancel a request already accepted by the agent.
+Closing Atrium does **not** cancel a request already accepted by the agent.
 
 The latest 50 operation records are stored locally (12 shown in Settings). A lost
 response remains uncertain and is never automatically retried. Native monitoring
@@ -494,7 +494,7 @@ pnpm tauri build --no-bundle
 
 ## How this was built
 
-Personal Hub began as something I needed for my own home server, and it is
+Atrium began as something I needed for my own home server, and it is
 published in case it is useful to someone else. I am not a developer: the code
 was written with AI assistance — "vibe coding" — while I directed the product
 decisions, scope and review.
