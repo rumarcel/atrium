@@ -2,7 +2,7 @@
 
 Run `pnpm install --frozen-lockfile` and `pnpm build:windows` on a Windows machine
 with the documented Tauri prerequisites. The resulting per-user installer is
-under `src-tauri/target/release/bundle/nsis/`. It offers English/Turkish, uses the
+under `src-tauri/target/release/bundle/nsis/`. It runs in English, uses the
 bundled application icon and installs WebView2 via Microsoft's bootstrapper if
 needed. Internet access is needed if the build tools or WebView2 are absent.
 

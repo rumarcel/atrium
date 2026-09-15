@@ -39,8 +39,7 @@
       "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["English", "Turkish"],
-        "displayLanguageSelector": true,
+        "languages": ["English"],
         "startMenuFolder": "Atrium",
         "installerHooks": "installer/hooks.nsh"
       }

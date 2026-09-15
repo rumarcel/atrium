@@ -1,46 +1,87 @@
 # Atrium
 
-A lightweight, local-first Windows desktop control center for home-server
-services. Built with Tauri v2, React, TypeScript and Vite.
+One window for the home server you already run.
 
-## Current scope
+## Why this exists
 
-Phase 1 through Phase 8 are implemented: the desktop shell, responsive
-dashboard, validated service configuration, asynchronous service health checks,
-session-preserving native service tabs, live Glances monitoring and three
-server-only Windows desktop cards. Phase 7.0 adds a native Settings surface,
-writable per-user service configuration and Windows-backed credential storage;
-Phase 7.1 adds explicit, origin-bound authentication adapters and safe native
-validation state; Phase 7.2 adds the persistent opt-in card manager, tray and
-safe close-to-background lifecycle; Phase 7.3 adds persisted appearance,
-safe theme packs and localization; Phase 7.4 keeps the original
-dashboard composition while adding category-based service tabs and a persistent
-card/logo presentation switch. Phase 7.5 adds authenticated, read-only Homarr
-application discovery, review-before-add, duplicate detection, automatic local
-icon matching and bounded custom SVG/WebP storage. Service categories, icons and
-visibility remain managed by the existing Settings surface rather than a full
-dashboard editor.
-Phase 7.6 adds a read-only qBittorrent Download Center with native session
-handling, bounded retry backoff and reliable Sonarr/Radarr attribution when the
-download category or tag carries an exact provider marker.
-Phase 8 adds Windows startup controls, single-instance activation, main-window
-geometry persistence, optional server notifications, real About/build metadata
-and NSIS packaging. Release signing requires the publisher's own
-certificate; unsigned builds are never shown as verified.
-Phase 9 now includes an opt-in, fixed-target server-control panel and a restricted
-Linux companion agent. Its implementation is present; enrollment and the manual
-server-side dry-run check remain required before enabling real power control.
-The desktop cards are separate native surfaces rather than an in-app widget editor.
-The server summary now exposes Glances uptime, and an
-explicit service-tab close tears down its native WebView so media cannot remain
-audible invisibly. Phase 9.2.0 adds optional read-only rootful Docker/Podman
-inventory over that same restricted channel instead of requiring an exposed
-Docker daemon; it reads administrator-installed snapshot files and never
-receives a container socket. Container/service restarts, Wake-on-LAN,
-rootless container enumeration, Linux desktop support and mobile remain later
-work. The remaining
-work is tracked in
-[`ROADMAP.md`](ROADMAP.md).
+A home server grows one web interface at a time. Media, downloads, a dashboard,
+a monitor, whatever was installed last weekend. Each one is a different address
+to remember, a different login to re-enter, a different browser tab that
+eventually gets closed by mistake. None of them know about each other, and none
+of them mention that the machine hosting all of them is running out of disk
+until something has already stopped working.
+
+Atrium is the window in front of all of that. Services open as native tabs that
+keep their sessions alive, so a login survives switching away and coming back.
+Credentials are stored in Windows Credential Manager and bound to the exact
+origin they belong to, not left in a configuration file. The server's own CPU,
+memory, disks and uptime sit on the same dashboard as the services, because "is
+the site down" and "is the server out of space" are usually the same question
+asked twice.
+
+It was written for one person running one server on their own LAN. There is no
+account to create, no cloud relay, no telemetry, and no phone-home of any kind:
+the application talks to the machines you point it at and to nothing else.
+Everything it keeps — the service catalog, appearance, credentials, window
+positions — lives in your own Windows user profile.
+
+## What it is not
+
+It is not a reverse proxy, a container manager or a replacement for the tools it
+shows. It does not install, update or orchestrate anything on the server. Every
+integration is deliberately narrow: container inventory is read-only and arrives
+as a snapshot file rather than through a Docker socket, the Download Center only
+reads, and the single power-control channel exposes exactly two allowlisted
+actions on a fixed port. Wherever a feature could have been "just send a command
+to the server", it was scoped down to the smallest version that still answers
+the question being asked.
+
+It is also Windows-only today, and single-user by design.
+
+## How it was built
+
+Atrium began as something I needed for my own home server and is published in
+case it is useful to someone else. I am not a developer. I set the scope, made
+the product decisions and reviewed the result; the code itself was written with
+AI assistance — what people have started calling vibe coding.
+
+The work was planned as numbered phases, which is still how
+[`ROADMAP.md`](ROADMAP.md) and the commit history are organized:
+
+- **OpenAI Codex** wrote Phase 1 through Phase 9.2.0 — the desktop shell,
+  service catalog, credential vault, authentication adapters, monitoring, the
+  Download Center, Windows integration, server control and the Linux companion
+  agent.
+- **Claude (Opus 5)** picked it up from there: the configurable server address
+  that replaced a hardcoded LAN IP, the MIT license, the CI workflow, the type
+  scale and contrast fixes, the English-only interface, and this README. Those
+  commits carry a `Co-Authored-By` trailer and show as co-authored on GitHub.
+
+Codex's commits predate that convention and carry no trailer, which is why its
+share of the work is recorded here instead of in commit metadata.
+
+Judge the result accordingly. There is a real test suite across Rust, TypeScript
+and Python, and the security boundaries are deliberate and documented rather
+than accidental — but nobody else has audited this code, and the server
+power-control path has never been exercised against a live machine. Read
+[`server-agent/README.md`](server-agent/README.md) before installing the agent,
+and leave it in dry-run mode until you have checked it yourself.
+
+## Status
+
+Everything documented below is implemented, and the everyday parts — service
+tabs, health checks, Glances monitoring, the Download Center, Homarr discovery,
+the desktop cards — have been exercised against a real server. Server power
+control is the exception: it is implemented and disabled by default, and
+enrollment plus a manual server-side dry run are required before it can do
+anything.
+
+Container and service restarts, Wake-on-LAN, rootless container enumeration,
+Linux desktop support and mobile are not in this release. Remaining work is
+tracked in [`ROADMAP.md`](ROADMAP.md).
+
+The sections from here on are reference material: how each part works, what it
+refuses to do, and how to build it.
 
 ## Architecture
 
@@ -127,7 +168,7 @@ retried at startup and around later settings changes, produce a recovery notice,
 and prevent the same ID from being re-added until cleanup succeeds.
 
 Every newly stored credential is bound to the service's normalized exact origin
-(scheme, host and effective port). A Phase 7.0 credential without that binding,
+(scheme, host and effective port). An older credential stored without that binding,
 or a credential whose service URL later changed, remains visible as stored but
 is never transmitted; Settings asks for a replacement value instead. Provider
 validation returns only closed state/reason enums and an opaque revision. It
@@ -186,7 +227,7 @@ frontend never supplies a URL: Rust reloads the view to the origin it was opened
 with, and only while that origin still matches the trusted catalog, so a reload
 cannot navigate a child view anywhere it was not already allowed to be.
 
-Phase 5.1 keeps up to six still-open service WebViews warm. When capacity is
+Up to six still-open service WebViews are kept warm. When capacity is
 reached, the least-recently-used inactive view may be released; the active view
 is never selected. Each service also uses a persistent, isolated WebView2
 profile under the app's local-data directory, so ordinary persistent cookies
@@ -211,7 +252,7 @@ denied. The context menu provides in-app
 open, deduplicated service-tab open, validated system-browser open and URL copy.
 Service editing opens Settings directly on the selected service.
 
-Phase 5.2 follows WebView2's native HTML fullscreen transition through the
+The shell follows WebView2's native HTML fullscreen transition through the
 parent Tauri window. While an active service is fullscreen, the application
 header and tab bar are removed from layout and the existing bounds observer
 expands the child WebView over the full client area. Leaving fullscreen restores
@@ -274,7 +315,7 @@ default.
 
 ## Download Center
 
-Phase 7.6 adds a compact Download Center above the service area when an enabled
+A compact Download Center appears above the service area when an enabled
 service selects the `qbittorrent-web-api` adapter. If no matching provider is
 configured, the section is omitted completely. The first release is deliberately
 read-only: it shows incomplete downloads (including paused/error states), progress, transfer rate,
@@ -314,7 +355,7 @@ Provider behavior follows the official
 
 ## Windows desktop cards
 
-Phase 6.1 adds three lightweight, borderless companion windows: **Server**,
+Three lightweight, borderless companion windows are available: **Server**,
 **Storage** and **Service attention**. Every value describes the configured home
 server; the cards do not read or display local Windows CPU, GPU, memory, battery
 or storage data. They live outside the Atrium dashboard, stay below normal
@@ -376,9 +417,8 @@ plugin; experimental-card geometry stays independent. About displays the native
 version, debug/release profile, OS and architecture. Signature verification and
 automatic update checks are not claimed.
 
-Build the per-user NSIS installer using `pnpm build:windows`; it offers English
-and Turkish for the installation flow itself, which is separate from the
-language the application runs in.
+Build the per-user NSIS installer using `pnpm build:windows`. The installer
+runs in English, like the application itself.
 The bundled icon is shared by the installer, window/taskbar and tray.
 See [Windows release notes](docs/windows-release.md) for the manual GitHub build
 workflow, optional signing configuration and installed-build smoke checklist.
@@ -428,7 +468,7 @@ this power-control phase.
 
 ### Read-only container inventory
 
-Phase 9.2.0 reuses the enrolled agent connection as a second discovery source
+The enrolled agent connection doubles as a second discovery source
 beside Homarr. Settings → Find services can scan **Server Agent (Docker /
 Podman)** and review the same duplicate-checked candidate list before adding
 anything.
@@ -451,8 +491,8 @@ dry-run mode is sufficient. Installation is opt-in and manual; see the
 
 ## Appearance and languages
 
-Phase 7.3 keeps the original dark `Default` appearance for first run and safe
-recovery, then adds `Code`, `Translucent` and `Minimal` presets. `Code` is a
+The original dark `Default` appearance is used for first run and safe
+recovery; `Code`, `Translucent` and `Minimal` are offered alongside it. `Code` is a
 code-editor visual treatment—not a terminal emulator—and all four themes keep
 the same application structure and behavior. Color mode can follow Windows or
 be pinned to dark/light; system-mode changes are applied live to the main window
@@ -504,29 +544,6 @@ To verify the native application without producing an installer:
 ```powershell
 pnpm tauri build --no-bundle
 ```
-
-## How this was built
-
-Atrium began as something I needed for my own home server, and it is
-published in case it is useful to someone else. I am not a developer: the code
-was written with AI assistance — "vibe coding" — while I directed the product
-decisions, scope and review.
-
-- **OpenAI Codex** wrote Phase 1 through Phase 9.2.0: the desktop shell, service
-  catalog, credential vault, authentication adapters, monitoring, Download
-  Center, Windows integration, server control and the Linux companion agent.
-- **Claude (Opus 5)** continued from there: the enrolled server address, the MIT
-  license, the CI workflow and this section. Those commits carry a
-  `Co-Authored-By` trailer, so they are shown as co-authored on GitHub.
-
-Codex's commits predate that convention and carry no trailer, so its share of
-the work is recorded here rather than in commit metadata.
-
-Judge the result accordingly. It has a real test suite (Rust, TypeScript and
-Python) and its security boundaries are deliberate and documented, but no one
-else has audited it, and the server power-control path has never been exercised
-against a live server. Read `server-agent/README.md` before installing the
-agent, and start in dry-run mode.
 
 ## License
 
