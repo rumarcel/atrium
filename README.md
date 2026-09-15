@@ -492,6 +492,29 @@ To verify the native application without producing an installer:
 pnpm tauri build --no-bundle
 ```
 
+## How this was built
+
+Personal Hub began as something I needed for my own home server, and it is
+published in case it is useful to someone else. I am not a developer: the code
+was written with AI assistance — "vibe coding" — while I directed the product
+decisions, scope and review.
+
+- **OpenAI Codex** wrote Phase 1 through Phase 9.2.0: the desktop shell, service
+  catalog, credential vault, authentication adapters, monitoring, Download
+  Center, Windows integration, server control and the Linux companion agent.
+- **Claude (Opus 5)** continued from there: the enrolled server address, the MIT
+  license, the CI workflow and this section. Those commits carry a
+  `Co-Authored-By` trailer.
+
+Neither tool appears in GitHub's contributor graph, which lists only GitHub
+accounts.
+
+Judge the result accordingly. It has a real test suite (Rust, TypeScript and
+Python) and its security boundaries are deliberate and documented, but no one
+else has audited it, and the server power-control path has never been exercised
+against a live server. Read `server-agent/README.md` before installing the
+agent, and start in dry-run mode.
+
 ## License
 
 Released under the [MIT License](LICENSE). Bundled service icons and the names
