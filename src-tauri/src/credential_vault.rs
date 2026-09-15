@@ -491,12 +491,7 @@ pub(crate) fn write_server_control_token(
     validate_server_control_token(secret.expose())?;
     // Move the existing allocation to the platform writer, which clears its
     // buffer after the Windows call, instead of making another plaintext copy.
-    platform::write_credential(
-        target.into(),
-        None,
-        std::mem::take(&mut secret.0),
-        origin,
-    )
+    platform::write_credential(target.into(), None, std::mem::take(&mut secret.0), origin)
 }
 
 pub(crate) fn delete_server_control_token(target: &str) -> Result<(), String> {
@@ -1110,7 +1105,10 @@ mod tests {
         assert_eq!(vault_key, "PersonalHub/server-control/v1/192.168.1.10:9473");
         assert_eq!(bound_origin, "https://192.168.1.10:9473");
         // A different enrolled address must never resolve to the same vault key.
-        assert_ne!(vault_key, server_control_credential_target("192.168.0.14", 9473));
+        assert_ne!(
+            vault_key,
+            server_control_credential_target("192.168.0.14", 9473)
+        );
         assert!(!vault_key.starts_with(CREDENTIAL_TARGET_PREFIX));
         delete_all_service_credentials_with("server-control", |target| {
             assert_ne!(target, vault_key);

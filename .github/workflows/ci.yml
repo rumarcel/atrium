@@ -1,0 +1,88 @@
+name: CI
+
+# Every check that must pass before a change is merged. The Windows installer
+# is built separately and on demand; this workflow never produces a release.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend types and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned package manager
+        run: npm install --global pnpm@11.19.0
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Type-check the application
+        run: pnpm typecheck
+      - name: Run frontend tests
+        run: pnpm test
+
+  rust:
+    name: Rust build and tests
+    # Windows-only crates and the WebView2 integration are compiled here, so
+    # this must match the platform the application actually ships on.
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned package manager
+        run: npm install --global pnpm@11.19.0
+      - name: Prepare Rust
+        run: rustup toolchain install stable --profile minimal --component clippy rustfmt
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build the frontend
+        # tauri-build resolves the configured frontendDist, so the bundle has to
+        # exist before the Rust crate is compiled.
+        run: pnpm build
+      - name: Check formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - name: Lint
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  agent:
+    name: Server agent tests
+    # The agent targets Linux and refuses to run elsewhere, so its tests belong
+    # on the platform administrators actually deploy it to.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run agent tests
+        # Standard library only; the agent deliberately has no pip dependencies.
+        run: python -m unittest test_agent test_inventory
+        working-directory: server-agent

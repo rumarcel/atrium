@@ -411,15 +411,7 @@ async fn collect_download_snapshot(
     let had_cached_session = session.is_some();
 
     if session.is_none() {
-        match login(
-            client,
-            &selected.target,
-            &authentication,
-            &material,
-            &catalog,
-        )
-        .await
-        {
+        match login(client, &selected.target, authentication, &material, catalog).await {
             Ok(cookie) => {
                 session = Some(CachedSession {
                     revision: revision.clone(),
@@ -436,8 +428,8 @@ async fn collect_download_snapshot(
         &material,
         &session.as_ref().expect("a login created a session").cookie,
         &source_services,
-        &authentication,
-        &catalog,
+        authentication,
+        catalog,
         query,
     )
     .await;
@@ -449,15 +441,7 @@ async fn collect_download_snapshot(
             .is_some_and(|error| error.session_rejected)
     {
         drop(session.take());
-        match login(
-            client,
-            &selected.target,
-            &authentication,
-            &material,
-            &catalog,
-        )
-        .await
-        {
+        match login(client, &selected.target, authentication, &material, catalog).await {
             Ok(cookie) => {
                 session = Some(CachedSession {
                     revision: revision.clone(),
@@ -469,8 +453,8 @@ async fn collect_download_snapshot(
                     &material,
                     &session.as_ref().expect("a login created a session").cookie,
                     &source_services,
-                    &authentication,
-                    &catalog,
+                    authentication,
+                    catalog,
                     query,
                 )
                 .await;
@@ -480,7 +464,7 @@ async fn collect_download_snapshot(
     }
 
     if let Err(error) =
-        ensure_current_provider(&catalog, &authentication, &selected.target, &revision)
+        ensure_current_provider(catalog, authentication, &selected.target, &revision)
     {
         return Ok(unavailable_snapshot(sampled_at, provider, error));
     }
@@ -595,6 +579,11 @@ async fn login(
     Ok(cookie)
 }
 
+// Each parameter is a distinct borrowed capability (transport, trusted target,
+// credential material, session cookie, attribution sources, vault and catalog).
+// Bundling them into one struct would hand this request path a single handle
+// that outlives the call, so they stay explicit.
+#[allow(clippy::too_many_arguments)]
 async fn read_torrents(
     client: &Client,
     target: &TrustedAuthenticationTarget,
@@ -692,17 +681,16 @@ async fn read_torrents(
     for torrent in torrents {
         match query {
             TorrentQuery::Active if !should_include_torrent(&torrent) => continue,
-            TorrentQuery::Hashes(hashes) => {
-                if !hashes.contains(&torrent.hash)
+            TorrentQuery::Hashes(hashes)
+                if (!hashes.contains(&torrent.hash)
                     || !torrent.progress.is_finite()
                     || !(0.0..=1.0).contains(&torrent.progress)
-                    || !seen_hashes.insert(torrent.hash.clone())
-                {
-                    return Err(DownloadFailure::new(
-                        DownloadReason::InvalidData,
-                        "Invalid completion response.",
-                    ));
-                }
+                    || !seen_hashes.insert(torrent.hash.clone())) =>
+            {
+                return Err(DownloadFailure::new(
+                    DownloadReason::InvalidData,
+                    "Invalid completion response.",
+                ));
             }
             _ => {}
         }

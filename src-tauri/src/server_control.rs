@@ -784,9 +784,7 @@ fn validate_address(value: &str) -> Result<String, String> {
         .parse()
         .map_err(|_| "The server address must be a plain IPv4 address such as 192.168.1.10.")?;
     if !(address.is_private() || address.is_loopback() || address.is_link_local()) {
-        return Err(
-            "The server address must be a private, loopback or link-local address.".into(),
-        );
+        return Err("The server address must be a private, loopback or link-local address.".into());
     }
     Ok(address.to_string())
 }
@@ -1322,9 +1320,7 @@ mod tests {
         assert!(validate_confirmation(&pending, &request, enrolled, pending.deadline).is_err());
         // Typing the previously enrolled address must not confirm an operation
         // after the enrollment was re-pointed at a different server.
-        assert!(
-            validate_confirmation(&pending, &request, "192.168.0.14", Instant::now()).is_err()
-        );
+        assert!(validate_confirmation(&pending, &request, "192.168.0.14", Instant::now()).is_err());
         // With nothing enrolled there is no address a typed value could match.
         assert!(validate_confirmation(&pending, &request, "", Instant::now()).is_err());
         request.target = "localhost".into();
@@ -1336,7 +1332,10 @@ mod tests {
         for valid in ["192.168.1.10", "10.0.0.5", "172.16.4.2", "127.0.0.1"] {
             assert_eq!(validate_address(valid).unwrap(), valid);
         }
-        assert_eq!(validate_address("  192.168.1.10  ").unwrap(), "192.168.1.10");
+        assert_eq!(
+            validate_address("  192.168.1.10  ").unwrap(),
+            "192.168.1.10"
+        );
         for invalid in [
             "",
             "8.8.8.8",
