@@ -5,6 +5,7 @@
 .server-status {
   display: flex;
   padding: 14px 18px;
+  flex-wrap: wrap;
   align-items: center;
   gap: 22px;
   border: 1px solid var(--color-border);
@@ -103,12 +104,12 @@
   flex: 1 1 auto;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 10px 26px;
+  gap: 10px 24px;
 }
 
 .status-metric {
   display: grid;
-  width: 150px;
+  width: 132px;
   min-width: 0;
   flex: none;
   align-items: center;
@@ -238,4 +239,102 @@
     flex: 1 1 100%;
     justify-content: flex-start;
   }
+}
+
+/* A server can have several volumes and only the fullest one belongs in a
+   single-line strip. The rest stay one click away rather than being dropped. */
+.server-status__volumes-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--text-2xs);
+  transition:
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
+}
+
+.server-status__volumes-toggle:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+.server-status__volumes-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.server-status__volumes {
+  display: grid;
+  width: 100%;
+  margin: 2px 0 0;
+  padding: 12px 0 0;
+  gap: 8px 18px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  border-top: 1px solid var(--color-border);
+  list-style: none;
+}
+
+.server-volume {
+  display: grid;
+  align-items: center;
+  gap: 1px 10px;
+  grid-template-areas:
+    "name  value"
+    "bar   bar"
+    "detail detail";
+  grid-template-columns: 1fr auto;
+}
+
+.server-volume__name {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  grid-area: name;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.server-volume__value {
+  color: var(--color-text-primary);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  grid-area: value;
+}
+
+.server-volume__bar {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-surface-elevated);
+  grid-area: bar;
+}
+
+.server-volume__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+}
+
+.server-volume__detail {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  grid-area: detail;
+}
+
+.server-volume--warning .server-volume__value {
+  color: var(--color-warning);
+}
+
+.server-volume--warning .server-volume__bar > span {
+  background: var(--color-warning);
 }

@@ -553,8 +553,6 @@
   margin: 0;
 }
 
-.service-card--logos .service-card__category,
-.service-card--logos .service-card__description,
 .service-card--logos .service-card__launch {
   display: none;
 }
@@ -707,14 +705,6 @@
   min-width: 0;
 }
 
-.service-card__category {
-  margin: 0 0 4px;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-2xs);
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
 
 .service-card h3 {
   margin: 0;
@@ -726,14 +716,6 @@
   white-space: nowrap;
 }
 
-.service-card__description {
-  margin: 5px 0 0;
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .service-card__launch {
   display: grid;

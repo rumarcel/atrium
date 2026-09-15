@@ -40,9 +40,8 @@ function getHealthPresentation(
   if (health.status === "online") {
     return {
       state: "online",
-      label: t("service.online", {
-        latency: formatLatency(health.latencyMs, number),
-      }),
+      label: t("service.online"),
+      latency: formatLatency(health.latencyMs, number),
     };
   }
 
@@ -50,9 +49,8 @@ function getHealthPresentation(
     if (health.reason === "tls-exception") {
       return {
         state: "warning",
-        label: t("service.localTls", {
-          latency: formatLatency(health.latencyMs, number),
-        }),
+        label: t("service.localTls"),
+        latency: formatLatency(health.latencyMs, number),
       };
     }
 
@@ -92,6 +90,7 @@ export function ServiceCard({
   const healthPresentation = getHealthPresentation(t, number, health);
   const healthDetails = [
     healthPresentation.label,
+    "latency" in healthPresentation ? healthPresentation.latency : null,
     health?.message,
     health?.isChecking && health.status !== "unchecked"
       ? t("service.refreshingStatus")
@@ -152,11 +151,7 @@ export function ServiceCard({
       </div>
 
       <div className="service-card__body">
-        <div>
-          <p className="service-card__category">{service.category}</p>
-          <h3>{service.name}</h3>
-          <p className="service-card__description">{service.description}</p>
-        </div>
+        <h3>{service.name}</h3>
         <span className="service-card__launch" aria-hidden="true">
           <ArrowUpRightIcon width={18} height={18} />
         </span>

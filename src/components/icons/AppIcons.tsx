@@ -52,6 +52,14 @@ export function RefreshIcon(props: IconProps) {
   );
 }
 
+export function ChevronIcon(props: IconProps) {
+  return (
+    <svg {...sharedProps} {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
 export function PlusIcon(props: IconProps) {
   return (
     <svg {...sharedProps} {...props}>

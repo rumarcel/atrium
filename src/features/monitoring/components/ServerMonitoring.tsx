@@ -1,9 +1,10 @@
-import { useId, type ComponentType, type SVGProps } from "react";
+import { useId, useState, type ComponentType, type SVGProps } from "react";
 import {
   CpuIcon,
   MemoryIcon,
   NetworkIcon,
   RefreshIcon,
+  ChevronIcon,
   ServerIcon,
   StorageIcon,
 } from "../../../components/icons/AppIcons";
@@ -31,6 +32,7 @@ interface StatusMetricProps {
   detail: string;
   percent?: number | null;
   warning?: boolean;
+  detailTitle?: string;
 }
 
 function normalizedPercent(value: number | null): number | null {
@@ -80,6 +82,7 @@ function StatusMetric({
   detail,
   percent,
   warning = false,
+  detailTitle,
 }: StatusMetricProps) {
   const { t } = useTranslation();
   const safePercent = normalizedPercent(percent ?? null);
@@ -104,7 +107,7 @@ function StatusMetric({
           <span style={{ width: `${safePercent}%` }} />
         </span>
       ) : null}
-      <span className="status-metric__detail" title={detail}>
+      <span className="status-metric__detail" title={detailTitle ?? detail}>
         {detail}
       </span>
     </div>
@@ -175,6 +178,7 @@ export function ServerMonitoring({
 }: ServerMonitoringProps) {
   const { byteRate, bytes, percent, t, uptime: formatUptime } = useTranslation();
   const headingId = useId();
+  const [volumesOpen, setVolumesOpen] = useState(false);
   const monitor = useServerMetrics({ enabled, pollIntervalMs, staleAfterMs });
   const snapshot = monitor.snapshot;
   const cpuPercent = snapshot?.cpuPercent ?? null;
@@ -287,14 +291,15 @@ export function ServerMonitoring({
               fullestDisk === null
                 ? t("monitoring.diskDataUnavailable")
                 : t("monitoring.diskUsage", {
-                    name: fullestDisk.name,
                     used: bytes(fullestDisk.usedBytes),
                     total: bytes(fullestDisk.totalBytes),
                   })
             }
+            detailTitle={fullestDisk?.name ?? undefined}
             percent={fullestDiskPercent}
             warning={diskWarning}
           />
+
           <StatusMetric
             Icon={NetworkIcon}
             label={t("monitoring.network")}
@@ -304,6 +309,27 @@ export function ServerMonitoring({
             })}
           />
         </div>
+      ) : null}
+
+      {disks.length > 1 ? (
+        <button
+          className="server-status__volumes-toggle"
+          type="button"
+          onClick={() => setVolumesOpen((open) => !open)}
+          aria-expanded={volumesOpen}
+          aria-controls={`${headingId}-volumes`}
+          title={t(volumesOpen ? "monitoring.hideVolumes" : "monitoring.showVolumes")}
+        >
+          <span>
+            {t(
+              disks.length === 1
+                ? "monitoring.volumeCountOne"
+                : "monitoring.volumeCountOther",
+              { count: String(disks.length) },
+            )}
+          </span>
+          <ChevronIcon width={13} height={13} />
+        </button>
       ) : null}
 
       <button
@@ -325,6 +351,40 @@ export function ServerMonitoring({
           height={15}
         />
       </button>
+
+      {volumesOpen && disks.length > 1 ? (
+        <ul className="server-status__volumes" id={`${headingId}-volumes`}>
+          {disks.map((disk) => {
+            const usage = derivedPercent(
+              disk.percent,
+              disk.usedBytes,
+              disk.totalBytes,
+            );
+            const full = (usage ?? 0) >= WARNING_AT.disk;
+
+            return (
+              <li
+                key={disk.mountPoint || disk.name}
+                className={full ? "server-volume server-volume--warning" : "server-volume"}
+              >
+                <span className="server-volume__name" title={disk.mountPoint || disk.name}>
+                  {disk.name}
+                </span>
+                <span className="server-volume__bar">
+                  <span style={{ width: `${usage ?? 0}%` }} />
+                </span>
+                <strong className="server-volume__value">{percent(usage)}</strong>
+                <span className="server-volume__detail">
+                  {t("monitoring.diskUsage", {
+                    used: bytes(disk.usedBytes),
+                    total: bytes(disk.totalBytes),
+                  })}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </section>
   );
 }
