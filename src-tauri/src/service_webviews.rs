@@ -1076,6 +1076,57 @@ pub async fn reconcile_service_webviews(
 }
 
 #[tauri::command]
+/// Reloads an open service view in place. The URL is never supplied by the
+/// frontend: the view is reloaded to the origin it was opened with, and only
+/// while that origin still matches the trusted catalog, so a reload cannot be
+/// used to navigate a child view somewhere it was not already allowed to be.
+pub async fn reload_service_webview(
+    caller: Webview,
+    app: AppHandle,
+    service_id: String,
+    catalog: tauri::State<'_, ServiceCatalog>,
+    registry: tauri::State<'_, ServiceWebviewRegistry>,
+) -> Result<(), String> {
+    ensure_trusted_caller(&caller)?;
+
+    if !is_valid_service_id(&service_id) {
+        return Err("The service id is invalid.".into());
+    }
+
+    catalog.resolve_enabled(&service_id)?;
+    let inner = registry
+        .inner
+        .lock()
+        .map_err(|_| "The service webview registry is unavailable.".to_string())?;
+    ensure_service_webviews_active(&inner)?;
+    let entry =
+        inner.entries.get(&service_id).cloned().ok_or_else(|| {
+            "The service view must be open before it can be reloaded.".to_string()
+        })?;
+
+    if !catalog.matches_registered_configuration(
+        &service_id,
+        &entry.url,
+        entry.tls_policy,
+        entry.browser_authentication,
+    ) {
+        return Err("The service configuration changed; the service view must be reopened.".into());
+    }
+
+    if !entry.ready {
+        return Err("The service view did not finish opening and must be recreated.".into());
+    }
+
+    let view = app.get_webview(&entry.label).ok_or_else(|| {
+        "The service view is no longer available and must be reopened.".to_string()
+    })?;
+    drop(inner);
+
+    view.eval("window.location.reload();")
+        .map_err(webview_error("reload the service webview"))
+}
+
+#[tauri::command]
 pub async fn close_service_webview(
     caller: Webview,
     app: AppHandle,

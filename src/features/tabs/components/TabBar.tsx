@@ -2,6 +2,7 @@ import { useMemo, useRef, type KeyboardEvent } from "react";
 import {
   CloseIcon,
   GridIcon,
+  RefreshIcon,
 } from "../../../components/icons/AppIcons";
 import { useTranslation } from "../../i18n";
 import { ServiceIcon } from "../../services/components/ServiceIcon";
@@ -13,6 +14,7 @@ interface TabBarProps {
   services: readonly DashboardService[];
   onActivate: (tabId: ActiveTabId) => void;
   onClose: (serviceId: string) => void;
+  onReload: (serviceId: string) => void;
 }
 
 export function TabBar({
@@ -20,6 +22,7 @@ export function TabBar({
   services,
   onActivate,
   onClose,
+  onReload,
 }: TabBarProps) {
   const { t } = useTranslation();
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -124,6 +127,20 @@ export function TabBar({
                 </span>
                 <span className="app-tab__label">{service.name}</span>
               </button>
+              {isActive ? (
+                <button
+                  className="service-tab__reload"
+                  type="button"
+                  aria-label={t("tabs.reloadTab", { serviceName: service.name })}
+                  title={t("tabs.reloadService", { serviceName: service.name })}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onReload(service.id);
+                  }}
+                >
+                  <RefreshIcon width={13} height={13} />
+                </button>
+              ) : null}
               <button
                 className="service-tab__close"
                 type="button"

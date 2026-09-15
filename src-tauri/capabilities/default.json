@@ -43,6 +43,7 @@
     "allow-activate-service-webview",
     "allow-hide-service-webviews",
     "allow-reconcile-service-webviews",
+    "allow-reload-service-webview",
     "allow-close-service-webview",
     "allow-open-service-in-system-browser"
   ]

@@ -133,6 +133,7 @@ pub fn run() {
             service_webviews::activate_service_webview,
             service_webviews::hide_service_webviews,
             service_webviews::reconcile_service_webviews,
+            service_webviews::reload_service_webview,
             service_webviews::close_service_webview,
             service_webviews::open_service_in_system_browser,
         ])
@@ -166,8 +167,8 @@ pub fn run() {
                     Err(error) => {
                         api.prevent_close();
                         eprintln!(
-                        "Atrium stayed open because its close policy is unavailable: {error}"
-                    );
+                            "Atrium stayed open because its close policy is unavailable: {error}"
+                        );
                         return;
                     }
                 };

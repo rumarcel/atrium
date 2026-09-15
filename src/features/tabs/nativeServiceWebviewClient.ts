@@ -23,6 +23,7 @@ export interface NativeServiceWebviewClient {
     focus: boolean,
   ) => Promise<void>;
   hideServiceWebviews: () => Promise<void>;
+  reloadServiceWebview: (serviceId: string) => Promise<void>;
   closeServiceWebview: (serviceId: string) => Promise<void>;
   reconcileServiceWebviews: (
     enabledServiceIds: ReadonlySet<string>,
@@ -128,6 +129,16 @@ export function createNativeServiceWebviewClient(
     ++desiredViewRevision;
     desiredServiceId = null;
     return enqueue(() => bridge.invoke("hide_service_webviews"));
+  }
+
+  // Queued with every other view command so a reload cannot overtake an open,
+  // activate or close that is still in flight for the same view.
+  function reloadServiceWebview(serviceId: string): Promise<void> {
+    if (!bridge.isDesktopRuntime()) {
+      return Promise.resolve();
+    }
+
+    return enqueue(() => bridge.invoke("reload_service_webview", { serviceId }));
   }
 
   function closeServiceWebview(serviceId: string): Promise<void> {
@@ -276,6 +287,7 @@ export function createNativeServiceWebviewClient(
     isDesktopRuntime: bridge.isDesktopRuntime,
     showServiceWebview,
     hideServiceWebviews,
+    reloadServiceWebview,
     closeServiceWebview,
     reconcileServiceWebviews,
     closeAllServiceWebviews,

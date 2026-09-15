@@ -753,8 +753,8 @@ fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, String> {
     let availability = DesktopCardAvailabilityMap::from_catalog(&catalog);
     let master = document.preferences.experimental_desktop_cards;
 
-    let open = MenuItem::with_id(app, MENU_OPEN, "Open Atrium", true, None::<&str>)
-        .map_err(menu_error)?;
+    let open =
+        MenuItem::with_id(app, MENU_OPEN, "Open Atrium", true, None::<&str>).map_err(menu_error)?;
     let open_settings = MenuItem::with_id(app, MENU_SETTINGS, "Settings", true, None::<&str>)
         .map_err(menu_error)?;
     let separator_one = PredefinedMenuItem::separator(app).map_err(menu_error)?;

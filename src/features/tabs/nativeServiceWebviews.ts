@@ -17,6 +17,7 @@ export const {
   isDesktopRuntime,
   showServiceWebview,
   hideServiceWebviews,
+  reloadServiceWebview,
   closeServiceWebview,
   reconcileServiceWebviews,
   closeAllServiceWebviews,

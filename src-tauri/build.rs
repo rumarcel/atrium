@@ -39,6 +39,7 @@ fn main() {
         "activate_service_webview",
         "hide_service_webviews",
         "reconcile_service_webviews",
+        "reload_service_webview",
         "close_service_webview",
         "open_service_in_system_browser",
     ];
