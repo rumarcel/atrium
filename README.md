@@ -504,10 +504,10 @@ decisions, scope and review.
   Center, Windows integration, server control and the Linux companion agent.
 - **Claude (Opus 5)** continued from there: the enrolled server address, the MIT
   license, the CI workflow and this section. Those commits carry a
-  `Co-Authored-By` trailer.
+  `Co-Authored-By` trailer, so they are shown as co-authored on GitHub.
 
-Neither tool appears in GitHub's contributor graph, which lists only GitHub
-accounts.
+Codex's commits predate that convention and carry no trailer, so its share of
+the work is recorded here rather than in commit metadata.
 
 Judge the result accordingly. It has a real test suite (Rust, TypeScript and
 Python) and its security boundaries are deliberate and documented, but no one
