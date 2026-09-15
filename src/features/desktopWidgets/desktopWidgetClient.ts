@@ -299,7 +299,7 @@ function browserFallback(): DesktopWidgetSnapshot {
     metrics: emptyMetrics(),
     services: [],
     trends: [],
-    message: "Live server data requires the Personal Hub desktop runtime.",
+    message: "Live server data requires the Atrium desktop runtime.",
   };
 }
 

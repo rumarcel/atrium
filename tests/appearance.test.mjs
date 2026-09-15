@@ -216,3 +216,54 @@ test("theme studio exposes pixel units for radii and blur only", () => {
     blur: "px",
   });
 });
+
+// Every bundled palette shipped tertiary text below the WCAG AA contrast
+// minimum, on every surface it is drawn on. This locks the fix in: a future
+// palette edit that dips back under 4.5:1 fails here instead of shipping.
+function channels(colour) {
+  const rgba = colour.match(/rgba?\(([^)]+)\)/);
+  if (rgba) {
+    const parts = rgba[1].split(",").map((part) => Number(part.trim()));
+    return { rgb: parts.slice(0, 3), alpha: parts.length > 3 ? parts[3] : 1 };
+  }
+  const value = Number.parseInt(colour.replace("#", ""), 16);
+  return { rgb: [(value >> 16) & 255, (value >> 8) & 255, value & 255], alpha: 1 };
+}
+
+function flatten(colour, backdrop) {
+  const { rgb, alpha } = channels(colour);
+  const base = channels(backdrop).rgb;
+  return rgb.map((part, index) => part * alpha + base[index] * (1 - alpha));
+}
+
+function luminance(rgb) {
+  const linear = rgb.map((part) => {
+    const ratio = part / 255;
+    return ratio <= 0.03928 ? ratio / 12.92 : Math.pow((ratio + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+}
+
+function contrast(foreground, background, backdrop) {
+  const a = luminance(flatten(foreground, backdrop));
+  const b = luminance(flatten(background, backdrop));
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+test("every bundled palette keeps body text above the WCAG AA contrast minimum", () => {
+  for (const [themeId, theme] of Object.entries(BUNDLED_THEMES)) {
+    for (const mode of ["dark", "light"]) {
+      const tokens = theme[mode];
+      const surfaces = [tokens.background, tokens.surface, tokens.surfaceElevated];
+      for (const role of ["textPrimary", "textSecondary", "textTertiary"]) {
+        for (const surface of surfaces) {
+          const ratio = contrast(tokens[role], surface, tokens.background);
+          assert.ok(
+            ratio >= 4.5,
+            `${themeId}/${mode} ${role} on ${surface} is ${ratio.toFixed(2)}:1`,
+          );
+        }
+      }
+    }
+  }
+});

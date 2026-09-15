@@ -7,7 +7,7 @@
 
 .server-control summary {
   color: var(--color-text-primary);
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   font-weight: 600;
   cursor: pointer;
 }
@@ -40,7 +40,7 @@
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-medium);
   color: var(--color-text-secondary);
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -58,7 +58,7 @@
 .server-control__confirmation strong,
 .server-control__operation strong {
   color: var(--color-text-primary);
-  font-size: 0.78rem;
+  font-size: var(--text-sm);
 }
 
 .server-control__operation button {
@@ -81,7 +81,7 @@
   padding-bottom: 8px;
   border-bottom: 1px solid var(--color-border);
   color: var(--color-text-secondary);
-  font-size: 0.68rem;
+  font-size: var(--text-2xs);
 }
 
 .server-control__history li:last-child {

@@ -427,7 +427,7 @@ export function parseServiceCredentialStatuses(
 }
 
 function desktopOnlyError(action: string): Error {
-  return new Error(`${action} requires the Personal Hub desktop runtime.`);
+  return new Error(`${action} requires the Atrium desktop runtime.`);
 }
 
 function errorMessage(error: unknown): string {

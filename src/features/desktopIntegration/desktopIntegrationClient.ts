@@ -85,7 +85,7 @@ export function parseDesktopIntegrationSnapshot(value: unknown): DesktopIntegrat
 }
 
 function requireDesktop(): void {
-  if (!isTauri()) throw new Error("Desktop integration requires the Personal Hub desktop app.");
+  if (!isTauri()) throw new Error("Desktop integration requires the Atrium desktop app.");
 }
 
 export const nativeDesktopIntegrationClient: DesktopIntegrationClient = {

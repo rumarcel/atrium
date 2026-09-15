@@ -43,7 +43,7 @@ function canonicalizeLocale(locale: string): string | null {
   }
 }
 
-/** Maps a BCP 47 language tag to a language bundled with Personal Hub. */
+/** Maps a BCP 47 language tag to a language bundled with Atrium. */
 export function languageFromLocale(locale: string): SupportedLanguage | null {
   const canonical = canonicalizeLocale(locale);
   if (canonical === null) {

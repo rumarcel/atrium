@@ -209,7 +209,7 @@ function previewSnapshot(): BackgroundRuntimeSnapshot {
 
 function desktopOnlyError(): Error {
   return new Error(
-    "Saving background runtime settings requires the Personal Hub desktop app.",
+    "Saving background runtime settings requires the Atrium desktop app.",
   );
 }
 

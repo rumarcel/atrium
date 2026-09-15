@@ -36,7 +36,7 @@ function previewSnapshot(): AppearanceSnapshot {
 }
 
 function desktopOnlyError(action: string): Error {
-  return new Error(`${action} requires the Personal Hub desktop app.`);
+  return new Error(`${action} requires the Atrium desktop app.`);
 }
 
 function normalizeSaveRequest(

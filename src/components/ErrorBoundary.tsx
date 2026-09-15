@@ -27,13 +27,13 @@ export class ErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("Personal Hub failed to render", error, info);
+    console.error("Atrium failed to render", error, info);
   }
 
   render() {
     if (this.state.hasError) {
       const copy = this.props.copy ?? {
-        eyebrow: "Personal Hub",
+        eyebrow: "Atrium",
         title: "Something went wrong.",
         description:
           "The dashboard could not be rendered. Restart the app to try again.",

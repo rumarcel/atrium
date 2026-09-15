@@ -56,7 +56,7 @@ const defaultDark: ResolvedThemeTokens = {
   borderStrong: "rgba(255, 255, 255, 0.13)",
   textPrimary: "#f5f5f7",
   textSecondary: "#8e8e93",
-  textTertiary: "#63636a",
+  textTertiary: "#83838a",
   accent: "#0a84ff",
   accentHover: "#2997ff",
   online: "#30d158",
@@ -83,7 +83,7 @@ const defaultLight: ResolvedThemeTokens = {
   borderStrong: "rgba(0, 0, 0, 0.14)",
   textPrimary: "#1d1d1f",
   textSecondary: "#636366",
-  textTertiary: "#8e8e93",
+  textTertiary: "#707075",
   accent: "#0071e3",
   accentHover: "#0077ed",
   online: "#248a3d",
@@ -110,7 +110,7 @@ const codeDark: ResolvedThemeTokens = {
   borderStrong: "#484f58",
   textPrimary: "#e6edf3",
   textSecondary: "#8b949e",
-  textTertiary: "#6e7681",
+  textTertiary: "#838b96",
   accent: "#58a6ff",
   accentHover: "#79c0ff",
   online: "#3fb950",
@@ -137,7 +137,7 @@ const codeLight: ResolvedThemeTokens = {
   borderStrong: "#afb8c1",
   textPrimary: "#1f2328",
   textSecondary: "#59636e",
-  textTertiary: "#818b98",
+  textTertiary: "#697380",
   accent: "#0969da",
   accentHover: "#0550ae",
   online: "#1a7f37",
@@ -164,7 +164,7 @@ const translucentDark: ResolvedThemeTokens = {
   borderStrong: "rgba(255, 255, 255, 0.18)",
   textPrimary: "#f7f7fa",
   textSecondary: "#a8a8b3",
-  textTertiary: "#737481",
+  textTertiary: "#8a8b98",
   accent: "#5ca8ff",
   accentHover: "#83beff",
   online: "#42d96b",
@@ -191,7 +191,7 @@ const translucentLight: ResolvedThemeTokens = {
   borderStrong: "rgba(31, 38, 51, 0.17)",
   textPrimary: "#20232a",
   textSecondary: "#5f6470",
-  textTertiary: "#858b98",
+  textTertiary: "#686e7b",
   accent: "#147ce5",
   accentHover: "#006edb",
   online: "#248a3d",
@@ -250,7 +250,7 @@ export const BUNDLED_THEMES: Readonly<
   default: {
     id: "default",
     name: "Default",
-    description: "The original Personal Hub visual language.",
+    description: "The original Atrium visual language.",
     dark: defaultDark,
     light: defaultLight,
   },
@@ -303,7 +303,7 @@ export function normalizeThemeNumber(
 
 /**
  * Accepts the common hex forms used by color inputs and returns the only color
- * representation persisted by Personal Hub. It deliberately rejects named
+ * representation persisted by Atrium. It deliberately rejects named
  * colors, var(), url(), gradients and all other CSS expressions.
  */
 export function normalizeThemeColor(
