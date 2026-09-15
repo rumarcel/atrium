@@ -77,8 +77,7 @@ textarea {
   border-color: var(--color-accent);
 }
 
-.monitoring-summary,
-.monitoring-metric,
+.server-status,
 .service-card,
 .settings-panel,
 .settings-service-toolbar,
@@ -102,7 +101,7 @@ textarea {
   box-shadow: var(--shadow-window);
 }
 
-.monitoring-progress,
+.status-metric__bar,
 .service-card--skeleton .skeleton-block,
 .desktop-widget-progress,
 .settings-switch > span {
@@ -138,8 +137,8 @@ html[data-color-mode="light"] .service-webview-placeholder {
 
 html[data-color-mode="light"] .search-field kbd,
 html[data-color-mode="light"] .category-filter__button,
-html[data-color-mode="light"] .monitoring-summary__refresh,
-html[data-color-mode="light"] .monitoring-metric__icon,
+html[data-color-mode="light"] .server-status__refresh,
+html[data-color-mode="light"] .status-metric__icon,
 html[data-color-mode="light"] .app-tab__service-icon,
 html[data-color-mode="light"] .settings-runtime-effective,
 html[data-color-mode="light"] .settings-authentication__summary > div,
@@ -161,14 +160,11 @@ html[data-color-mode="light"] .service-card:focus-within .service-card__launch {
 }
 
 html[data-color-mode="light"] .skeleton-block,
-html[data-color-mode="light"] .monitoring-progress,
+html[data-color-mode="light"] .status-metric__bar,
 html[data-color-mode="light"] .settings-switch > span {
   background: var(--color-border-strong);
 }
 
-html[data-color-mode="light"] .monitoring-summary::after {
-  border-color: var(--color-border);
-}
 
 html[data-theme="translucent"] body {
   background-image:
@@ -183,16 +179,14 @@ html[data-theme="translucent"] .settings-page {
   background: transparent;
 }
 
-html[data-theme="translucent"] .monitoring-summary,
-html[data-theme="translucent"] .monitoring-metric,
+html[data-theme="translucent"] .server-status,
 html[data-theme="translucent"] .download-center,
 html[data-theme="translucent"] .service-card,
 html[data-theme="translucent"] .settings-panel {
   box-shadow: var(--shadow-window), inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 7%, transparent);
 }
 
-html[data-theme="custom"] .monitoring-summary,
-html[data-theme="custom"] .monitoring-metric,
+html[data-theme="custom"] .server-status,
 html[data-theme="custom"] .download-center,
 html[data-theme="custom"] .service-card,
 html[data-theme="custom"] .settings-panel {
@@ -211,8 +205,7 @@ html[data-theme="code"] .settings-kicker::before {
   color: var(--color-text-tertiary);
 }
 
-html[data-theme-decoration="minimal"] .monitoring-summary,
-html[data-theme-decoration="minimal"] .monitoring-metric,
+html[data-theme-decoration="minimal"] .server-status,
 html[data-theme-decoration="minimal"] .download-center,
 html[data-theme-decoration="minimal"] .service-card,
 html[data-theme-decoration="minimal"] .settings-panel,
@@ -242,19 +235,10 @@ html[data-theme-decoration="minimal"] .service-card:hover {
   padding-bottom: calc(48px * var(--theme-density));
 }
 
-.monitoring-summary {
-  padding:
-    calc(20px * var(--theme-density))
-    calc(21px * var(--theme-density))
-    calc(17px * var(--theme-density));
+.server-status {
+  padding: calc(13px * var(--theme-density)) calc(18px * var(--theme-density));
 }
 
-.monitoring-metric {
-  padding:
-    calc(16px * var(--theme-density))
-    calc(16px * var(--theme-density))
-    calc(15px * var(--theme-density));
-}
 
 .service-card {
   padding: calc(17px * var(--theme-density));
@@ -547,8 +531,7 @@ html:is(:not([data-theme="default"]), [data-color-mode="light"])
   html[data-appearance-ready="true"] body,
   html[data-appearance-ready="true"] .app-header,
   html[data-appearance-ready="true"] .tab-bar,
-  html[data-appearance-ready="true"] .monitoring-summary,
-  html[data-appearance-ready="true"] .monitoring-metric,
+  html[data-appearance-ready="true"] .server-status,
   html[data-appearance-ready="true"] .download-center,
   html[data-appearance-ready="true"] .service-card,
   html[data-appearance-ready="true"] .settings-panel {

@@ -1,4 +1,4 @@
-import { useId, type ComponentType, type ReactNode, type SVGProps } from "react";
+import { useId, type ComponentType, type SVGProps } from "react";
 import {
   CpuIcon,
   MemoryIcon,
@@ -19,13 +19,18 @@ export interface ServerMonitoringProps extends UseServerMetricsOptions {
   className?: string;
 }
 
-interface MetricShellProps {
+/// A metric only earns colour when it crosses a threshold. The disk level
+/// matches the one the native notification runtime already alerts on, so the
+/// dashboard and the toast never disagree about what counts as a problem.
+const WARNING_AT = { cpu: 95, memory: 90, disk: 90, temperature: 85 } as const;
+
+interface StatusMetricProps {
   Icon: ComponentType<SVGProps<SVGSVGElement>>;
   label: string;
   value: string;
   detail: string;
   percent?: number | null;
-  children?: ReactNode;
+  warning?: boolean;
 }
 
 function normalizedPercent(value: number | null): number | null {
@@ -68,30 +73,28 @@ function mostUsedDisk(disks: readonly DiskMetrics[]) {
   );
 }
 
-function MetricShell({
+function StatusMetric({
   Icon,
   label,
   value,
   detail,
   percent,
-  children,
-}: MetricShellProps) {
+  warning = false,
+}: StatusMetricProps) {
   const { t } = useTranslation();
   const safePercent = normalizedPercent(percent ?? null);
+  const classes = warning ? "status-metric status-metric--warning" : "status-metric";
 
   return (
-    <article className="monitoring-metric">
-      <div className="monitoring-metric__heading">
-        <span className="monitoring-metric__icon" aria-hidden="true">
-          <Icon width={17} height={17} />
-        </span>
-        <span>{label}</span>
-      </div>
-      <strong>{value}</strong>
-      <small>{detail}</small>
+    <div className={classes}>
+      <span className="status-metric__icon" aria-hidden="true">
+        <Icon width={15} height={15} />
+      </span>
+      <span className="status-metric__label">{label}</span>
+      <strong className="status-metric__value">{value}</strong>
       {safePercent !== null ? (
-        <div
-          className="monitoring-progress"
+        <span
+          className="status-metric__bar"
           role="progressbar"
           aria-label={t("monitoring.metricUsage", { metric: label })}
           aria-valuemin={0}
@@ -99,10 +102,12 @@ function MetricShell({
           aria-valuenow={Math.round(safePercent)}
         >
           <span style={{ width: `${safePercent}%` }} />
-        </div>
+        </span>
       ) : null}
-      {children}
-    </article>
+      <span className="status-metric__detail" title={detail}>
+        {detail}
+      </span>
+    </div>
   );
 }
 
@@ -195,10 +200,23 @@ export function ServerMonitoring({
   const uptimeLabel = monitor.isStale && hasUptime
     ? t("monitoring.lastKnownUptime")
     : t("monitoring.serverUptime");
+  const temperature = snapshot?.cpuTemperatureC ?? null;
+  const diskWarning = (fullestDiskPercent ?? 0) >= WARNING_AT.disk;
+  const memoryWarning = (memoryPercent ?? 0) >= WARNING_AT.memory;
+  const cpuWarning =
+    (cpuPercent ?? 0) >= WARNING_AT.cpu ||
+    (temperature ?? 0) >= WARNING_AT.temperature;
+  // The strip only raises its own tone for a threshold the user can act on.
+  // A transport problem already shows through the connection tone.
+  const tone =
+    connection.tone === "online" && (diskWarning || memoryWarning || cpuWarning)
+      ? "warning"
+      : connection.tone;
   const classes = [
-    "server-monitoring",
-    snapshot === null ? "server-monitoring--summary-only" : null,
-    monitor.isStale ? "server-monitoring--stale" : null,
+    "server-status",
+    `server-status--${tone}`,
+    snapshot === null ? "server-status--summary-only" : null,
+    monitor.isStale ? "server-status--stale" : null,
     className,
   ]
     .filter(Boolean)
@@ -206,63 +224,29 @@ export function ServerMonitoring({
 
   return (
     <section className={classes} aria-labelledby={headingId}>
-      <article className="monitoring-summary">
-        <div className="monitoring-summary__topline">
-          <div
-            className={`monitoring-summary__icon monitoring-summary__icon--${connection.tone}`}
-            aria-hidden="true"
-          >
-            <ServerIcon width={22} height={22} />
-          </div>
-          <button
-            className="monitoring-summary__refresh"
-            type="button"
-            onClick={monitor.refresh}
-            disabled={
-              monitor.isRefreshing ||
-              monitor.isPaused ||
-              monitor.providerState === "not-configured" ||
-              enabled === false
-            }
-            aria-label={t("monitoring.refresh")}
-            title={t("monitoring.refresh")}
-          >
-            <RefreshIcon
-              className={monitor.isRefreshing ? "is-spinning" : undefined}
-              width={15}
-              height={15}
-            />
-          </button>
-        </div>
-
-        <div
-          className="monitoring-summary__content"
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          <div
-            className={`monitoring-summary__eyebrow monitoring-summary__eyebrow--${connection.tone}`}
-          >
-            <span className="monitoring-status-dot" aria-hidden="true" />
-            {connection.eyebrow}
-          </div>
+      <div
+        className="server-status__identity"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span className="server-status__dot" aria-hidden="true" />
+        <span className="server-status__icon" aria-hidden="true">
+          <ServerIcon width={18} height={18} />
+        </span>
+        <span className="server-status__copy">
           <h2 id={headingId}>{connection.title}</h2>
-          <p title={connection.description}>{connection.description}</p>
-        </div>
-
-        <div
-          className={`monitoring-summary__uptime monitoring-summary__uptime--${connection.tone}`}
-          aria-label={`${uptimeLabel}: ${uptime}`}
-        >
-          <span>{uptimeLabel}</span>
-          <strong>{uptime}</strong>
-        </div>
-      </article>
+          <small title={connection.description}>
+            {hasUptime || monitor.isStale
+              ? `${uptimeLabel} · ${uptime}`
+              : connection.description}
+          </small>
+        </span>
+      </div>
 
       {snapshot ? (
         <div
-          className="monitoring-metrics"
+          className="server-status__metrics"
           aria-label={
             monitor.isStale
               ? t("monitoring.lastKnownMetrics")
@@ -270,21 +254,21 @@ export function ServerMonitoring({
           }
           aria-busy={monitor.isRefreshing}
         >
-          <MetricShell
+          <StatusMetric
             Icon={CpuIcon}
             label={t("monitoring.cpu")}
             value={percent(cpuPercent)}
             detail={
-              snapshot.cpuTemperatureC === null
+              temperature === null
                 ? t("monitoring.temperatureUnavailable")
                 : t("monitoring.temperature", {
-                    temperature: `${Math.round(snapshot.cpuTemperatureC)} °C`,
+                    temperature: `${Math.round(temperature)} °C`,
                   })
             }
             percent={cpuPercent}
+            warning={cpuWarning}
           />
-
-          <MetricShell
+          <StatusMetric
             Icon={MemoryIcon}
             label={t("monitoring.memory")}
             value={percent(memoryPercent)}
@@ -293,18 +277,9 @@ export function ServerMonitoring({
               total: bytes(snapshot.memoryTotalBytes),
             })}
             percent={memoryPercent}
+            warning={memoryWarning}
           />
-
-          <MetricShell
-            Icon={NetworkIcon}
-            label={t("monitoring.network")}
-            value={byteRate(snapshot.networkDownloadBytesPerSecond)}
-            detail={t("monitoring.networkRate", {
-              upload: byteRate(snapshot.networkUploadBytesPerSecond),
-            })}
-          />
-
-          <MetricShell
+          <StatusMetric
             Icon={StorageIcon}
             label={t("monitoring.storage")}
             value={percent(fullestDiskPercent)}
@@ -318,20 +293,38 @@ export function ServerMonitoring({
                   })
             }
             percent={fullestDiskPercent}
-          >
-            {disks.length > 0 ? (
-              <span className="monitoring-metric__disk-count">
-                {t(
-                  disks.length === 1
-                    ? "monitoring.volumeCountOne"
-                    : "monitoring.volumeCountOther",
-                  { count: String(disks.length) },
-                )}
-              </span>
-            ) : null}
-          </MetricShell>
+            warning={diskWarning}
+          />
+          <StatusMetric
+            Icon={NetworkIcon}
+            label={t("monitoring.network")}
+            value={byteRate(snapshot.networkDownloadBytesPerSecond)}
+            detail={t("monitoring.networkRate", {
+              upload: byteRate(snapshot.networkUploadBytesPerSecond),
+            })}
+          />
         </div>
       ) : null}
+
+      <button
+        className="server-status__refresh"
+        type="button"
+        onClick={monitor.refresh}
+        disabled={
+          monitor.isRefreshing ||
+          monitor.isPaused ||
+          monitor.providerState === "not-configured" ||
+          enabled === false
+        }
+        aria-label={t("monitoring.refresh")}
+        title={t("monitoring.refresh")}
+      >
+        <RefreshIcon
+          className={monitor.isRefreshing ? "is-spinning" : undefined}
+          width={15}
+          height={15}
+        />
+      </button>
     </section>
   );
 }
