@@ -2,6 +2,7 @@
   "name": "personal-hub",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "packageManager": "pnpm@11.19.0",
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

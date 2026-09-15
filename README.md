@@ -486,3 +486,9 @@ To verify the native application without producing an installer:
 ```powershell
 pnpm tauri build --no-bundle
 ```
+
+## License
+
+Released under the [MIT License](LICENSE). Bundled service icons and the names
+of the third-party services this application links to belong to their respective
+projects and are used for identification only.
