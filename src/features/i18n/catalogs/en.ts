@@ -53,6 +53,7 @@ export const englishCatalog = {
   "dashboard.serviceDisplay": "View",
   "dashboard.serviceDisplayCards": "Cards",
   "dashboard.serviceDisplayLogos": "Logos",
+  "dashboard.needsAttention": "{{count}} need attention",
   "dashboard.addService": "Add a service",
   "dashboard.manageServices": "Manage services",
   "dashboard.noServicesFound": "No services found",

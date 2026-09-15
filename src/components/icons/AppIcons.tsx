@@ -60,6 +60,15 @@ export function ChevronIcon(props: IconProps) {
   );
 }
 
+export function ListIcon(props: IconProps) {
+  return (
+    <svg {...sharedProps} {...props}>
+      <rect x="3" y="4" width="18" height="7" rx="1" />
+      <rect x="3" y="13" width="18" height="7" rx="1" />
+    </svg>
+  );
+}
+
 export function PlusIcon(props: IconProps) {
   return (
     <svg {...sharedProps} {...props}>

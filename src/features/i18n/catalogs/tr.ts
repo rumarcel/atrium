@@ -59,6 +59,7 @@ const turkishOverrides = {
   "dashboard.serviceDisplay": "Görünüm",
   "dashboard.serviceDisplayCards": "Kartlar",
   "dashboard.serviceDisplayLogos": "Logolar",
+  "dashboard.needsAttention": "{{count}} dikkat istiyor",
   "dashboard.addService": "Servis ekle",
   "dashboard.manageServices": "Servisleri düzenle",
   "dashboard.noServicesFound": "Servis bulunamadı",

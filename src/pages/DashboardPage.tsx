@@ -1,6 +1,6 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PlusIcon, RefreshIcon } from "../components/icons/AppIcons";
+import { GridIcon, ListIcon, PlusIcon } from "../components/icons/AppIcons";
 import {
   MAIN_RESUMED_EVENT,
   OPEN_SETTINGS_EVENT,
@@ -573,71 +573,14 @@ export function DashboardPage() {
 
   const {
     healthById,
-    isChecking: isHealthChecking,
-    lastCheckedAt,
     refresh: refreshHealth,
     summary: healthSummary,
   } = useServiceHealth(enabledServices, catalogStatus === "ready");
 
-  const healthSummaryText = useMemo(() => {
-    if (catalogStatus !== "ready") {
-      return null;
-    }
-
-    if (enabledServices.length === 0) {
-      return t("health.noEnabledServices");
-    }
-
-    if (lastCheckedAt === null) {
-      return isHealthChecking
-        ? t("health.checkingServices", {
-            count: number(enabledServices.length),
-          })
-        : t("health.ready");
-    }
-
-    const localTlsWarnings = enabledServices.reduce(
-      (total, service) =>
-        healthById[service.id]?.reason === "tls-exception" ? total + 1 : total,
-      0,
-    );
-    const otherWarnings = healthSummary.warning - localTlsWarnings;
-    const summaryParts = [
-      healthSummary.online > 0
-        ? t("health.onlineCount", { count: number(healthSummary.online) })
-        : null,
-      localTlsWarnings > 0
-        ? t("health.localTlsCount", { count: number(localTlsWarnings) })
-        : null,
-      otherWarnings > 0
-        ? t(
-            otherWarnings === 1
-              ? "health.warningCountOne"
-              : "health.warningCountOther",
-            { count: number(otherWarnings) },
-          )
-        : null,
-      healthSummary.offline > 0
-        ? t("health.offlineCount", { count: number(healthSummary.offline) })
-        : null,
-      healthSummary.unchecked > 0
-        ? t("health.uncheckedCount", {
-            count: number(healthSummary.unchecked),
-          })
-        : null,
-    ].filter(Boolean);
-
-    return `${isHealthChecking ? `${t("health.refreshingPrefix")} · ` : ""}${summaryParts.join(" · ")}`;
-  }, [
-    catalogStatus,
-    enabledServices,
-    healthById,
-    healthSummary,
-    isHealthChecking,
-    lastCheckedAt,
-    number,
-    t,
-  ]);
+  const servicesNeedingAttention =
+    catalogStatus === "ready"
+      ? healthSummary.offline + healthSummary.warning
+      : 0;
 
   const serviceCategories = useMemo(
     () => [
@@ -739,7 +682,10 @@ export function DashboardPage() {
             </h1>
 
             <div className="dashboard-live-sections">
-              <ServerMonitoring enabled={isDashboardActive} />
+              <ServerMonitoring
+                enabled={isDashboardActive}
+                onRefresh={refreshHealth}
+              />
               <DownloadCenter
                 providers={downloadProviders}
                 enabled={isDashboardActive}
@@ -778,76 +724,26 @@ export function DashboardPage() {
             ) : null}
 
             <section className="services-section" aria-labelledby="services-heading">
-              <div className="section-heading">
-                <div>
-                  <div className="section-heading__title-row">
-                    <h2 id="services-heading">{t("dashboard.servicesTitle")}</h2>
-                    <span className="count-badge">
-                      {catalogStatus === "loading" ? "—" : filteredServices.length}
+              {/* One row: what this is, how to narrow it, how to add to it.
+                  The catalog's provenance, a second refresh and a third route
+                  into Settings all lived here and all belonged elsewhere. */}
+              <div className="services-bar">
+                <div className="services-bar__title">
+                  <h2 id="services-heading">{t("dashboard.servicesTitle")}</h2>
+                  <span className="count-badge">
+                    {catalogStatus === "loading" ? "—" : filteredServices.length}
+                  </span>
+                  {servicesNeedingAttention > 0 ? (
+                    <span className="attention-badge" aria-live="polite">
+                      {t("dashboard.needsAttention", {
+                        count: number(servicesNeedingAttention),
+                      })}
                     </span>
-                    <button
-                      className="add-service-button"
-                      type="button"
-                      onClick={handleAddService}
-                      disabled={catalogStatus !== "ready"}
-                      aria-label={t("dashboard.addService")}
-                      title={t("dashboard.addService")}
-                    >
-                      <PlusIcon width={15} height={15} />
-                    </button>
-                  </div>
-                  <p className="configuration-source">
-                    <span
-                      className={`configuration-source__dot configuration-source__dot--${catalogStatus}`}
-                      aria-hidden="true"
-                    />
-                    {catalogStatus === "ready"
-                      ? t("dashboard.configurationLoaded")
-                      : catalogStatus === "loading"
-                        ? t("dashboard.configurationLoading")
-                        : t("dashboard.configurationUnavailable")}
-                    {healthSummaryText ? (
-                      <>
-                        <span
-                          className="configuration-source__separator"
-                          aria-hidden="true"
-                        />
-                        <span className="health-summary" aria-live="polite">
-                          {healthSummaryText}
-                        </span>
-                      </>
-                    ) : null}
-                  </p>
+                  ) : null}
                 </div>
 
-                <button
-                  className="refresh-button"
-                  type="button"
-                  title={t("dashboard.refreshAutomatically")}
-                  onClick={refreshHealth}
-                  disabled={
-                    catalogStatus !== "ready" ||
-                    enabledServices.length === 0 ||
-                    isHealthChecking
-                  }
-                  aria-busy={isHealthChecking}
-                >
-                  <RefreshIcon
-                    className={
-                      isHealthChecking ? "refresh-button__icon--spinning" : undefined
-                    }
-                    width={16}
-                    height={16}
-                  />
-                  {isHealthChecking
-                    ? t("common.checking")
-                    : t("dashboard.refreshStatus")}
-                </button>
-              </div>
-
-              {catalogStatus !== "error" ? (
-                <>
-                  <div className="service-toolbar">
+                {catalogStatus !== "error" ? (
+                  <>
                     <div
                       className="category-filter"
                       role="group"
@@ -869,37 +765,55 @@ export function DashboardPage() {
                       ))}
                     </div>
 
-                    <div className="service-toolbar__actions">
-                      <label className="service-display-select">
-                        <span>{t("dashboard.serviceDisplay")}</span>
-                        <select
-                          value={serviceDisplayMode}
-                          onChange={(event) =>
-                            handleServiceDisplayModeChange(
-                              event.currentTarget.value === "logos"
-                                ? "logos"
-                                : "cards",
-                            )
-                          }
-                        >
-                          <option value="cards">
-                            {t("dashboard.serviceDisplayCards")}
-                          </option>
-                          <option value="logos">
-                            {t("dashboard.serviceDisplayLogos")}
-                          </option>
-                        </select>
-                      </label>
+                    <div
+                      className="view-toggle"
+                      role="group"
+                      aria-label={t("dashboard.serviceDisplay")}
+                    >
                       <button
-                        className="manage-services-button"
                         type="button"
-                        onClick={() => handleOpenSettings()}
+                        className={
+                          serviceDisplayMode === "logos"
+                            ? "view-toggle__button view-toggle__button--active"
+                            : "view-toggle__button"
+                        }
+                        aria-pressed={serviceDisplayMode === "logos"}
+                        title={t("dashboard.serviceDisplayLogos")}
+                        onClick={() => handleServiceDisplayModeChange("logos")}
                       >
-                        {t("dashboard.manageServices")}
+                        <GridIcon width={15} height={15} />
+                      </button>
+                      <button
+                        type="button"
+                        className={
+                          serviceDisplayMode === "cards"
+                            ? "view-toggle__button view-toggle__button--active"
+                            : "view-toggle__button"
+                        }
+                        aria-pressed={serviceDisplayMode === "cards"}
+                        title={t("dashboard.serviceDisplayCards")}
+                        onClick={() => handleServiceDisplayModeChange("cards")}
+                      >
+                        <ListIcon width={15} height={15} />
                       </button>
                     </div>
-                  </div>
 
+                    <button
+                      className="add-service-button"
+                      type="button"
+                      onClick={handleAddService}
+                      disabled={catalogStatus !== "ready"}
+                      aria-label={t("dashboard.addService")}
+                      title={t("dashboard.addService")}
+                    >
+                      <PlusIcon width={15} height={15} />
+                    </button>
+                  </>
+                ) : null}
+              </div>
+
+              {catalogStatus !== "error" ? (
+                <>
                   <ServiceGrid
                     services={filteredServices}
                     displayMode={serviceDisplayMode}
@@ -923,11 +837,6 @@ export function DashboardPage() {
             </section>
           </main>
 
-          <footer className="app-footer">
-            <span>{t("app.name")}</span>
-            <span className="app-footer__separator" aria-hidden="true" />
-            <span>{t("dashboard.footerDescription")}</span>
-          </footer>
         </div>
 
         {activeService ? (

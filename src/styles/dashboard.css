@@ -229,19 +229,7 @@
   cursor: pointer;
 }
 
-.section-heading {
-  display: flex;
-  margin-bottom: 18px;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 22px;
-}
 
-.section-heading__title-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
 
 .section-heading h2 {
   margin: 0;
@@ -264,70 +252,14 @@
   font-weight: 650;
 }
 
-.section-heading p {
-  margin: 5px 0 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
 
-.section-heading .configuration-source {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex-wrap: wrap;
-}
 
-.configuration-source__separator {
-  width: 3px;
-  height: 3px;
-  margin: 0 2px;
-  border-radius: 50%;
-  background: #47484e;
-}
 
-.health-summary {
-  color: var(--color-text-tertiary);
-}
 
-.configuration-source__dot {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: #55565d;
-}
 
-.configuration-source__dot--ready {
-  background: var(--color-online);
-}
 
-.configuration-source__dot--error {
-  background: var(--color-offline);
-}
 
-.configuration-source__dot--loading {
-  background: var(--color-warning);
-}
 
-.refresh-button {
-  display: inline-flex;
-  min-height: 36px;
-  padding: 0 12px;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    color var(--duration-fast) ease,
-    border-color var(--duration-fast) ease,
-    background var(--duration-fast) ease,
-    opacity var(--duration-fast) ease;
-}
 
 .refresh-button:hover:not(:disabled) {
   border-color: var(--color-border-strong);
@@ -339,17 +271,7 @@
   opacity: 0.56;
 }
 
-.refresh-button__icon--spinning {
-  animation: refresh-spin 900ms linear infinite;
-}
 
-.service-toolbar {
-  display: flex;
-  margin-bottom: 17px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-}
 
 .category-filter {
   display: flex;
@@ -392,59 +314,15 @@
   background: var(--color-surface-elevated);
 }
 
-.service-toolbar__actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
-}
 
-.service-display-select,
-.manage-services-button {
-  min-height: 34px;
-  border: 1px solid var(--color-border);
-  border-radius: 9px;
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
-  font-size: var(--text-2xs);
-  font-weight: 600;
-}
 
-.service-display-select {
-  display: inline-flex;
-  padding-left: 10px;
-  align-items: center;
-  gap: 5px;
-}
 
 .service-display-select > span {
   color: var(--color-text-tertiary);
 }
 
-.service-display-select select {
-  min-height: 32px;
-  padding: 0 24px 0 3px;
-  border: 0;
-  outline: 0;
-  color: var(--color-text-primary);
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
-}
 
-.service-display-select option {
-  color: var(--color-text-primary);
-  background: var(--color-surface-elevated);
-}
 
-.manage-services-button {
-  padding: 0 11px;
-  cursor: pointer;
-  transition:
-    color var(--duration-fast) ease,
-    border-color var(--duration-fast) ease,
-    background var(--duration-fast) ease;
-}
 
 .manage-services-button:hover {
   border-color: var(--color-border-strong);
@@ -810,24 +688,7 @@
   font-size: var(--text-xs);
 }
 
-.app-footer {
-  display: flex;
-  min-height: 58px;
-  padding: 0 34px;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  border-top: 1px solid var(--color-border);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-2xs);
-}
 
-.app-footer__separator {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: #47484e;
-}
 
 @media (min-width: 1600px) {
   .service-grid {
@@ -948,4 +809,61 @@
 .add-service-button:disabled {
   cursor: default;
   opacity: 0.4;
+}
+
+/* One row carries the section: what it is, how many, what needs attention,
+   how to narrow it, how to view it, how to add to it. */
+.services-bar {
+  display: flex;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.services-bar__title {
+  display: flex;
+  margin-right: auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.attention-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+}
+
+.view-toggle {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+}
+
+.view-toggle__button {
+  display: inline-flex;
+  width: 30px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+.view-toggle__button:hover {
+  color: var(--color-text-primary);
+}
+
+.view-toggle__button--active {
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
 }

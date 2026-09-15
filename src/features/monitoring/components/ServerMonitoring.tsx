@@ -18,6 +18,8 @@ import type {
 
 export interface ServerMonitoringProps extends UseServerMetricsOptions {
   className?: string;
+  /** Refreshed alongside the metrics, so the dashboard needs one button. */
+  onRefresh?: () => void;
 }
 
 /// A metric only earns colour when it crosses a threshold. The disk level
@@ -172,6 +174,7 @@ function connectionCopy(monitor: ServerMetricsMonitor, t: Translator) {
 
 export function ServerMonitoring({
   className,
+  onRefresh,
   enabled,
   pollIntervalMs,
   staleAfterMs,
@@ -335,12 +338,12 @@ export function ServerMonitoring({
       <button
         className="server-status__refresh"
         type="button"
-        onClick={monitor.refresh}
+        onClick={() => {
+          monitor.refresh();
+          onRefresh?.();
+        }}
         disabled={
-          monitor.isRefreshing ||
-          monitor.isPaused ||
-          monitor.providerState === "not-configured" ||
-          enabled === false
+          monitor.isRefreshing || monitor.isPaused || enabled === false
         }
         aria-label={t("monitoring.refresh")}
         title={t("monitoring.refresh")}

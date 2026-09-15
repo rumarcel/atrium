@@ -55,7 +55,6 @@ textarea {
 
 .search-field,
 .category-filter__button--active,
-.refresh-button,
 .icon-button,
 .app-tab--active,
 .service-tab--active,
@@ -213,8 +212,7 @@ html[data-theme-decoration="minimal"] .app-toast {
   box-shadow: none;
 }
 
-html[data-theme-decoration="minimal"] .service-card__launch,
-html[data-theme-decoration="minimal"] .app-footer__separator {
+html[data-theme-decoration="minimal"] .service-card__launch {
   display: none;
 }
 

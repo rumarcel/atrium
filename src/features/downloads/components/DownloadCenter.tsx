@@ -1,5 +1,4 @@
 import { useId, useMemo } from "react";
-import { RefreshIcon } from "../../../components/icons/AppIcons";
 import {
   useTranslation,
   type TranslationKeysWithoutParameters,
@@ -209,20 +208,6 @@ export function DownloadCenter({
             </p>
           </div>
         </div>
-        <button
-          className="download-center__refresh"
-          type="button"
-          onClick={monitor.refresh}
-          disabled={monitor.isRefreshing || monitor.isPaused || reason === "backoff"}
-          aria-label={t("downloadCenter.refresh")}
-          title={t("downloadCenter.refresh")}
-        >
-          <RefreshIcon
-            className={monitor.isRefreshing ? "is-spinning" : undefined}
-            width={15}
-            height={15}
-          />
-        </button>
       </header>
 
       {unavailable ? (
@@ -248,10 +233,9 @@ export function DownloadCenter({
           <span />
         </div>
       ) : items.length === 0 && !unavailable ? (
-        <div className="download-center__empty" role="status">
-          <strong>{t("downloadCenter.noPendingTitle")}</strong>
-          <span>{t("downloadCenter.noPendingDescription")}</span>
-        </div>
+        <p className="download-center__empty" role="status">
+          {t("downloadCenter.noPendingTitle")}
+        </p>
       ) : items.length > 0 ? (
         <div
           className="download-center__list"
