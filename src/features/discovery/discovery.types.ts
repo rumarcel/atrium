@@ -24,6 +24,8 @@ export interface ServerInventorySource {
 }
 
 export interface ServerInventoryDiscoveryResponse {
+  /// The enrolled server address every candidate URL must point at.
+  address: string;
   discovery: ServiceDiscoveryResponse;
   sources: readonly ServerInventorySource[];
   maintenance: { rebootRequired: true | null };

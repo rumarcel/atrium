@@ -22,6 +22,7 @@ function candidate(overrides = {}) {
 
 function inventory() {
   return {
+    address: "192.168.1.10",
     discovery: {
       source: "server-agent",
       sourceServiceId: "server-agent",
@@ -140,4 +141,24 @@ test("manual-review candidates cannot be imported and additions recheck latest d
   assert.equal(selectedDiscoveryServices(candidates, selected, selection, "server-agent").length, 0);
   const equivalent = { ...selected[0], id: "existing", name: "Media", url: "http://192.168.1.10:8096/#tab" };
   assert.equal(selectedDiscoveryServices(candidates, [equivalent], selection, "server-agent").length, 0);
+});
+
+test("the inventory address binds every candidate and rejects non-private hosts", () => {
+  // A candidate on any host other than the declared address is refused, so a
+  // native response cannot smuggle in a service that is not on this server.
+  for (const address of ["192.168.1.10", "10.0.0.5", "172.16.4.2", "127.0.0.1"]) {
+    const value = inventory();
+    value.address = address;
+    value.discovery.candidates = [candidate({ url: `http://${address}:8096/` })];
+    assert.equal(parseServerInventoryDiscoveryResponse(value).address, address);
+    const mismatched = inventory();
+    mismatched.address = address;
+    mismatched.discovery.candidates = [candidate({ url: "http://192.168.99.99:8096/" })];
+    assert.throws(() => parseServerInventoryDiscoveryResponse(mismatched), /service target was invalid/);
+  }
+  for (const address of ["", "8.8.8.8", "example.com", "192.168.1.10:9473", "192.168.1.999", null, 13]) {
+    const value = inventory();
+    value.address = address;
+    assert.throws(() => parseServerInventoryDiscoveryResponse(value), /address was invalid/, String(address));
+  }
 });

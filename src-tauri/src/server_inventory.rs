@@ -151,6 +151,9 @@ pub struct SourceSummary {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerInventoryDiscovery {
+    /// The enrolled address every suggested URL points at. The frontend
+    /// re-checks each candidate against it instead of a built-in host.
+    address: String,
     discovery: ServiceDiscoveryResponse,
     sources: Vec<SourceSummary>,
     maintenance: Maintenance,
@@ -283,6 +286,7 @@ fn create_discovery(
         }
     }
     Ok(ServerInventoryDiscovery {
+        address: address.to_string(),
         discovery: ServiceDiscoveryResponse {
             source: "server-agent",
             source_service_id: "server-agent".into(),

@@ -1,4 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+// The enrolled-address rule lives with server control, which owns that value.
+import { isPrivateIpv4 } from "../serverControl/serverControl.types.js";
 import type {
   ServiceDiscoveryCandidate,
   ServiceDiscoveryClient,
@@ -117,16 +119,18 @@ function boundedInteger(value: unknown, maximum: number, context: string): numbe
   return value;
 }
 
-function parseServerCandidate(value: unknown): ServiceDiscoveryCandidate {
+function parseServerCandidate(value: unknown, address: string): ServiceDiscoveryCandidate {
   const candidate = parseCandidate(value);
   if (candidate.iconHint !== null && !SERVER_ICON_HINTS.has(candidate.iconHint)) {
     throw new Error("The server inventory icon hint was invalid.");
   }
   if (candidate.url !== null) {
     // Only native-derived, published web ports on the paired server are eligible.
-    // A URL parser alone would normalize alternate hosts, encoded paths and ports.
-    const match = /^https?:\/\/192\.168\.1\.10:([1-9][0-9]{0,4})\/$/.exec(candidate.url);
-    if (match === null || Number(match[1]) > 65_535) {
+    // A URL parser alone would normalize alternate hosts, encoded paths and ports,
+    // so the shape is matched exactly and the host compared to the enrolled
+    // address: no path beyond "/", credentials, query or fragment is accepted.
+    const match = /^https?:\/\/([0-9.]+):([1-9][0-9]{0,4})\/$/.exec(candidate.url);
+    if (match === null || match[1] !== address || Number(match[2]) > 65_535) {
       throw new Error("The server inventory service target was invalid.");
     }
   }
@@ -166,7 +170,13 @@ export function parseServerInventoryDiscoveryResponse(value: unknown): ServerInv
   if (!isRecord(value)) {
     throw new Error("The server inventory response was invalid.");
   }
-  assertExactKeys(value, new Set(["discovery", "sources", "maintenance"]), "The server inventory response");
+  assertExactKeys(value, new Set(["address", "discovery", "sources", "maintenance"]), "The server inventory response");
+  // Every candidate URL is checked against this one declared host, so an
+  // address that is not a bare private literal invalidates the whole response.
+  if (typeof value.address !== "string" || !isPrivateIpv4(value.address)) {
+    throw new Error("The server inventory address was invalid.");
+  }
+  const address = value.address;
   if (!isRecord(value.discovery)) {
     throw new Error("The server inventory discovery was invalid.");
   }
@@ -192,10 +202,11 @@ export function parseServerInventoryDiscoveryResponse(value: unknown): ServerInv
     throw new Error("The inventory maintenance status was invalid.");
   }
   return {
+    address,
     discovery: {
       source: "server-agent",
       sourceServiceId: "server-agent",
-      candidates: value.discovery.candidates.map(parseServerCandidate),
+      candidates: value.discovery.candidates.map((candidate) => parseServerCandidate(candidate, address)),
       skippedCount: boundedInteger(value.discovery.skippedCount, 100_000, "The discovery skipped count"),
     },
     sources,
