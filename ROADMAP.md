@@ -46,8 +46,9 @@ The current dark Personal Hub appearance remains the initial and fallback theme.
   local service icons.
 - Phase 7.6: read-only qBittorrent Download Center with safe native sessions.
 - Phase 8: Windows integration, optional server notifications and NSIS packaging.
-- Phase 9.0/9.1: fixed-target server-control implementation and restricted Linux
-  agent; manual enrollment/dry-run validation remain required before activation.
+- Phase 9.0/9.1: single-enrolled-address server-control implementation and
+  restricted Linux agent; manual enrollment/dry-run validation remain required
+  before activation.
 
 ## Phase 6.1 — Windows desktop cards (completed)
 
@@ -256,8 +257,11 @@ Theme Studio and safe theme packs are part of this phase:
 
 - Optional Python-standard-library Linux Server Agent, not a dependency of the
   existing dashboard/providers. Requires a systemd server and a dedicated user.
-- Fixed `https://192.168.1.10:9473` endpoint, manually enrolled private TLS public
-  certificate, strict IP/expiry checks and a separate Windows-backed token vault.
+- Single `https://<enrolled address>:9473` endpoint, manually enrolled private TLS
+  public certificate, strict IP/expiry checks and a separate Windows-backed token
+  vault. The address is a Settings value restricted to a bare RFC1918, loopback or
+  link-local IPv4 literal; the agent port stays fixed and the stored token is bound
+  to one address, so re-pointing the enrollment requires re-storing that token.
 - No arbitrary endpoint, HTTP fallback, relaxed certificate checks, inherited
   proxy, redirect following, raw root password or general SSH/shell access.
 - Default-disabled desktop controls and default dry-run agent. Manual deployment

@@ -10,6 +10,8 @@ import export_inventory as exporter
 import personal_hub_inventory as inventory
 
 
+HOST = "192.168.1.10"
+PORT_RE = exporter.port_pattern(HOST)
 BOOT = "12345678-1234-4234-8234-123456789abc"
 OTHER_BOOT = "abcdef01-1234-4234-8234-123456789abc"
 NOW = 1_700_000_000_000
@@ -75,9 +77,9 @@ class InventoryReaderTests(unittest.TestCase):
     def test_aggregate_fixed_sources_and_unknown_maintenance(self):
         with mock.patch.object(inventory, "read_snapshot", side_effect=FileNotFoundError()), \
                 mock.patch.object(inventory, "reboot_required", return_value=None):
-            result = inventory.inventory_response(BOOT)
+            result = inventory.inventory_response(BOOT, HOST)
         self.assertEqual(set(result), {"version", "target", "sources", "maintenance"})
-        self.assertEqual(result["target"], "192.168.1.10")
+        self.assertEqual(result["target"], HOST)
         self.assertEqual([item["runtime"] for item in result["sources"]], ["docker", "podman"])
         self.assertEqual(result["maintenance"], {"rebootRequired": None})
 
@@ -99,25 +101,25 @@ class InventoryReaderTests(unittest.TestCase):
 
 class InventoryExporterTests(unittest.TestCase):
     def test_only_explicit_fixed_ipv4_published_tcp_ports(self):
-        value = ", ".join(["0.0.0.0:8096->8096/tcp", "192.168.1.10:9443->443/tcp",
+        value = ", ".join(["0.0.0.0:8096->8096/tcp", f"{HOST}:9443->443/tcp",
                            "127.0.0.1:9000->9000/tcp", "[::]:8080->80/tcp", "8080/tcp",
                            "192.168.0.14:9000->9000/tcp", "0.0.0.0:53->53/udp",
                            "0.0.0.0:0->80/tcp", "0.0.0.0:65536->80/tcp",
                            "0.0.0.0:8000-8009->8000-8009/tcp", "0.0.0.0:8096->8096/tcp"])
-        self.assertEqual(exporter.safe_ports(value), [{"hostPort": 8096, "containerPort": 8096},
+        self.assertEqual(exporter.safe_ports(value, PORT_RE), [{"hostPort": 8096, "containerPort": 8096},
                                                      {"hostPort": 9443, "containerPort": 443}])
-        self.assertEqual(len(exporter.safe_ports(",".join(f"0.0.0.0:{port}->80/tcp" for port in range(8000, 8020)))), 8)
+        self.assertEqual(len(exporter.safe_ports(",".join(f"0.0.0.0:{port}->80/tcp" for port in range(8000, 8020)), PORT_RE)), 8)
 
     def test_leaf_classification_only_no_image_url_label_or_secret_output(self):
         raw = raw_container(image="private.example/team/jellyfin:secret-tag")
-        actual = exporter.sanitized_container(raw)
+        actual = exporter.sanitized_container(raw, PORT_RE)
         self.assertEqual(actual, container())
         self.assertNotIn("private.example", json.dumps(actual))
         self.assertNotIn("secret-tag", json.dumps(actual))
         self.assertIsNone(exporter.application_for_image("private.example/jellyfin-not-official:v1"))
         self.assertEqual(exporter.application_for_image("ghcr.io/immich-app/immich-server:v1"), "immich")
         self.assertEqual(exporter.application_for_image("portainer/portainer-ce@sha256:abc"), "portainer")
-        self.assertIsNone(exporter.sanitized_container({**raw, "labels": {"secret": "never"}}))
+        self.assertIsNone(exporter.sanitized_container({**raw, "labels": {"secret": "never"}}, PORT_RE))
 
     def test_bounded_snapshot_and_bad_rows_are_skipped(self):
         # Use distinct short IDs as emitted source IDs (not colliding zero prefixes).
@@ -125,19 +127,19 @@ class InventoryExporterTests(unittest.TestCase):
         rows.append(raw_container(name="bad/name"))
         data = b"\n".join(json.dumps(row).encode() for row in rows)
         with mock.patch.object(exporter, "command_output", return_value=data):
-            result = exporter.export_document("docker", BOOT, now=NOW)
+            result = exporter.export_document("docker", BOOT, HOST, now=NOW)
         self.assertEqual(len(result["containers"]), 64)
         self.assertEqual(result["skippedCount"], 7)
         inventory.parse_snapshot(json.dumps(result).encode(), "docker")
 
     def test_cli_failure_and_malformed_output_do_not_reuse_or_echo_data(self):
         with mock.patch.object(exporter, "command_output", side_effect=OSError("SECRET")):
-            result = exporter.export_document("docker", BOOT, now=NOW)
+            result = exporter.export_document("docker", BOOT, HOST, now=NOW)
         self.assertEqual(result["state"], "unavailable")
         self.assertEqual(result["containers"], [])
         self.assertNotIn("SECRET", json.dumps(result))
         with mock.patch.object(exporter, "command_output", return_value=b"not-json SECRET"):
-            self.assertEqual(exporter.export_document("podman", BOOT)["state"], "unavailable")
+            self.assertEqual(exporter.export_document("podman", BOOT, HOST)["state"], "unavailable")
 
     def test_fixed_read_only_command_and_no_inherited_remote_context(self):
         for runtime, command in exporter.COMMANDS.items():
@@ -155,3 +157,17 @@ class InventoryExporterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HostValidationTests(unittest.TestCase):
+    def test_host_accepts_only_plain_private_ipv4(self):
+        for valid in ("192.168.1.10", "192.168.1.10", "10.0.0.5", "172.16.4.2", "127.0.0.1",
+                      "169.254.1.1"):
+            self.assertEqual(inventory.validate_host(valid), valid)
+        # A hostname, port, URL or public address would make the desktop's
+        # enrolled-address comparison and the certificate IP SAN ambiguous.
+        for invalid in ("", "8.8.8.8", "203.0.113.7", "example.com", "localhost",
+                        "192.168.1.10:9473", "https://192.168.1.10", "192.168.1.10/",
+                        " 192.168.1.10", "192.168.1.256", "192.168.1", "::1", "0.0.0.0"):
+            with self.assertRaises(ValueError, msg=invalid):
+                inventory.validate_host(invalid)

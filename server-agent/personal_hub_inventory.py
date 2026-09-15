@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,8 @@ import time
 import uuid
 
 
-TARGET = "192.168.1.10"
+ALLOWED_HOST_NETWORKS = tuple(ipaddress.IPv4Network(cidr) for cidr in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16"))
 RUNTIMES = ("docker", "podman")
 SNAPSHOT_DIRECTORY = Path("/var/lib/personal-hub-inventory")
 MAX_SNAPSHOT_BYTES = 65_536
@@ -176,8 +178,28 @@ def reboot_required() -> bool | None:
     return None
 
 
-def inventory_response(boot_id: str) -> dict:
+def validate_host(value: str) -> str:
+    """Accept only a bare private/loopback/link-local IPv4 literal.
+
+    The desktop compares this against the address it enrolled and the agent's
+    certificate must carry it as an IP SAN, so a hostname, port or URL here
+    would make both checks ambiguous.
+    """
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ipaddress.AddressValueError as error:
+        raise ValueError("host_must_be_ipv4") from error
+    # Exactly the ranges the desktop accepts (RFC1918, loopback, link-local).
+    # `is_private` is deliberately not used: it also covers documentation,
+    # carrier-grade NAT and benchmarking ranges, so the two sides would disagree
+    # about which address may be enrolled.
+    if not any(address in network for network in ALLOWED_HOST_NETWORKS):
+        raise ValueError("host_must_be_private")
+    return str(address)
+
+
+def inventory_response(boot_id: str, host: str) -> dict:
     now = time.time_ns() // 1_000_000
-    return {"version": 1, "target": TARGET,
+    return {"version": 1, "target": host,
             "sources": [inventory_source(runtime, now, boot_id) for runtime in RUNTIMES],
             "maintenance": {"rebootRequired": reboot_required()}}

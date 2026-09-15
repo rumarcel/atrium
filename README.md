@@ -380,7 +380,12 @@ provided; certificate files are not part of the project.
 
 Settings → Server control is disabled by default. This integration does not depend
 on Homarr or Glances and cannot power off the local Windows computer. The only
-endpoint is `https://192.168.1.10:9473`, independent of editable service URLs.
+only endpoint is `https://<enrolled address>:9473`, independent of editable
+service URLs. The address is entered once in Settings and accepts only a bare
+RFC1918, loopback or link-local IPv4 literal; the agent's fixed port is not
+configurable, and no hostname, URL or public address can be enrolled. Because a
+stored token is bound to one address, changing it requires storing the new
+server's token in the same save and removes the superseded server's token.
 
 The desktop exclusively trusts the manually enrolled public TLS certificate,
 retains certificate validity/IP checks, and disables proxy inheritance, redirects
@@ -388,7 +393,7 @@ and HTTP retries. A separate Windows Credential Manager entry holds the agent's
 64-hex token; it is never returned to React or written into a config document.
 
 The user chooses reboot/shutdown, reviews target and dry-run/live mode, then types
-`192.168.1.10` in a short-lived second confirmation. Rust consumes the confirmation
+the enrolled address in a short-lived second confirmation. Rust consumes the confirmation
 once and binds the request to the observed boot identity and agent mode. The agent
 enforces a 30-second countdown and accepts cancellation only before dispatch.
 Closing Personal Hub does **not** cancel a request already accepted by the agent.

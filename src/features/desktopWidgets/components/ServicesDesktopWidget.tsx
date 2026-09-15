@@ -62,7 +62,7 @@ export function ServicesDesktopWidget({ monitor }: ServicesDesktopWidgetProps) {
       kind="services"
       title={t("widget.serviceAttention")}
       subtitle={`${snapshot?.serverName ?? t("widget.homeServer")} · ${
-        snapshot?.serverAddress ?? "192.168.1.10"
+        snapshot?.serverAddress ?? "—"
       }`}
       monitor={monitor}
       icon={<WidgetServicesIcon />}

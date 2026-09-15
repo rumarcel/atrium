@@ -1,8 +1,8 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
+  isPrivateIpv4,
   SERVER_CONNECTION_STATES,
-  SERVER_CONTROL_HOST,
-  SERVER_CONTROL_TARGET,
+  SERVER_CONTROL_PORT,
   SERVER_OPERATION_STATES,
   type ServerControlAction,
   type ServerControlClient,
@@ -24,8 +24,8 @@ function boolean(value: unknown): boolean {
   return value;
 }
 
-function text(value: unknown, maximum = 128): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > maximum || value.trim() !== value || /[\u0000-\u001f\u007f]/.test(value)) {
+function text(value: unknown, maximum = 128, allowEmpty = false): string {
+  if (typeof value !== "string" || (value.length === 0 && !allowEmpty) || value.length > maximum || value.trim() !== value || /[\u0000-\u001f\u007f]/.test(value)) {
     throw new Error("Invalid server control text.");
   }
   return value;
@@ -68,8 +68,15 @@ function operation(value: unknown): ServerControlOperation {
 }
 
 export function parseServerControlSnapshot(value: unknown): ServerControlSnapshot {
-  const data = record(value, ["target", "enabled", "certificatePem", "credentialStored", "revision", "connectionState", "serverStatus", "pendingConfirmation", "activeOperation", "history", "notice"]);
-  if (data.target !== SERVER_CONTROL_TARGET) throw new Error("Unexpected server control target.");
+  const data = record(value, ["target", "address", "enabled", "certificatePem", "credentialStored", "revision", "connectionState", "serverStatus", "pendingConfirmation", "activeOperation", "history", "notice"]);
+  const address = text(data.address, 45, true);
+  // Either nothing is enrolled, or the target is exactly that address on the
+  // agent's fixed port. A target naming any other host or port is rejected.
+  if (address === "") {
+    if (data.target !== "") throw new Error("Unexpected server control target.");
+  } else if (!isPrivateIpv4(address) || data.target !== `${address}:${SERVER_CONTROL_PORT}`) {
+    throw new Error("Unexpected server control target.");
+  }
   let serverStatus: ServerControlSnapshot["serverStatus"] = null;
   if (data.serverStatus !== null) {
     const status = record(data.serverStatus, ["bootId", "uptimeSeconds", "dryRun"]);
@@ -84,13 +91,13 @@ export function parseServerControlSnapshot(value: unknown): ServerControlSnapsho
   const history = data.history.map(operation);
   if (new Set(history.map((entry) => entry.id)).size !== history.length) throw new Error("Duplicate server operation history.");
   const snapshot: ServerControlSnapshot = {
-    target: data.target, enabled: boolean(data.enabled), certificatePem: certificate(data.certificatePem),
+    target: text(data.target, 64, true), address, enabled: boolean(data.enabled), certificatePem: certificate(data.certificatePem),
     credentialStored: boolean(data.credentialStored), revision: revision(data.revision),
     connectionState: member(data.connectionState, SERVER_CONNECTION_STATES), serverStatus, pendingConfirmation,
     activeOperation: data.activeOperation === null ? null : operation(data.activeOperation), history,
     notice: data.notice === null ? null : text(data.notice, 1_000),
   };
-  if (snapshot.connectionState === "online" && (!snapshot.enabled || !snapshot.credentialStored || !snapshot.certificatePem.trim() || serverStatus === null)) {
+  if (snapshot.connectionState === "online" && (!snapshot.enabled || !snapshot.address || !snapshot.credentialStored || !snapshot.certificatePem.trim() || serverStatus === null)) {
     throw new Error("Inconsistent server connection status.");
   }
   if (snapshot.pendingConfirmation !== null && snapshot.activeOperation !== null) throw new Error("Conflicting server operations.");
@@ -115,14 +122,18 @@ export const nativeServerControlClient: ServerControlClient = {
   saveSettings(input) {
     if (input.token !== null && !/^[a-fA-F0-9]{64}$/.test(input.token)) throw new Error("Invalid server agent token.");
     if (input.clearToken && input.token !== null) throw new Error("Conflicting server token update.");
+    if (input.address !== "" && !isPrivateIpv4(input.address)) throw new Error("Invalid server address.");
+    if (input.enabled && input.address === "") throw new Error("A server address is required.");
     return request("save_server_control_settings", { request: {
-      enabled: boolean(input.enabled), certificatePem: certificate(input.certificatePem), token: input.token,
+      enabled: boolean(input.enabled), address: input.address, certificatePem: certificate(input.certificatePem), token: input.token,
       clearToken: boolean(input.clearToken), expectedRevision: revision(input.expectedRevision),
     } });
   },
   prepareAction: (value) => request("prepare_server_control_action", { request: { action: action(value) } }),
   confirmAction(confirmationId, target) {
-    if (target !== SERVER_CONTROL_HOST) throw new Error("Server target confirmation does not match.");
+    // Rust compares this against the enrolled address; this only stops an
+    // obviously malformed value from reaching a privileged command.
+    if (!isPrivateIpv4(target)) throw new Error("Server target confirmation does not match.");
     return request("confirm_server_control_action", { request: { confirmationId: text(confirmationId), target } });
   },
   cancelOperation: (operationId) => request("cancel_server_control_operation", { request: { operationId: text(operationId) } }),

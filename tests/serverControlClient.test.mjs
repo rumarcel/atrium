@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseServerControlSnapshot } from "../node_modules/.cache/personal-hub-tests/features/serverControl/serverControlClient.js";
+import { isPrivateIpv4 } from "../node_modules/.cache/personal-hub-tests/features/serverControl/serverControl.types.js";
 
 function snapshot(overrides = {}) {
   return {
     target: "192.168.1.10:9473",
+    address: "192.168.1.10",
     enabled: false,
     certificatePem: "",
     credentialStored: false,
@@ -62,7 +64,21 @@ test("scheduled and uncertain operations retain their distinct states", () => {
 });
 
 test("server responses reject changed targets and credential fields at every boundary", () => {
-  assert.throws(() => parseServerControlSnapshot(snapshot({ target: "127.0.0.1:9473" })), /Unexpected server control target/);
+  // The target must be exactly the enrolled address on the agent's fixed port.
+  for (const mismatch of [
+    { target: "127.0.0.1:9473" },
+    { target: "192.168.1.10:9474" },
+    { target: "192.168.1.10" },
+    { target: "" },
+    { address: "8.8.8.8", target: "8.8.8.8:9473" },
+    { address: "example.com", target: "example.com:9473" },
+    { address: "192.168.1.10", target: "192.168.0.14:9473" },
+  ]) {
+    assert.throws(() => parseServerControlSnapshot(snapshot(mismatch)), /Unexpected server control target/);
+  }
+  // Nothing enrolled yet is a valid state: both fields are empty together.
+  const unenrolled = snapshot({ address: "", target: "" });
+  assert.deepEqual(parseServerControlSnapshot(unenrolled), unenrolled);
   const pending = { id: "confirmation-1", action: "shutdown", expiresAt: 1_700_000_060_000, dryRun: true };
   for (const value of [
     snapshot({ token: "secret" }),
@@ -86,5 +102,18 @@ test("server responses reject unsafe numbers and malformed statuses", () => {
     connected({ credentialStored: false }),
   ]) {
     assert.throws(() => parseServerControlSnapshot(value));
+  }
+});
+
+test("the enrolled address accepts only plain private IPv4 literals", () => {
+  for (const valid of ["192.168.1.10", "192.168.1.10", "10.0.0.5", "172.16.4.2", "172.31.255.254", "127.0.0.1", "169.254.1.1"]) {
+    assert.equal(isPrivateIpv4(valid), true, valid);
+  }
+  for (const invalid of [
+    "", "8.8.8.8", "203.0.113.7", "172.15.0.1", "172.32.0.1", "example.com", "localhost",
+    "192.168.1.10:9473", "https://192.168.1.10", "192.168.1.10/", " 192.168.1.10", "192.168.1.10 ",
+    "192.168.0.256", "192.168.0", "192.168.0.1.1", "192.168.00.13", "0x c0.a8.0.13", "١٩٢.168.0.13",
+  ]) {
+    assert.equal(isPrivateIpv4(invalid), false, invalid);
   }
 });

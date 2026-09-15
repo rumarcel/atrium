@@ -9,7 +9,10 @@ StartLimitBurst=3
 Type=simple
 User=personalhub-agent
 Group=personalhub-agent
-ExecStart=/usr/bin/python3 -B /opt/personal-hub-agent/personal_hub_agent.py
+# Replace 192.168.1.10 with this server's own private IPv4 address. It must
+# match the certificate's IP SAN and the address enrolled in the desktop app.
+# There is no default: the agent refuses to start without --host.
+ExecStart=/usr/bin/python3 -B /opt/personal-hub-agent/personal_hub_agent.py --host 192.168.1.10
 WorkingDirectory=/opt/personal-hub-agent
 StateDirectory=personal-hub-agent
 StateDirectoryMode=0700

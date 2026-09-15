@@ -6,7 +6,8 @@ After=network.target
 Type=oneshot
 User=root
 Group=root
-ExecStart=/usr/bin/python3 -B /opt/personal-hub-agent/export_inventory.py --runtime %i
+# Use the same address as personal-hub-agent.service.
+ExecStart=/usr/bin/python3 -B /opt/personal-hub-agent/export_inventory.py --runtime %i --host 192.168.1.10
 WorkingDirectory=/opt/personal-hub-agent
 UMask=0077
 TimeoutStartSec=12

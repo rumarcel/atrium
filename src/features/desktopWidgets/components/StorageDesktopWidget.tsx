@@ -95,7 +95,7 @@ export function StorageDesktopWidget({ monitor }: StorageDesktopWidgetProps) {
       kind="storage"
       title={t("widget.serverStorage")}
       subtitle={`${snapshot?.serverName ?? t("widget.homeServer")} · ${
-        snapshot?.serverAddress ?? "192.168.1.10"
+        snapshot?.serverAddress ?? "—"
       }`}
       monitor={monitor}
       icon={<WidgetStorageIcon />}

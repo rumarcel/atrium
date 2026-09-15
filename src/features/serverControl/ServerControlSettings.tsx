@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation, type TranslationKeysWithoutParameters } from "../i18n";
 import { nativeServerControlClient } from "./serverControlClient";
 import {
-  SERVER_CONTROL_HOST,
-  SERVER_CONTROL_TARGET,
+  isPrivateIpv4,
+  SERVER_CONTROL_PORT,
   type ServerConnectionState,
   type ServerControlClient,
   type ServerControlSnapshot,
@@ -26,14 +26,15 @@ const OPERATION_LABELS: Record<ServerOperationState, TranslationKeysWithoutParam
 
 interface Draft {
   enabled: boolean;
+  address: string;
   certificatePem: string;
   token: string;
   clearToken: boolean;
-  baseline: { enabled: boolean; certificatePem: string; revision: string };
+  baseline: { enabled: boolean; address: string; certificatePem: string; revision: string };
 }
 const EMPTY_DRAFT: Draft = {
-  enabled: false, certificatePem: "", token: "", clearToken: false,
-  baseline: { enabled: false, certificatePem: "", revision: "0" },
+  enabled: false, address: "", certificatePem: "", token: "", clearToken: false,
+  baseline: { enabled: false, address: "", certificatePem: "", revision: "0" },
 };
 
 interface ServerControlSettingsProps {
@@ -57,8 +58,8 @@ export function ServerControlSettings({ client = nativeServerControlClient, desk
     setSnapshot(next);
     setNow(Date.now());
     if (hydrate) setDraft({
-      enabled: next.enabled, certificatePem: next.certificatePem, token: "", clearToken: false,
-      baseline: { enabled: next.enabled, certificatePem: next.certificatePem, revision: next.revision },
+      enabled: next.enabled, address: next.address, certificatePem: next.certificatePem, token: "", clearToken: false,
+      baseline: { enabled: next.enabled, address: next.address, certificatePem: next.certificatePem, revision: next.revision },
     });
   }, []);
 
@@ -117,11 +118,15 @@ export function ServerControlSettings({ client = nativeServerControlClient, desk
     return () => { window.clearInterval(poll); window.clearInterval(clock); };
   }, [active?.id, pending?.id, client, run]);
 
-  const dirty = draft.enabled !== draft.baseline.enabled || draft.certificatePem !== draft.baseline.certificatePem || draft.token !== "" || draft.clearToken;
+  const dirty = draft.enabled !== draft.baseline.enabled || draft.address !== draft.baseline.address || draft.certificatePem !== draft.baseline.certificatePem || draft.token !== "" || draft.clearToken;
+  const addressValid = draft.address === "" || isPrivateIpv4(draft.address);
+  // Re-pointing the enrollment invalidates the previous server's stored token,
+  // so the new server's token must be entered in the same save.
+  const addressChanged = draft.address !== draft.baseline.address;
   const locked = !desktopAvailable || snapshot === null || busy;
   const setupLocked = locked || pending !== null || active !== null;
   const tokenValid = draft.token === "" || /^[a-fA-F0-9]{64}$/.test(draft.token);
-  const configuredDraft = draft.certificatePem.trim() !== "" && (draft.token !== "" || (snapshot?.credentialStored && !draft.clearToken));
+  const configuredDraft = draft.address !== "" && addressValid && draft.certificatePem.trim() !== "" && (draft.token !== "" || (!addressChanged && snapshot?.credentialStored && !draft.clearToken));
   const canPrepare = !locked && !error && !dirty && snapshot?.enabled && snapshot.connectionState === "online" && snapshot.serverStatus !== null && pending === null && active === null;
   const confirmationExpired = pending !== null && now >= pending.expiresAt;
   const remaining = active?.executeAt === null || active?.executeAt === undefined ? null : Math.max(0, Math.ceil((active.executeAt - now) / 1_000));
@@ -138,7 +143,7 @@ export function ServerControlSettings({ client = nativeServerControlClient, desk
       <div className="settings-runtime-content">
         <p className="settings-runtime-note">{t("serverControl.description")}</p>
         <div className="settings-runtime-master">
-          <div><strong>{t("serverControl.target")}</strong><span><code>https://{SERVER_CONTROL_TARGET}</code> · {t("serverControl.serverOnly")}</span></div>
+          <div><strong>{t("serverControl.target")}</strong><span>{snapshot?.target ? <code>https://{snapshot.target}</code> : t("serverControl.noAddress")} · {t("serverControl.serverOnly")}</span></div>
           <strong>{t(CONNECTION_LABELS[snapshot?.connectionState ?? "not-configured"])}</strong>
         </div>
         {!desktopAvailable ? <p className="settings-inline-note">{t("serverControl.preview")}</p> : null}
@@ -158,6 +163,14 @@ export function ServerControlSettings({ client = nativeServerControlClient, desk
               <span aria-hidden="true" />{t(draft.enabled ? "common.on" : "common.off")}
             </label>
           </div>
+          <label className="settings-field">
+            <span>{t("serverControl.address")}</span>
+            <input type="text" inputMode="numeric" value={draft.address} disabled={setupLocked} maxLength={15} spellCheck={false}
+              autoCapitalize="off" autoCorrect="off" autoComplete="off" placeholder="192.168.1.10"
+              aria-invalid={!addressValid}
+              onChange={(event) => { const address = event.currentTarget.value.trim(); setDraft((value) => ({ ...value, address })); setSaved(false); }} />
+            <small>{addressValid ? t("serverControl.addressDescription", { port: String(SERVER_CONTROL_PORT) }) : t("serverControl.addressInvalid")}</small>
+          </label>
           <label className="settings-field">
             <span>{t("serverControl.certificate")}</span>
             <textarea value={draft.certificatePem} disabled={setupLocked} rows={5} maxLength={16_384} spellCheck={false} autoCapitalize="off" autoCorrect="off"
@@ -181,7 +194,7 @@ export function ServerControlSettings({ client = nativeServerControlClient, desk
           <div className="settings-form-actions">
             <button type="button" className="settings-button--primary" disabled={setupLocked || !dirty || !tokenValid || (draft.enabled && !configuredDraft)}
               onClick={() => void run(() => client.saveSettings({
-                enabled: draft.enabled, certificatePem: draft.certificatePem, token: draft.token === "" ? null : draft.token,
+                enabled: draft.enabled, address: draft.address, certificatePem: draft.certificatePem, token: draft.token === "" ? null : draft.token,
                 clearToken: draft.clearToken, expectedRevision: draft.baseline.revision,
               }), { hydrate: true, saved: true, clearToken: true })}>{t("common.save")}</button>
           </div>
@@ -207,18 +220,18 @@ export function ServerControlSettings({ client = nativeServerControlClient, desk
 
         {pending ? <div className="server-control__confirmation" role="region" aria-labelledby="server-control-confirm-heading">
           <h3 id="server-control-confirm-heading">{t("serverControl.confirmTitle")}</h3>
-          <strong>{t(pending.action === "reboot" ? "serverControl.reboot" : "serverControl.shutdown")} · {SERVER_CONTROL_HOST}</strong>
+          <strong>{t(pending.action === "reboot" ? "serverControl.reboot" : "serverControl.shutdown")} · {snapshot?.address ?? ""}</strong>
           <p>{t(pending.dryRun ? "serverControl.confirmDryRun" : "serverControl.confirmLive")}</p>
           <p>{t("serverControl.countdownNotice")}</p>
           <label className="settings-field">
-            <span>{t("serverControl.typeTarget", { target: SERVER_CONTROL_HOST })}</span>
+            <span>{t("serverControl.typeTarget", { target: snapshot?.address ?? "" })}</span>
             <input type="text" value={confirmationTarget} disabled={locked || confirmationExpired} autoComplete="off" spellCheck={false} maxLength={64}
               onChange={(event) => setConfirmationTarget(event.currentTarget.value)} />
           </label>
           <p role="status">{confirmationExpired ? t("serverControl.confirmationExpired") : t("serverControl.confirmationExpires", { seconds: Math.max(0, Math.ceil((pending.expiresAt - now) / 1_000)) })}</p>
           <div className="server-control__actions">
             <button type="button" disabled={locked} onClick={() => void run(() => client.dismissConfirmation())}>{t("common.cancel")}</button>
-            <button type="button" className="settings-button--danger" disabled={locked || confirmationExpired || confirmationTarget !== SERVER_CONTROL_HOST}
+            <button type="button" className="settings-button--danger" disabled={locked || confirmationExpired || !snapshot?.address || confirmationTarget !== snapshot.address}
               onClick={() => void run(() => client.confirmAction(pending.id, confirmationTarget))}>{t("serverControl.confirm")}</button>
           </div>
         </div> : null}

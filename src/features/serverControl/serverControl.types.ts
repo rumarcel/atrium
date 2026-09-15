@@ -1,5 +1,23 @@
-export const SERVER_CONTROL_TARGET = "192.168.1.10:9473" as const;
-export const SERVER_CONTROL_HOST = "192.168.1.10" as const;
+/// The companion agent binds one fixed port; only the host is configurable.
+export const SERVER_CONTROL_PORT = 9473 as const;
+
+/// Mirrors the native rule: a bare private, loopback or link-local IPv4
+/// literal. The desktop still treats Rust as the authority; this only keeps an
+/// obviously wrong value from reaching a privileged command.
+export function isPrivateIpv4(value: string): boolean {
+  const parts = value.split(".");
+  if (parts.length !== 4) return false;
+  const octets = parts.map((part) => (/^(0|[1-9]\d{0,2})$/.test(part) ? Number(part) : -1));
+  if (octets.some((octet) => octet < 0 || octet > 255)) return false;
+  const [first, second] = octets;
+  return (
+    first === 10 ||
+    first === 127 ||
+    (first === 192 && second === 168) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 169 && second === 254)
+  );
+}
 
 export const SERVER_CONNECTION_STATES = [
   "not-configured", "disabled", "unchecked", "online", "unreachable", "unauthorized", "invalid-response",
@@ -24,7 +42,9 @@ export interface ServerControlOperation {
 }
 
 export interface ServerControlSnapshot {
-  target: typeof SERVER_CONTROL_TARGET;
+  /// `host:port` of the enrolled agent, or empty when no address is saved.
+  target: string;
+  address: string;
   enabled: boolean;
   certificatePem: string;
   credentialStored: boolean;
@@ -39,6 +59,7 @@ export interface ServerControlSnapshot {
 
 export interface SaveServerControlSettingsRequest {
   enabled: boolean;
+  address: string;
   certificatePem: string;
   token: string | null;
   clearToken: boolean;

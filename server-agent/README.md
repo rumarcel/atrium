@@ -2,7 +2,8 @@
 
 An optional **Linux server-side** companion for the Windows desktop app. It is
 not needed for dashboards, Glances, Homarr, qBittorrent or normal service tabs.
-It can only schedule **reboot** or **shutdown** on **192.168.1.10**. It cannot run
+It can only schedule **reboot** or **shutdown** on the one server address its
+reviewed systemd unit supplies (`--host`). It cannot run
 arbitrary commands, control the local Windows computer, or access Docker sockets.
 
 The supplied service starts in **dry-run mode**. In that mode countdown and
@@ -12,13 +13,18 @@ This repository does not install anything on the server automatically.
 
 ## Requirements and trust model
 
-- A systemd-based Linux server at the fixed address `192.168.1.10`.
+- A systemd-based Linux server with a static private IPv4 address. Set that
+  address once in `--host` in both reviewed systemd units; the examples below
+  use `192.168.1.10`. The agent refuses to start without it, and accepts only an
+  RFC1918, loopback or link-local literal, which must match the certificate's IP
+  SAN and the address enrolled in the desktop app.
 - CPython 3.10+ with OpenSSL support; no pip packages. Startup explicitly checks
   the certificate's IP SAN and validity using CPython's stdlib certificate decoder.
 - A dedicated, unprivileged `personalhub-agent` user and private state directory.
   The process refuses to run as root or on Windows.
-- HTTPS only, fixed TCP port `9473`, TLS 1.2 or newer, a private certificate with
-  **IP SAN `192.168.1.10`**, and a random 256-bit bearer token (64 hex characters).
+- HTTPS only, fixed TCP port `9473` (not configurable), TLS 1.2 or newer, a
+  private certificate whose **IP SAN is that same address**, and a random 256-bit
+  bearer token (64 hex characters).
 - Desktop certificate enrollment must happen through a trusted channel. The
   desktop trusts the manually supplied private certificate, not arbitrary invalid
   certificates. Do not disable certificate/IP/expiry checks.

@@ -31,7 +31,10 @@ COMMANDS = {
 ENVIRONMENT = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C", "HOME": "/nonexistent"}
 MAX_COMMAND_BYTES = 262_144
 COMMAND_TIMEOUT = 8
-PORT_RE = re.compile(r"(?:0\.0\.0\.0|192\.168\.1\.10):([0-9]{1,5})->([0-9]{1,5})/tcp\Z")
+# Built per run from the reviewed --host so a published port bound to an
+# unrelated interface is never reported as reachable on this server.
+def port_pattern(host: str) -> re.Pattern[str]:
+    return re.compile(r"(?:0\.0\.0\.0|" + re.escape(host) + r"):([0-9]{1,5})->([0-9]{1,5})/tcp\Z")
 IMAGE_ALIASES = {"immich-server": "immich", "homeassistant": "home-assistant",
                  "portainer-ce": "portainer", "portainer-ee": "portainer",
                  "adguardhome": "adguard-home", "crafty-4": "crafty"}
@@ -82,12 +85,12 @@ def application_for_image(value: object) -> str | None:
     return application if application in inventory.APPLICATIONS else None
 
 
-def safe_ports(value: object) -> list[dict]:
+def safe_ports(value: object, port_re: re.Pattern[str]) -> list[dict]:
     if not isinstance(value, str) or len(value) > 16_384:
         return []
     ports = set()
     for binding in value.split(","):
-        match = PORT_RE.fullmatch(binding.strip())
+        match = port_re.fullmatch(binding.strip())
         if match:
             pair = tuple(int(part) for part in match.groups())
             if all(1 <= part <= 65_535 for part in pair):
@@ -96,7 +99,7 @@ def safe_ports(value: object) -> list[dict]:
             for host, container in sorted(ports)[:inventory.MAX_PORTS]]
 
 
-def sanitized_container(value: object) -> dict | None:
+def sanitized_container(value: object, port_re: "re.Pattern[str]") -> dict | None:
     if not isinstance(value, dict) or set(value) != {"id", "name", "image", "state", "ports"}:
         return None
     container_id = value["id"]
@@ -114,13 +117,14 @@ def sanitized_container(value: object) -> dict | None:
     normalized = "running" if state == "running" else (
         "stopped" if state in {"exited", "stopped", "created", "dead", "initialized"} else "unknown")
     return {"id": container_id[:12], "name": name, "application": application_for_image(value["image"]),
-            "state": normalized, "ports": safe_ports(value["ports"])}
+            "state": normalized, "ports": safe_ports(value["ports"], port_re)}
 
 
-def export_document(runtime: str, boot_id: str, *, now: int | None = None) -> dict:
+def export_document(runtime: str, boot_id: str, host: str, *, now: int | None = None) -> dict:
     result = {"version": 1, "runtime": runtime, "scope": "rootful", "bootId": boot_id,
               "generatedAt": time.time_ns() // 1_000_000 if now is None else now,
               "state": "unavailable", "skippedCount": 0, "containers": []}
+    port_re = port_pattern(host)
     try:
         raw = command_output(runtime)
         if len(raw) > MAX_COMMAND_BYTES:
@@ -129,7 +133,7 @@ def export_document(runtime: str, boot_id: str, *, now: int | None = None) -> di
         for line in raw.splitlines():
             if not line.strip():
                 continue
-            item = sanitized_container(inventory.strict_json(line))
+            item = sanitized_container(inventory.strict_json(line), port_re)
             if item is None or item["id"] in seen or len(result["containers"]) >= inventory.MAX_CONTAINERS:
                 result["skippedCount"] = min(inventory.MAX_SKIPPED, result["skippedCount"] + 1)
                 continue
@@ -172,6 +176,8 @@ def write_document(document: dict, group_id: int) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", required=True, choices=inventory.RUNTIMES)
+    parser.add_argument("--host", required=True,
+                        help="private IPv4 address this server is reached on")
     args = parser.parse_args()
     if sys.platform != "linux" or os.geteuid() != 0:
         print("Inventory export requires a reviewed root-owned Linux timer.", file=sys.stderr)
@@ -179,7 +185,8 @@ def main() -> int:
     try:
         import grp
 
-        document = export_document(args.runtime, inventory.current_boot_id())
+        host = inventory.validate_host(args.host)
+        document = export_document(args.runtime, inventory.current_boot_id(), host)
         write_document(document, grp.getgrnam("personalhub-agent").gr_gid)
         return 0 if document["state"] == "ready" else 1
     except (OSError, ValueError, KeyError):

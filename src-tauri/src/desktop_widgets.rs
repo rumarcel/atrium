@@ -21,7 +21,9 @@ const SCHEDULER_TICK: Duration = Duration::from_millis(200);
 const MAX_TREND_SAMPLES: usize = 24;
 const MAX_CONCURRENT_HEALTH_CHECKS: usize = 8;
 const SERVER_NAME: &str = "Personal Hub Server";
-const FALLBACK_SERVER_ADDRESS: &str = "192.168.1.10";
+// Shown only when no Glances endpoint is configured, in which case the card
+// already reports an unavailable provider. It must not name any real host.
+const UNKNOWN_SERVER_ADDRESS: &str = "—";
 
 #[derive(Clone, Copy, Debug, Deserialize, Hash, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -175,7 +177,7 @@ impl DesktopWidgetBroker {
         let server_address = metrics_endpoint
             .as_ref()
             .and_then(|endpoint| endpoint.url.host_str().map(str::to_owned))
-            .unwrap_or_else(|| FALLBACK_SERVER_ADDRESS.to_owned());
+            .unwrap_or_else(|| UNKNOWN_SERVER_ADDRESS.to_owned());
         let now = Instant::now();
 
         Self {
@@ -283,7 +285,7 @@ impl DesktopWidgetBroker {
         let server_address = metrics_endpoint
             .as_ref()
             .and_then(|endpoint| endpoint.url.host_str().map(str::to_owned))
-            .unwrap_or_else(|| FALLBACK_SERVER_ADDRESS.to_owned());
+            .unwrap_or_else(|| UNKNOWN_SERVER_ADDRESS.to_owned());
         let mut inner = self
             .inner
             .lock()
@@ -1061,7 +1063,18 @@ mod tests {
         assert_eq!(value["reason"], serde_json::Value::Null);
         assert_eq!(value["sampledAt"], 123);
         assert_eq!(value["serverName"], SERVER_NAME);
-        assert_eq!(value["serverAddress"], FALLBACK_SERVER_ADDRESS);
+        // The address is derived from the configured Glances entry rather than
+        // from any built-in host, so it follows whatever this catalog points at.
+        let catalog = ServiceCatalog::from_bundled_config().unwrap();
+        let expected_address = catalog
+            .resolve_endpoint("glances")
+            .unwrap()
+            .url
+            .host_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(value["serverAddress"], expected_address);
+        assert_ne!(value["serverAddress"], UNKNOWN_SERVER_ADDRESS);
         assert_eq!(value["metrics"]["cpuPercent"], 25.0);
         assert_eq!(value["trends"][0]["loadAverage1m"], 0.5);
         assert!(value.get("services").unwrap().is_array());

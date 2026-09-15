@@ -62,7 +62,7 @@ export function ServerDesktopWidget({ monitor }: ServerDesktopWidgetProps) {
     <DesktopWidgetShell
       kind="server"
       title={snapshot?.serverName ?? t("widget.homeServer")}
-      subtitle={snapshot?.serverAddress ?? "192.168.1.10"}
+      subtitle={snapshot?.serverAddress ?? "—"}
       monitor={monitor}
       icon={<WidgetServerIcon />}
     >

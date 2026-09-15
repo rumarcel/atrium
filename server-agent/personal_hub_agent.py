@@ -24,12 +24,13 @@ import time
 from typing import Callable
 import uuid
 
-from personal_hub_inventory import inventory_response
+from personal_hub_inventory import inventory_response, validate_host
 
 
-HOST = "192.168.1.10"
+# The listening address is supplied by the reviewed systemd unit. There is no
+# default: an agent must never bind or certify a host its administrator did not
+# choose. The port stays fixed so the desktop's enrolled origin cannot drift.
 PORT = 9473
-AUTHORITY = f"{HOST}:{PORT}"
 COUNTDOWN_MS = 30_000
 MAX_OPERATIONS = 256
 MAX_JOURNAL_BYTES = 131_072
@@ -340,11 +341,13 @@ class AgentHTTPServer(http.server.ThreadingHTTPServer):
     request_queue_size = 8
     allow_reuse_address = False
 
-    def __init__(self, context: ssl.SSLContext, store: OperationStore, token: str):
+    def __init__(self, context: ssl.SSLContext, store: OperationStore, token: str, host: str):
         self.store = store
         self.token = token
+        self.host = host
+        self.authority = f"{host}:{PORT}"
         self.slots = threading.BoundedSemaphore(8)
-        super().__init__((HOST, PORT), AgentHandler)
+        super().__init__((self.host, PORT), AgentHandler)
         self.socket = context.wrap_socket(self.socket, server_side=True,
                                          do_handshake_on_connect=False)
         self.timeout = 0.5
@@ -418,7 +421,7 @@ class AgentHandler(http.server.BaseHTTPRequestHandler):
             raise AgentError("request_too_large", 431)
         if len(self.headers) > 32:
             raise AgentError("request_too_large", 431)
-        if self.headers.get_all("Host", []) != [AUTHORITY]:
+        if self.headers.get_all("Host", []) != [self.server.authority]:
             raise AgentError("invalid_host")
         if "Origin" in self.headers:
             raise AgentError("browser_request_forbidden", 403)
@@ -442,7 +445,7 @@ class AgentHandler(http.server.BaseHTTPRequestHandler):
         try:
             length = self._gate()
             if self.command == "GET" and self.path == "/v1/inventory":
-                self._json(200, inventory_response(self.server.store.boot_id))
+                self._json(200, inventory_response(self.server.store.boot_id, self.server.host))
                 return
             if self.command == "GET" and self.path == "/v1/status":
                 self._json(200, {"version": 1, "serverId": "personal-hub-server",
@@ -493,7 +496,7 @@ def certificate_fingerprint(certificate: Path) -> str:
     return hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest()
 
 
-def build_tls_context(certificate: Path, key: Path) -> ssl.SSLContext:
+def build_tls_context(certificate: Path, key: Path, host: str) -> ssl.SSLContext:
     secure_directory(certificate.parent)
     secure_directory(key.parent)
     secure_read(certificate, 65_536, secret=False)
@@ -504,7 +507,7 @@ def build_tls_context(certificate: Path, key: Path) -> ssl.SSLContext:
     if decoder is None:
         raise ValueError("cpython_certificate_decoder_required")
     decoded = decoder(str(certificate))
-    if ("IP Address", HOST) not in decoded.get("subjectAltName", ()):
+    if ("IP Address", host) not in decoded.get("subjectAltName", ()):
         raise ValueError("certificate_ip_san_required")
     now = time.time()
     if not ssl.cert_time_to_seconds(decoded["notBefore"]) <= now < ssl.cert_time_to_seconds(decoded["notAfter"]):
@@ -534,6 +537,8 @@ def lock_state_directory(directory: Path) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", required=True,
+                        help="private IPv4 address this agent binds and certifies")
     parser.add_argument("--certificate", type=Path, default=Path("/etc/personal-hub-agent/server.crt"))
     parser.add_argument("--key", type=Path, default=Path("/etc/personal-hub-agent/server.key"))
     parser.add_argument("--token-file", type=Path, default=Path("/etc/personal-hub-agent/token"))
@@ -553,16 +558,17 @@ def main() -> int:
         return 1
     state_lock = None
     try:
+        host = validate_host(args.host)
         secure_directory(args.token_file.parent)
         secure_directory(args.state_dir, state=True)
         token = secure_read(args.token_file, 65).decode("ascii").removesuffix("\n")
         if not TOKEN_RE.fullmatch(token):
             raise ValueError("invalid_token_file")
-        context = build_tls_context(args.certificate, args.key)
+        context = build_tls_context(args.certificate, args.key, host)
         state_lock = lock_state_directory(args.state_dir)
         store = OperationStore(args.state_dir / "operations.json", linux_boot_id(),
                                dry_run=not args.allow_power)
-        server = AgentHTTPServer(context, store, token)
+        server = AgentHTTPServer(context, store, token, host)
     except (OSError, ValueError, AgentError, UnicodeError, RecursionError):
         if state_lock is not None:
             os.close(state_lock)
@@ -582,7 +588,7 @@ def main() -> int:
 
     worker = threading.Thread(target=scheduler, name="power-countdown", daemon=True)
     worker.start()
-    print(f"Personal Hub agent listening on https://{AUTHORITY}; dry-run={store.dry_run}", flush=True)
+    print(f"Personal Hub agent listening on https://{server.authority}; dry-run={store.dry_run}", flush=True)
     try:
         while not stopped.is_set():
             server.handle_request()

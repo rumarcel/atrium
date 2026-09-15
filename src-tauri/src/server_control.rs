@@ -12,9 +12,10 @@ use std::{
 };
 use tauri::{AppHandle, Manager, Webview};
 
-const TARGET: &str = "192.168.1.10:9473";
-const ORIGIN: &str = "https://192.168.1.10:9473";
-const CONFIRM_TARGET: &str = "192.168.1.10";
+/// The companion agent binds one fixed port. Keeping it out of the enrolled
+/// preference means a saved address can never redirect requests to an unrelated
+/// service that happens to run on the same host.
+const AGENT_PORT: u16 = 9473;
 const MAX_HISTORY: usize = 50;
 const MAX_BODY: usize = 16 * 1024;
 const TRACKING_MS: u64 = 10 * 60 * 1000;
@@ -78,6 +79,11 @@ struct StoredOperation {
 struct Preferences {
     enabled: bool,
     certificate_pem: String,
+    /// Absent in documents written before the address became configurable. Such
+    /// a document loads as not configured rather than inheriting a built-in
+    /// address, so no enrollment is ever pointed at a host the user never typed.
+    #[serde(default)]
+    address: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -138,7 +144,9 @@ enum ConnectionState {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
-    target: &'static str,
+    /// `host:port` of the enrolled agent, or empty when no address is saved.
+    target: String,
+    address: String,
     enabled: bool,
     certificate_pem: String,
     credential_stored: bool,
@@ -262,18 +270,35 @@ impl ServerControl {
         {
             state.pending = None;
         }
-        let stored = credential_vault::inspect_server_control_token();
-        let credential_stored = stored.as_ref().copied().unwrap_or(false);
         let preferences = &state.document.preferences;
+        // Without an enrolled address there is no vault key to inspect, so the
+        // panel reports "not configured" instead of probing an unrelated entry.
+        let stored = if preferences.address.is_empty() {
+            Ok(false)
+        } else {
+            credential_vault::inspect_server_control_token(
+                &credential_target_of(&preferences.address),
+                &origin_of(&preferences.address),
+            )
+        };
+        let credential_stored = stored.as_ref().copied().unwrap_or(false);
         let connection = if !preferences.enabled {
             ConnectionState::Disabled
-        } else if preferences.certificate_pem.is_empty() || !credential_stored {
+        } else if preferences.address.is_empty()
+            || preferences.certificate_pem.is_empty()
+            || !credential_stored
+        {
             ConnectionState::NotConfigured
         } else {
             state.connection
         };
         Ok(Snapshot {
-            target: TARGET,
+            target: if preferences.address.is_empty() {
+                String::new()
+            } else {
+                target_of(&preferences.address)
+            },
+            address: preferences.address.clone(),
             enabled: preferences.enabled,
             certificate_pem: preferences.certificate_pem.clone(),
             credential_stored,
@@ -308,12 +333,27 @@ impl ServerControl {
         if !state.document.preferences.enabled {
             return Err("Server control is disabled.".into());
         }
+        // Re-validated on every use: a hand-edited document must not be able to
+        // widen the enrolled address to a public host or a different port.
+        let address = validate_address(&state.document.preferences.address)
+            .map_err(|_| "No server address is enrolled.".to_string())?;
         let client = build_client(&state.document.preferences.certificate_pem)?;
         drop(state);
         Ok(Transport {
             client,
-            credential: credential_vault::read_server_control_token()?,
+            credential: credential_vault::read_server_control_token(
+                &credential_target_of(&address),
+                &origin_of(&address),
+            )?,
+            origin: origin_of(&address),
         })
+    }
+
+    /// The enrolled address, re-validated on read so a hand-edited document
+    /// cannot widen it. Callers use this to bind derived data to that one host.
+    pub(crate) fn enrolled_address(&self) -> Result<String, String> {
+        let address = self.lock()?.document.preferences.address.clone();
+        validate_address(&address).map_err(|_| "No server address is enrolled.".to_string())
     }
 
     /// On-demand, read-only inventory uses the enrolled trust path but never
@@ -373,26 +413,49 @@ impl ServerControl {
         if let Some(token) = &token {
             credential_vault::validate_server_control_token(token.expose())?;
         }
+        let address = if request.address.trim().is_empty() {
+            String::new()
+        } else {
+            validate_address(&request.address)?
+        };
         let certificate = request.certificate_pem.trim().to_string();
         if !certificate.is_empty() {
             build_client(&certificate)?;
-        }
-        if request.enabled
-            && (certificate.is_empty()
-                || request.clear_token
-                || (token.is_none() && !credential_vault::inspect_server_control_token()?))
-        {
-            return Err("A trusted certificate and a stored token are required before enabling server control.".into());
         }
         let mut state = self.lock()?;
         ensure_idle(&state)?;
         if request.expected_revision != state.document.revision.to_string() {
             return Err("Server control settings changed. Reload them before saving.".into());
         }
+        let previous_address = state.document.preferences.address.clone();
+        let address_changed = address != previous_address;
+        // A token is bound to one address. Re-pointing the enrollment must not
+        // silently carry the previous server's token to the new one, so the
+        // stored token only counts when the address is unchanged.
+        let existing_token = !address.is_empty()
+            && !address_changed
+            && credential_vault::inspect_server_control_token(
+                &credential_target_of(&address),
+                &origin_of(&address),
+            )?;
+        if request.enabled
+            && (address.is_empty()
+                || certificate.is_empty()
+                || request.clear_token
+                || (token.is_none() && !existing_token))
+        {
+            return Err("A server address, a trusted certificate and a stored token are required before enabling server control.".into());
+        }
+        if address_changed && token.is_none() && !request.clear_token && request.enabled {
+            return Err(
+                "Changing the server address requires storing that server's token again.".into(),
+            );
+        }
         let mut next = state.document.clone();
         next.preferences = Preferences {
             enabled: request.enabled,
             certificate_pem: certificate,
+            address: address.clone(),
         };
         next.revision = next
             .revision
@@ -400,11 +463,25 @@ impl ServerControl {
             .ok_or("Server control revision is exhausted.")?;
         // Credentials never enter this document. Changing the vault first is
         // fail-safe: failed persistence may require re-enrollment, not fallback.
-        if let Some(token) = token {
-            credential_vault::write_server_control_token(token)?;
+        // The superseded address's token is removed first so a re-pointed
+        // enrollment cannot leave a usable token for the old server behind.
+        if address_changed && !previous_address.is_empty() {
+            credential_vault::delete_server_control_token(&credential_target_of(
+                &previous_address,
+            ))?;
         }
-        if request.clear_token {
-            credential_vault::delete_server_control_token()?;
+        if let Some(token) = token {
+            if address.is_empty() {
+                return Err("Enter the server address before storing its token.".into());
+            }
+            credential_vault::write_server_control_token(
+                &credential_target_of(&address),
+                &origin_of(&address),
+                token,
+            )?;
+        }
+        if request.clear_token && !address.is_empty() {
+            credential_vault::delete_server_control_token(&credential_target_of(&address))?;
         }
         self.persist(&next)?;
         state.document = next;
@@ -452,7 +529,8 @@ impl ServerControl {
                 .pending
                 .take()
                 .ok_or("The confirmation has expired. Start again.")?;
-            validate_confirmation(&pending, &request, Instant::now())?;
+            let enrolled_address = state.document.preferences.address.clone();
+            validate_confirmation(&pending, &request, &enrolled_address, Instant::now())?;
             pending
         };
         let transport = self.transport()?;
@@ -679,15 +757,50 @@ fn ensure_idle(state: &Runtime) -> Result<(), String> {
 fn validate_confirmation(
     pending: &Pending,
     request: &ConfirmRequest,
+    enrolled_address: &str,
     now: Instant,
 ) -> Result<(), String> {
-    if request.target != CONFIRM_TARGET
+    // An empty enrolled address can never match: `target` is rejected as empty
+    // by the request parser, so this cannot degrade into an always-true compare.
+    if enrolled_address.is_empty()
+        || request.target != enrolled_address
         || request.confirmation_id != pending.public.id
         || now >= pending.deadline
     {
         return Err("The confirmation or typed target is invalid or expired. Start again.".into());
     }
     Ok(())
+}
+
+/// The agent's certificate carries an IP SAN, and the second confirmation step
+/// asks the user to retype exactly this value, so only a bare private IPv4
+/// literal is accepted. Hostnames resolve at request time and could move between
+/// hosts; a URL, port or embedded credential would make the typed confirmation
+/// ambiguous. Public addresses are refused because this endpoint must never be
+/// reachable from the internet.
+fn validate_address(value: &str) -> Result<String, String> {
+    let address: std::net::Ipv4Addr = value
+        .trim()
+        .parse()
+        .map_err(|_| "The server address must be a plain IPv4 address such as 192.168.1.10.")?;
+    if !(address.is_private() || address.is_loopback() || address.is_link_local()) {
+        return Err(
+            "The server address must be a private, loopback or link-local address.".into(),
+        );
+    }
+    Ok(address.to_string())
+}
+
+fn target_of(address: &str) -> String {
+    format!("{address}:{AGENT_PORT}")
+}
+
+fn origin_of(address: &str) -> String {
+    credential_vault::server_control_origin(address, AGENT_PORT)
+}
+
+fn credential_target_of(address: &str) -> String {
+    credential_vault::server_control_credential_target(address, AGENT_PORT)
 }
 
 fn build_client(pem: &str) -> Result<Client, String> {
@@ -720,6 +833,7 @@ fn build_client(pem: &str) -> Result<Client, String> {
 struct Transport {
     client: Client,
     credential: credential_vault::OriginBoundCredential,
+    origin: String,
 }
 
 #[derive(Debug)]
@@ -764,7 +878,7 @@ impl Transport {
         authorization.set_sensitive(true);
         let mut builder = self
             .client
-            .request(method, format!("{ORIGIN}{path}"))
+            .request(method, format!("{}{path}", self.origin))
             .header(reqwest::header::AUTHORIZATION, authorization)
             .header(reqwest::header::ACCEPT, "application/json");
         if let Some(body) = body {
@@ -1027,6 +1141,7 @@ fn authorize_main(label: &str) -> Result<(), String> {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SaveSettingsRequest {
     enabled: bool,
+    address: String,
     certificate_pem: String,
     token: Option<String>,
     clear_token: bool,
@@ -1198,14 +1313,51 @@ mod tests {
             boot_id: "00000000-0000-0000-0000-000000000000".into(),
             deadline: Instant::now() + Duration::from_secs(60),
         };
+        let enrolled = "192.168.1.10";
         let mut request = ConfirmRequest {
             confirmation_id: pending.public.id.clone(),
-            target: CONFIRM_TARGET.into(),
+            target: enrolled.into(),
         };
-        assert!(validate_confirmation(&pending, &request, Instant::now()).is_ok());
-        assert!(validate_confirmation(&pending, &request, pending.deadline).is_err());
+        assert!(validate_confirmation(&pending, &request, enrolled, Instant::now()).is_ok());
+        assert!(validate_confirmation(&pending, &request, enrolled, pending.deadline).is_err());
+        // Typing the previously enrolled address must not confirm an operation
+        // after the enrollment was re-pointed at a different server.
+        assert!(
+            validate_confirmation(&pending, &request, "192.168.0.14", Instant::now()).is_err()
+        );
+        // With nothing enrolled there is no address a typed value could match.
+        assert!(validate_confirmation(&pending, &request, "", Instant::now()).is_err());
         request.target = "localhost".into();
-        assert!(validate_confirmation(&pending, &request, Instant::now()).is_err());
+        assert!(validate_confirmation(&pending, &request, enrolled, Instant::now()).is_err());
+    }
+
+    #[test]
+    fn server_control_address_accepts_only_private_literals() {
+        for valid in ["192.168.1.10", "10.0.0.5", "172.16.4.2", "127.0.0.1"] {
+            assert_eq!(validate_address(valid).unwrap(), valid);
+        }
+        assert_eq!(validate_address("  192.168.1.10  ").unwrap(), "192.168.1.10");
+        for invalid in [
+            "",
+            "8.8.8.8",
+            "203.0.113.7",
+            "example.com",
+            "192.168.1.10:9473",
+            "https://192.168.1.10",
+            "192.168.1.10/../x",
+            "user:pass@192.168.1.10",
+            "::1",
+            "192.168.0.999",
+        ] {
+            assert!(validate_address(invalid).is_err(), "accepted {invalid}");
+        }
+        // The derived identifiers stay bound to one host and one fixed port.
+        assert_eq!(target_of("192.168.1.10"), "192.168.1.10:9473");
+        assert_eq!(origin_of("192.168.1.10"), "https://192.168.1.10:9473");
+        assert_ne!(
+            credential_target_of("192.168.1.10"),
+            credential_target_of("192.168.0.14")
+        );
     }
 
     #[test]

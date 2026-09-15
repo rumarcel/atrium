@@ -9,7 +9,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashSet;
 use tauri::Webview;
 
-const TARGET: &str = "192.168.1.10";
 const MAX_CONTAINERS: usize = 64;
 const MAX_PORTS: usize = 8;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
@@ -163,8 +162,12 @@ pub async fn discover_server_inventory(
     control: tauri::State<'_, ServerControl>,
 ) -> Result<ServerInventoryDiscovery, String> {
     authorize_main(caller.label())?;
+    // The enrolled address is the only host this discovery may describe: the
+    // snapshot must have been written by that server, and every suggested URL
+    // points back at it rather than at any host named inside the document.
+    let address = control.enrolled_address()?;
     let document: InventoryDocument = control.read_inventory().await?;
-    create_discovery(document)
+    create_discovery(document, &address)
 }
 
 fn authorize_main(label: &str) -> Result<(), String> {
@@ -175,10 +178,10 @@ fn authorize_main(label: &str) -> Result<(), String> {
 }
 
 impl InventoryDocument {
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self, address: &str) -> Result<(), String> {
         let invalid = || "The server inventory has an unsupported or unsafe schema.".to_string();
         if self.version != 1
-            || self.target != TARGET
+            || self.target != address
             || self.sources.len() != 2
             || self.maintenance.reboot_required == Some(false)
         {
@@ -234,8 +237,11 @@ impl InventoryDocument {
     }
 }
 
-fn create_discovery(document: InventoryDocument) -> Result<ServerInventoryDiscovery, String> {
-    document.validate()?;
+fn create_discovery(
+    document: InventoryDocument,
+    address: &str,
+) -> Result<ServerInventoryDiscovery, String> {
+    document.validate(address)?;
     let mut candidates = Vec::new();
     let mut sources = Vec::new();
     let mut skipped_count = 0;
@@ -250,7 +256,7 @@ fn create_discovery(document: InventoryDocument) -> Result<ServerInventoryDiscov
             container_count: source.containers.len(),
         });
         for container in source.containers {
-            let endpoint = suggested_endpoint(&container);
+            let endpoint = suggested_endpoint(&container, address);
             let description = endpoint
                 .as_ref()
                 .map(|(_, port)| {
@@ -288,7 +294,10 @@ fn create_discovery(document: InventoryDocument) -> Result<ServerInventoryDiscov
     })
 }
 
-fn suggested_endpoint(container: &Container) -> Option<(String, &PublishedPort)> {
+fn suggested_endpoint<'a>(
+    container: &'a Container,
+    address: &str,
+) -> Option<(String, &'a PublishedPort)> {
     if container.state != ContainerState::Running {
         return None;
     }
@@ -319,7 +328,7 @@ fn suggested_endpoint(container: &Container) -> Option<(String, &PublishedPort)>
         {
             // Keep the explicit host port in the DTO, including 80/443. Do not
             // inherit any arbitrary hostname, path, query or URL credentials.
-            return Some((format!("{scheme}://{TARGET}:{}/", port.host_port), port));
+            return Some((format!("{scheme}://{address}:{}/", port.host_port), port));
         }
     }
     None
@@ -330,8 +339,10 @@ mod tests {
     use super::*;
     use serde_json::{json, Value};
 
+    const ENROLLED: &str = "192.168.1.10";
+
     fn fixture() -> Value {
-        json!({"version":1,"target":TARGET,"sources":[
+        json!({"version":1,"target":ENROLLED,"sources":[
             {"runtime":"docker","scope":"rootful","state":"ready","ageSeconds":4,"skippedCount":0,"containers":[
                 {"id":"abcdef123456","name":"Jellyfin","application":"jellyfin","state":"running","ports":[{"hostPort":18096,"containerPort":8096}]}
             ]},
@@ -342,7 +353,7 @@ mod tests {
     fn parse(value: Value) -> Result<ServerInventoryDiscovery, String> {
         let document =
             serde_json::from_value(value).map_err(|_| "Invalid JSON schema".to_string())?;
-        create_discovery(document)
+        create_discovery(document, ENROLLED)
     }
 
     #[test]

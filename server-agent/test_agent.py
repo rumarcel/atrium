@@ -202,14 +202,19 @@ class FakeSocket:
         self.output.extend(data)
 
 
+HOST = "192.168.1.10"
+AUTHORITY = f"{HOST}:{agent.PORT}"
+
+
 class ProtocolTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.store = agent.OperationStore(Path(self.directory.name) / "operations.json", BOOT)
-        self.server = types.SimpleNamespace(store=self.store, token=TOKEN)
+        self.server = types.SimpleNamespace(store=self.store, token=TOKEN, host=HOST,
+                                            authority=AUTHORITY)
 
-    def request(self, method="GET", path="/v1/status", *, token=TOKEN, host=agent.AUTHORITY,
+    def request(self, method="GET", path="/v1/status", *, token=TOKEN, host=AUTHORITY,
                 extra=(), body=b""):
         headers = [f"{method} {path} HTTP/1.1", f"Host: {host}", f"Authorization: Bearer {token}",
                    f"Content-Length: {len(body)}", *extra]
@@ -227,11 +232,11 @@ class ProtocolTests(unittest.TestCase):
         self.assertNotIn(TOKEN, json.dumps(body))
 
     def test_inventory_uses_existing_auth_gate_and_no_power_dispatch(self):
-        result = {"version": 1, "target": agent.HOST, "sources": [],
+        result = {"version": 1, "target": HOST, "sources": [],
                   "maintenance": {"rebootRequired": None}}
         with mock.patch.object(agent, "inventory_response", return_value=result) as read:
             self.assertEqual(self.request(path="/v1/inventory"), (200, result))
-            read.assert_called_once_with(BOOT)
+            read.assert_called_once_with(BOOT, HOST)
             read.reset_mock()
             self.assertEqual(self.request(path="/v1/inventory", token="invalid")[0], 401)
             read.assert_not_called()
