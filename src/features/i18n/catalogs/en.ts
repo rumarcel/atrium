@@ -47,11 +47,13 @@ export const englishCatalog = {
   "dashboard.configurationUnavailable": "Configuration unavailable",
   "dashboard.refreshAutomatically":
     "Status refreshes automatically every 45 seconds.",
+  "dashboard.reloadFailed": "{{serviceName}} could not be reloaded.",
   "dashboard.refreshStatus": "Refresh status",
   "dashboard.filterByCategory": "Filter services by category",
   "dashboard.serviceDisplay": "View",
   "dashboard.serviceDisplayCards": "Cards",
   "dashboard.serviceDisplayLogos": "Logos",
+  "dashboard.addService": "Add a service",
   "dashboard.manageServices": "Manage services",
   "dashboard.noServicesFound": "No services found",
   "dashboard.noServicesFoundDescription": "Try another name or category.",
@@ -232,6 +234,8 @@ export const englishCatalog = {
   "tabs.openViews": "Open views",
   "tabs.listLabel": "Atrium tabs",
   "tabs.dashboard": "Dashboard",
+  "tabs.reloadTab": "Reload {{serviceName}}",
+  "tabs.reloadService": "Reload {{serviceName}}",
   "tabs.closeTab": "Close {{serviceName}} tab",
   "tabs.closeService": "Close {{serviceName}}",
 

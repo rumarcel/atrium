@@ -1,6 +1,6 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshIcon } from "../components/icons/AppIcons";
+import { PlusIcon, RefreshIcon } from "../components/icons/AppIcons";
 import {
   MAIN_RESUMED_EVENT,
   OPEN_SETTINGS_EVENT,
@@ -33,6 +33,7 @@ import { useWindowFullscreen } from "../features/tabs/hooks/useWindowFullscreen"
 import {
   closeAllServiceWebviews,
   closeServiceWebview,
+  reloadServiceWebview,
   describeNativeError,
   hideServiceWebviews,
   isDesktopRuntime,
@@ -63,6 +64,7 @@ interface ToastMessage {
 
 interface SettingsViewState {
   initialServiceId: string | null;
+  startWithNewService: boolean;
 }
 
 async function copyText(value: string, unavailableMessage: string): Promise<void> {
@@ -458,7 +460,15 @@ export function DashboardPage() {
 
   const handleOpenSettings = useCallback((service?: DashboardService) => {
     setContextMenu(null);
-    setSettingsView({ initialServiceId: service?.id ?? null });
+    setSettingsView({
+      initialServiceId: service?.id ?? null,
+      startWithNewService: false,
+    });
+  }, []);
+
+  const handleAddService = useCallback(() => {
+    setContextMenu(null);
+    setSettingsView({ initialServiceId: null, startWithNewService: true });
   }, []);
 
   const handleServiceDisplayModeChange = useCallback(
@@ -516,6 +526,20 @@ export function DashboardPage() {
   const handleCloseSettings = useCallback(() => {
     setSettingsView(null);
   }, []);
+
+  const handleReloadTab = useCallback(
+    (serviceId: string) => {
+      const service = enabledServiceById.get(serviceId);
+      void reloadServiceWebview(serviceId).catch((reloadError) => {
+        announce(
+          describeNativeError(reloadError) ||
+            t("dashboard.reloadFailed", { serviceName: service?.name ?? serviceId }),
+          "error",
+        );
+      });
+    },
+    [announce, enabledServiceById, t],
+  );
 
   const handleSystemBrowser = useCallback(
     (service: DashboardService) => {
@@ -677,17 +701,23 @@ export function DashboardPage() {
           services={openTabServices}
           onActivate={tabs.activateTab}
           onClose={handleCloseTab}
+          onReload={handleReloadTab}
         />
       ) : null}
 
       <div className="app-workspace">
         {settingsView ? (
           <SettingsPage
-            key={settingsView.initialServiceId ?? "settings"}
+            key={
+              settingsView.startWithNewService
+                ? "settings-new-service"
+                : (settingsView.initialServiceId ?? "settings")
+            }
             initialConfiguration={
               catalogStatus === "ready" ? currentConfiguration : undefined
             }
             initialServiceId={settingsView.initialServiceId ?? undefined}
+            startWithNewService={settingsView.startWithNewService}
             onConfigurationApplied={applyConfiguration}
             onClose={handleCloseSettings}
           />
@@ -755,6 +785,16 @@ export function DashboardPage() {
                     <span className="count-badge">
                       {catalogStatus === "loading" ? "—" : filteredServices.length}
                     </span>
+                    <button
+                      className="add-service-button"
+                      type="button"
+                      onClick={handleAddService}
+                      disabled={catalogStatus !== "ready"}
+                      aria-label={t("dashboard.addService")}
+                      title={t("dashboard.addService")}
+                    >
+                      <PlusIcon width={15} height={15} />
+                    </button>
                   </div>
                   <p className="configuration-source">
                     <span

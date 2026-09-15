@@ -139,6 +139,8 @@ export interface SettingsPageProps {
   initialConfiguration?: ServiceConfiguration;
   /** Opens the editor on this service when Settings was launched from a card. */
   initialServiceId?: string;
+  /** Opens straight into a blank service draft, for the dashboard's add button. */
+  startWithNewService?: boolean;
   /** Injectable for tests or an alternate host; defaults to the Tauri client. */
   client?: ServiceSettingsClient;
   /** Injectable read-only discovery transport; defaults to the Tauri client. */

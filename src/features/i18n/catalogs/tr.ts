@@ -53,11 +53,13 @@ const turkishOverrides = {
   "dashboard.configurationUnavailable": "Yapılandırma kullanılamıyor",
   "dashboard.refreshAutomatically":
     "Durum her 45 saniyede bir otomatik yenilenir.",
+  "dashboard.reloadFailed": "{{serviceName}} yenilenemedi.",
   "dashboard.refreshStatus": "Durumu yenile",
   "dashboard.filterByCategory": "Servisleri kategoriye göre filtrele",
   "dashboard.serviceDisplay": "Görünüm",
   "dashboard.serviceDisplayCards": "Kartlar",
   "dashboard.serviceDisplayLogos": "Logolar",
+  "dashboard.addService": "Servis ekle",
   "dashboard.manageServices": "Servisleri düzenle",
   "dashboard.noServicesFound": "Servis bulunamadı",
   "dashboard.noServicesFoundDescription": "Başka bir ad veya kategori deneyin.",
@@ -237,6 +239,8 @@ const turkishOverrides = {
   "tabs.openViews": "Açık görünümler",
   "tabs.listLabel": "Atrium sekmeleri",
   "tabs.dashboard": "Pano",
+  "tabs.reloadTab": "{{serviceName}} sayfasını yenile",
+  "tabs.reloadService": "{{serviceName}} sayfasını yenile",
   "tabs.closeTab": "{{serviceName}} sekmesini kapat",
   "tabs.closeService": "{{serviceName}} servisini kapat",
 

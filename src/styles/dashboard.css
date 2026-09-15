@@ -939,3 +939,31 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Adding a service is an action on the service list, so it sits beside that
+   heading instead of being reached through Settings. */
+.add-service-button {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
+}
+
+.add-service-button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.add-service-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}

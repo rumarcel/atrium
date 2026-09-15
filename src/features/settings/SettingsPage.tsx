@@ -295,6 +295,7 @@ function notifyApplied(
 export function SettingsPage({
   initialConfiguration,
   initialServiceId,
+  startWithNewService = false,
   client = nativeServiceSettingsClient,
   discoveryClient = nativeServiceDiscoveryClient,
   onConfigurationApplied,
@@ -645,6 +646,17 @@ export function SettingsPage({
     setNotice(t("settings.addedNotice"));
     setError(null);
   }, [draft?.services.length, isBusy, t]);
+
+  const newServiceRequested = useRef(startWithNewService);
+
+  useEffect(() => {
+    if (!newServiceRequested.current || draft === null || isBusy) {
+      return;
+    }
+
+    newServiceRequested.current = false;
+    addService();
+  }, [addService, draft, isBusy]);
 
   const deleteSelectedService = useCallback(() => {
     if (isBusy || selectedService === null) {
