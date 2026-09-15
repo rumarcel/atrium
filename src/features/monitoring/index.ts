@@ -1,3 +1,5 @@
+export { ServerMonitoring } from "./components/ServerMonitoring";
+export type { ServerMonitoringProps } from "./components/ServerMonitoring";
 export {
   SERVER_METRICS_POLL_INTERVAL_MS,
   SERVER_METRICS_STALE_AFTER_MS,

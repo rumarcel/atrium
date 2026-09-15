@@ -54,7 +54,9 @@ textarea {
 }
 
 .search-field,
+.primary-nav__item--active,
 .category-filter__button--active,
+.refresh-button,
 .icon-button,
 .app-tab--active,
 .service-tab--active,
@@ -76,7 +78,8 @@ textarea {
   border-color: var(--color-accent);
 }
 
-.server-status,
+.monitoring-summary,
+.monitoring-metric,
 .service-card,
 .settings-panel,
 .settings-service-toolbar,
@@ -100,7 +103,7 @@ textarea {
   box-shadow: var(--shadow-window);
 }
 
-.status-metric__bar,
+.monitoring-progress,
 .service-card--skeleton .skeleton-block,
 .desktop-widget-progress,
 .settings-switch > span {
@@ -135,9 +138,10 @@ html[data-color-mode="light"] .service-webview-placeholder {
 }
 
 html[data-color-mode="light"] .search-field kbd,
+html[data-color-mode="light"] .phase-note,
 html[data-color-mode="light"] .category-filter__button,
-html[data-color-mode="light"] .server-status__refresh,
-html[data-color-mode="light"] .status-metric__icon,
+html[data-color-mode="light"] .monitoring-summary__refresh,
+html[data-color-mode="light"] .monitoring-metric__icon,
 html[data-color-mode="light"] .app-tab__service-icon,
 html[data-color-mode="light"] .settings-runtime-effective,
 html[data-color-mode="light"] .settings-authentication__summary > div,
@@ -159,11 +163,14 @@ html[data-color-mode="light"] .service-card:focus-within .service-card__launch {
 }
 
 html[data-color-mode="light"] .skeleton-block,
-html[data-color-mode="light"] .status-metric__bar,
+html[data-color-mode="light"] .monitoring-progress,
 html[data-color-mode="light"] .settings-switch > span {
   background: var(--color-border-strong);
 }
 
+html[data-color-mode="light"] .monitoring-summary::after {
+  border-color: var(--color-border);
+}
 
 html[data-theme="translucent"] body {
   background-image:
@@ -178,14 +185,16 @@ html[data-theme="translucent"] .settings-page {
   background: transparent;
 }
 
-html[data-theme="translucent"] .server-status,
+html[data-theme="translucent"] .monitoring-summary,
+html[data-theme="translucent"] .monitoring-metric,
 html[data-theme="translucent"] .download-center,
 html[data-theme="translucent"] .service-card,
 html[data-theme="translucent"] .settings-panel {
   box-shadow: var(--shadow-window), inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 7%, transparent);
 }
 
-html[data-theme="custom"] .server-status,
+html[data-theme="custom"] .monitoring-summary,
+html[data-theme="custom"] .monitoring-metric,
 html[data-theme="custom"] .download-center,
 html[data-theme="custom"] .service-card,
 html[data-theme="custom"] .settings-panel {
@@ -193,7 +202,8 @@ html[data-theme="custom"] .settings-panel {
 }
 
 html[data-theme="code"] .eyebrow,
-html[data-theme="code"] .settings-kicker {
+html[data-theme="code"] .settings-kicker,
+html[data-theme="code"] .service-card__category {
   letter-spacing: 0.08em;
 }
 
@@ -203,7 +213,8 @@ html[data-theme="code"] .settings-kicker::before {
   color: var(--color-text-tertiary);
 }
 
-html[data-theme-decoration="minimal"] .server-status,
+html[data-theme-decoration="minimal"] .monitoring-summary,
+html[data-theme-decoration="minimal"] .monitoring-metric,
 html[data-theme-decoration="minimal"] .download-center,
 html[data-theme-decoration="minimal"] .service-card,
 html[data-theme-decoration="minimal"] .settings-panel,
@@ -212,7 +223,9 @@ html[data-theme-decoration="minimal"] .app-toast {
   box-shadow: none;
 }
 
-html[data-theme-decoration="minimal"] .service-card__launch {
+html[data-theme-decoration="minimal"] .phase-note,
+html[data-theme-decoration="minimal"] .service-card__launch,
+html[data-theme-decoration="minimal"] .app-footer__separator {
   display: none;
 }
 
@@ -222,9 +235,9 @@ html[data-theme-decoration="minimal"] .service-card:hover {
 
 .dashboard {
   padding:
-    calc(24px * var(--theme-density))
+    calc(46px * var(--theme-density))
     calc(34px * var(--theme-density))
-    calc(48px * var(--theme-density));
+    calc(54px * var(--theme-density));
 }
 
 .settings-page__scroll {
@@ -232,10 +245,19 @@ html[data-theme-decoration="minimal"] .service-card:hover {
   padding-bottom: calc(48px * var(--theme-density));
 }
 
-.server-status {
-  padding: calc(13px * var(--theme-density)) calc(18px * var(--theme-density));
+.monitoring-summary {
+  padding:
+    calc(20px * var(--theme-density))
+    calc(21px * var(--theme-density))
+    calc(17px * var(--theme-density));
 }
 
+.monitoring-metric {
+  padding:
+    calc(16px * var(--theme-density))
+    calc(16px * var(--theme-density))
+    calc(15px * var(--theme-density));
+}
 
 .service-card {
   padding: calc(17px * var(--theme-density));
@@ -528,7 +550,8 @@ html:is(:not([data-theme="default"]), [data-color-mode="light"])
   html[data-appearance-ready="true"] body,
   html[data-appearance-ready="true"] .app-header,
   html[data-appearance-ready="true"] .tab-bar,
-  html[data-appearance-ready="true"] .server-status,
+  html[data-appearance-ready="true"] .monitoring-summary,
+  html[data-appearance-ready="true"] .monitoring-metric,
   html[data-appearance-ready="true"] .download-center,
   html[data-appearance-ready="true"] .service-card,
   html[data-appearance-ready="true"] .settings-panel {
@@ -541,9 +564,10 @@ html:is(:not([data-theme="default"]), [data-color-mode="light"])
 
 /* A terminal is made of hard edges, flat surfaces and solid selection blocks,
    not rounded floating panels. The palette alone never carried that, so the
-   Code theme states the form explicitly. */
+   Code theme states the form explicitly. Scoped to that theme only. */
 html[data-theme="code"] .service-card,
-html[data-theme="code"] .server-status,
+html[data-theme="code"] .monitoring-summary,
+html[data-theme="code"] .monitoring-metric,
 html[data-theme="code"] .download-center,
 html[data-theme="code"] .settings-panel,
 html[data-theme="code"] .app-tab,
@@ -551,13 +575,6 @@ html[data-theme="code"] .service-tab {
   box-shadow: none;
 }
 
-html[data-theme="code"] .server-status__copy h2,
-html[data-theme="code"] .section-heading h2,
-html[data-theme="code"] .service-card h3 {
-  letter-spacing: -0.01em;
-}
-
-/* Selection reads as a filled block, the way a terminal highlights a line. */
 html[data-theme="code"] .app-tab--active,
 html[data-theme="code"] .category-filter__button--active {
   color: var(--color-background);
@@ -568,19 +585,7 @@ html[data-theme="code"] .app-tab--active svg {
   color: var(--color-background);
 }
 
-/* Focus is a hard outline rather than a soft ring. */
 html[data-theme="code"] :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 0;
-}
-
-
-/* Themes that declare no shadow get none, including the depth the shell adds:
-   a flat theme must stay flat rather than gaining lift through the back door. */
-html[data-theme="code"],
-html[data-theme-decoration="minimal"] {
-  --lift-edge: none;
-  --lift-1: none;
-  --lift-2: none;
-  --surface-gradient: var(--color-surface);
 }
