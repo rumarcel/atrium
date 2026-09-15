@@ -517,11 +517,6 @@ export function DashboardPage() {
     setSettingsView(null);
   }, []);
 
-  const handleDashboardClick = useCallback(() => {
-    setSettingsView(null);
-    tabs.activateTab(DASHBOARD_TAB_ID);
-  }, [tabs.activateTab]);
-
   const handleSystemBrowser = useCallback(
     (service: DashboardService) => {
       void openServiceInSystemBrowser(service)
@@ -672,8 +667,6 @@ export function DashboardPage() {
           searchValue={searchValue}
           onSearchChange={setSearchValue}
           searchInputRef={searchInputRef}
-          isDashboardActive={isDashboardActive}
-          onDashboardClick={handleDashboardClick}
           onSettingsClick={() => handleOpenSettings()}
         />
       ) : null}
@@ -708,22 +701,12 @@ export function DashboardPage() {
           hidden={!isDashboardActive}
         >
           <main className="dashboard">
-            <section className="dashboard-intro" aria-labelledby="dashboard-title">
-              <div>
-                <p className="eyebrow">{t("dashboard.eyebrow")}</p>
-                <h1 id="dashboard-title">{t("dashboard.title")}</h1>
-                <p className="dashboard-intro__description">
-                  {t("dashboard.description")}
-                </p>
-              </div>
-              <div
-                className="phase-note phase-note--ready"
-                aria-label={t("dashboard.currentPhase")}
-              >
-                <span>{t("dashboard.phaseLabel")}</span>
-                <p>{t("dashboard.phaseDescription")}</p>
-              </div>
-            </section>
+            {/* The dashboard is opened many times a day, so it starts at the
+                server's live state rather than a standing introduction. The
+                heading stays for assistive technology and the panel label. */}
+            <h1 id="dashboard-title" className="visually-hidden">
+              {t("dashboard.panelLabel")}
+            </h1>
 
             <div className="dashboard-live-sections">
               <ServerMonitoring enabled={isDashboardActive} />

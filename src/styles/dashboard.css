@@ -78,35 +78,6 @@
   letter-spacing: 0.02em;
 }
 
-.primary-nav {
-  display: flex;
-  align-items: center;
-}
-
-.primary-nav__item {
-  display: inline-flex;
-  min-height: 38px;
-  padding: 0 13px;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-small);
-  color: var(--color-text-secondary);
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.primary-nav__item--active {
-  border-color: var(--color-border);
-  color: var(--color-text-primary);
-  background: var(--color-surface);
-}
-
-.primary-nav__item--active svg {
-  color: var(--color-accent);
-}
-
 .app-header__actions {
   display: flex;
   min-width: 0;
@@ -212,72 +183,6 @@
 
 .dashboard-panel[hidden] {
   display: none;
-}
-
-.dashboard-intro {
-  display: flex;
-  margin-bottom: 30px;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 30px;
-}
-
-.dashboard-intro h1 {
-  max-width: 760px;
-  margin: 0;
-  font-size: clamp(2rem, 3.3vw, 3.15rem);
-  font-weight: 620;
-  letter-spacing: -0.055em;
-  line-height: 1.03;
-}
-
-.dashboard-intro__description {
-  max-width: 620px;
-  margin: 15px 0 0;
-  color: var(--color-text-secondary);
-  font-size: 0.93rem;
-  line-height: 1.55;
-}
-
-.phase-note {
-  display: flex;
-  min-width: 180px;
-  padding: 12px 14px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  color: var(--color-text-secondary);
-  background: #111216;
-}
-
-.phase-note span {
-  color: var(--color-accent);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.phase-note p {
-  margin: 0;
-  font-size: 0.72rem;
-}
-
-.phase-note--ready p {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.phase-note--ready p::before {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-online);
-  box-shadow: 0 0 0 3px rgba(48, 209, 88, 0.08);
-  content: "";
 }
 
 .services-section {
@@ -953,10 +858,6 @@
     grid-template-columns: minmax(200px, auto) 1fr;
   }
 
-  .primary-nav {
-    display: none;
-  }
-
   .service-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -977,16 +878,6 @@
 
   .dashboard {
     padding: 34px 20px 44px;
-  }
-
-  .dashboard-intro {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 20px;
-  }
-
-  .phase-note {
-    min-width: 0;
   }
 
   .service-toolbar {
@@ -1011,10 +902,6 @@
 
   .search-field {
     width: 100%;
-  }
-
-  .dashboard-intro h1 {
-    font-size: 2rem;
   }
 
   .section-heading {

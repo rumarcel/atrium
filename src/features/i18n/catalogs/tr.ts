@@ -37,21 +37,12 @@ const turkishOverrides = {
 
   "header.brandLabel": "Personal Hub",
   "header.brandSubtitle": "Ev sunucusu",
-  "header.primaryNavigation": "Ana gezinme",
-  "header.dashboard": "Pano",
   "header.searchServices": "Servislerde ara",
   "header.searchShortcut": "Ctrl K",
   "header.openSettings": "Ayarları aç",
   "header.settingsTitle": "Ayarlar",
 
   "dashboard.panelLabel": "Pano",
-  "dashboard.eyebrow": "Pano",
-  "dashboard.title": "Evdeki her şey tek bir yerde.",
-  "dashboard.description":
-    "Ev sunucunuzda çalışan servisler için sakin bir komuta merkezi.",
-  "dashboard.currentPhase": "Geçerli uygulama aşaması",
-  "dashboard.phaseLabel": "Aşama 9",
-  "dashboard.phaseDescription": "Güvenli sunucu kontrolü",
   "dashboard.configurationUnavailableTitle":
     "Servis yapılandırması kullanılamıyor",
   "dashboard.settingsNoticeTitle": "Servis ayarları bildirimi",

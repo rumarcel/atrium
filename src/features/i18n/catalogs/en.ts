@@ -31,21 +31,12 @@ export const englishCatalog = {
 
   "header.brandLabel": "Personal Hub",
   "header.brandSubtitle": "Home server",
-  "header.primaryNavigation": "Primary navigation",
-  "header.dashboard": "Dashboard",
   "header.searchServices": "Search services",
   "header.searchShortcut": "Ctrl K",
   "header.openSettings": "Open settings",
   "header.settingsTitle": "Settings",
 
   "dashboard.panelLabel": "Dashboard",
-  "dashboard.eyebrow": "Dashboard",
-  "dashboard.title": "Everything at home, in one place.",
-  "dashboard.description":
-    "A calm command center for the services running on your home server.",
-  "dashboard.currentPhase": "Current implementation phase",
-  "dashboard.phaseLabel": "Phase 9",
-  "dashboard.phaseDescription": "Trusted server control",
   "dashboard.configurationUnavailableTitle":
     "Service configuration unavailable",
   "dashboard.settingsNoticeTitle": "Service settings notice",
