@@ -667,9 +667,9 @@ export const englishCatalog = {
     "Waiting for storage metrics from the server.",
 
   "appearance.kicker": "Appearance",
-  "appearance.title": "Theme and language",
+  "appearance.title": "Theme",
   "appearance.description":
-    "Choose how Atrium looks and which language it uses.",
+    "Choose how Atrium looks.",
   "appearance.colorMode": "Color mode",
   "appearance.colorModeSystem": "System",
   "appearance.colorModeDark": "Dark",
@@ -712,7 +712,7 @@ export const englishCatalog = {
   "appearance.errorTitle": "Appearance operation failed",
   "appearance.reset": "Reset appearance",
   "appearance.resetDescription":
-    "Restore the dark Default theme, system language and empty custom tokens.",
+    "Restore the dark Default theme and empty custom tokens.",
   "appearance.resetConfirmation":
     "Reset the saved appearance to the safe defaults?",
   "appearance.resetNotice": "Safe appearance defaults restored.",

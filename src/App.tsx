@@ -5,7 +5,7 @@ import {
   DesktopWidgetSurface,
   desktopWidgetKindFromHash,
 } from "./features/desktopWidgets";
-import { I18nProvider, useTranslation } from "./features/i18n";
+import { I18nProvider, isLanguagePreference, useTranslation } from "./features/i18n";
 import { DashboardPage } from "./pages/DashboardPage";
 
 function AppSurface() {
@@ -28,9 +28,16 @@ function AppSurface() {
 
 function LocalizedAppSurface() {
   const { preferences } = useAppearance();
+  // A stored preference for a language that is no longer offered stays valid
+  // in the saved document and simply falls back here, so turning Turkish back
+  // on later restores the user's original choice instead of having discarded
+  // it.
+  const language = isLanguagePreference(preferences.language)
+    ? preferences.language
+    : "system";
 
   return (
-    <I18nProvider language={preferences.language}>
+    <I18nProvider language={language}>
       <LocalizedErrorBoundary />
     </I18nProvider>
   );

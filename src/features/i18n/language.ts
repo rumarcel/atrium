@@ -1,4 +1,7 @@
-export const SUPPORTED_LANGUAGES = ["en", "tr"] as const;
+/* English is the only language offered for now. The Turkish catalog stays in
+   the tree and its parity with English is still covered by a test, so adding
+   it back is a change here rather than a re-translation. */
+export const SUPPORTED_LANGUAGES = ["en"] as const;
 
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 export type LanguagePreference = "system" | SupportedLanguage;
@@ -7,7 +10,6 @@ export const DEFAULT_LANGUAGE: SupportedLanguage = "en";
 
 export const LANGUAGE_LOCALES: Readonly<Record<SupportedLanguage, string>> = {
   en: "en-US",
-  tr: "tr-TR",
 };
 
 export interface NavigatorLanguageSource {
@@ -16,7 +18,7 @@ export interface NavigatorLanguageSource {
 }
 
 export function isSupportedLanguage(value: unknown): value is SupportedLanguage {
-  return value === "en" || value === "tr";
+  return value === "en";
 }
 
 export function isLanguagePreference(value: unknown): value is LanguagePreference {
@@ -93,7 +95,10 @@ export function resolveLanguage(
   preference: LanguagePreference,
   systemLanguageTags: readonly string[] = [],
 ): SupportedLanguage {
-  if (preference !== "system") {
+  // A stored preference for a language that is no longer shipped is treated as
+  // "system" rather than returned, so a document written when Turkish was
+  // offered cannot select a catalog that is not there.
+  if (preference !== "system" && isSupportedLanguage(preference)) {
     return preference;
   }
 

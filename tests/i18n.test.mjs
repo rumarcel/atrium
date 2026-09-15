@@ -27,13 +27,17 @@ test("English and Turkish catalogs have exact key and placeholder parity", () =>
 });
 
 test("system language resolution honors supported locales and falls back to English", () => {
-  assert.equal(languageFromLocale("tr-TR"), "tr");
+  // English is the only language currently offered, so every other locale and
+  // every stored preference for a language that is no longer shipped resolves
+  // to it rather than failing.
   assert.equal(languageFromLocale("en-GB"), "en");
+  assert.equal(languageFromLocale("tr-TR"), null);
   assert.equal(languageFromLocale("de-DE"), null);
-  assert.equal(resolveLanguage("system", ["de-DE", "tr-CY"]), "tr");
+  assert.equal(resolveLanguage("system", ["de-DE", "tr-CY"]), "en");
   assert.equal(resolveLanguage("system", ["de-DE", "fr-FR"]), "en");
-  assert.equal(resolveLanguage("tr", ["en-US"]), "tr");
-  assert.equal(resolveIntlLocale("system", ["tr-CY", "en-US"]), "tr-CY");
+  assert.equal(resolveLanguage("system", ["en-GB", "de-DE"]), "en");
+  assert.equal(resolveLanguage("tr", ["en-US"]), "en");
+  assert.equal(resolveIntlLocale("system", ["tr-CY", "en-US"]), "en-US");
   assert.equal(resolveIntlLocale("system", ["de-DE"]), "en-US");
   assert.deepEqual(
     readNavigatorLanguageTags({

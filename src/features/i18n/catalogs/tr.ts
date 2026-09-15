@@ -672,9 +672,9 @@ const turkishOverrides = {
     "Sunucudan depolama metrikleri bekleniyor.",
 
   "appearance.kicker": "Görünüm",
-  "appearance.title": "Tema ve dil",
+  "appearance.title": "Tema",
   "appearance.description":
-    "Atrium'ın nasıl görüneceğini ve hangi dili kullanacağını seçin.",
+    "Atrium'ın nasıl görüneceğini seçin.",
   "appearance.colorMode": "Renk modu",
   "appearance.colorModeSystem": "Sistem",
   "appearance.colorModeDark": "Koyu",
@@ -719,7 +719,7 @@ const turkishOverrides = {
   "appearance.errorTitle": "Görünüm işlemi başarısız oldu",
   "appearance.reset": "Görünümü sıfırla",
   "appearance.resetDescription":
-    "Koyu Varsayılan temayı, sistem dilini ve boş özel tokenları geri yükler.",
+    "Koyu Varsayılan temayı ve boş özel tokenları geri yükler.",
   "appearance.resetConfirmation":
     "Kayıtlı görünüm güvenli varsayılanlara sıfırlansın mı?",
   "appearance.resetNotice": "Güvenli görünüm varsayılanları geri yüklendi.",

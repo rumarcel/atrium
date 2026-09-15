@@ -14,7 +14,6 @@ import {
   BUNDLED_THEME_IDS,
   THEME_COLOR_TOKEN_NAMES,
   THEME_NUMBER_TOKEN_NAMES,
-  type AppearanceLanguagePreference,
   type AppearancePreferences,
   type AppearanceSnapshot,
   type BundledThemeId,
@@ -98,24 +97,6 @@ const THEME_PRESENTATION: Readonly<
     descriptionKey: "appearance.themeMinimalDescription",
   },
 };
-
-const LANGUAGE_PRESENTATION: readonly ChoicePresentation<AppearanceLanguagePreference>[] = [
-  {
-    value: "system",
-    labelKey: "appearance.languageSystem",
-    descriptionKey: "appearance.languageSystemDescription",
-  },
-  {
-    value: "tr",
-    labelKey: "appearance.languageTurkish",
-    descriptionKey: "appearance.languageTurkishDescription",
-  },
-  {
-    value: "en",
-    labelKey: "appearance.languageEnglish",
-    descriptionKey: "appearance.languageEnglishDescription",
-  },
-];
 
 const COLOR_TOKEN_LABELS: Readonly<
   Record<ThemeColorTokenName, TranslationKeysWithoutParameters>
@@ -683,37 +664,6 @@ export function AppearanceSettingsPanel({
               </button>
             );
           })}
-        </div>
-      </fieldset>
-
-      <fieldset className="appearance-choice-section" disabled={isBusy}>
-        <legend>{t("appearance.language")}</legend>
-        <div className="appearance-language-grid">
-          {LANGUAGE_PRESENTATION.map((option) => (
-            <label
-              key={option.value}
-              className="appearance-choice-label"
-            >
-              <input
-                className="appearance-choice-input"
-                type="radio"
-                name="appearance-language"
-                value={option.value}
-                checked={draft.language === option.value}
-                onChange={() => applyDraft({ ...draft, language: option.value })}
-              />
-              <span
-                className={
-                  draft.language === option.value
-                    ? "appearance-language-card appearance-language-card--active"
-                    : "appearance-language-card"
-                }
-              >
-                <strong>{t(option.labelKey)}</strong>
-                <span>{t(option.descriptionKey)}</span>
-              </span>
-            </label>
-          ))}
         </div>
       </fieldset>
 
