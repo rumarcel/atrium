@@ -98,18 +98,21 @@
 }
 
 .server-status__metrics {
-  display: grid;
+  display: flex;
   min-width: 0;
   flex: 1 1 auto;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 18px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px 26px;
 }
 
 .status-metric {
   display: grid;
+  width: 150px;
   min-width: 0;
+  flex: none;
   align-items: center;
-  gap: 2px 8px;
+  gap: 1px 8px;
   grid-template-areas:
     "icon label value"
     "icon bar   bar"
@@ -233,6 +236,6 @@
 
   .server-status__metrics {
     flex: 1 1 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: flex-start;
   }
 }
