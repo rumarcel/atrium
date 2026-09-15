@@ -21,12 +21,20 @@ export function serviceState(health: ServiceHealth | undefined): ServiceState {
   }
 
   if (health.status === "warning") {
-    // An accepted private certificate is the configured outcome, not a fault.
-    // A health check that only fails because there is no desktop runtime says
-    // nothing about the server.
-    return health.reason === "tls-exception" || health.reason === "runtime"
-      ? "ok"
-      : "attention";
+    // An accepted private certificate is the configured outcome, not a fault:
+    // the service answered, just over a certificate the user chose to trust.
+    if (health.reason === "tls-exception") {
+      return "ok";
+    }
+
+    // A check that could not run at all outside the desktop runtime is not a
+    // problem either, but it is not confirmation. Reporting it as online would
+    // claim something nobody verified.
+    if (health.reason === "runtime") {
+      return "pending";
+    }
+
+    return "attention";
   }
 
   return "ok";

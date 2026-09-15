@@ -69,6 +69,42 @@ export function ListIcon(props: IconProps) {
   );
 }
 
+export function HomeIcon(props: IconProps) {
+  return (
+    <svg {...sharedProps} {...props}>
+      <path d="m4 11 8-7 8 7v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />
+      <path d="M9.5 21v-6h5v6" />
+    </svg>
+  );
+}
+
+export function PlayIcon(props: IconProps) {
+  return (
+    <svg {...sharedProps} {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M10.5 9 15 12l-4.5 3Z" />
+    </svg>
+  );
+}
+
+export function DownloadIcon(props: IconProps) {
+  return (
+    <svg {...sharedProps} {...props}>
+      <path d="M12 4v10" />
+      <path d="m8 11 4 4 4-4" />
+      <path d="M5 19h14" />
+    </svg>
+  );
+}
+
+export function ChevronRightIcon(props: IconProps) {
+  return (
+    <svg {...sharedProps} {...props}>
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  );
+}
+
 export function PlusIcon(props: IconProps) {
   return (
     <svg {...sharedProps} {...props}>
