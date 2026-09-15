@@ -56,8 +56,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: cargo-${{ runner.os }}-
+          # Tauri's build script records absolute paths, so a cache produced
+          # under a different checkout directory points at files that are no
+          # longer there. Renaming the repository changes that directory, so
+          # the repository name is part of the key.
+          key: cargo-${{ runner.os }}-${{ github.repository }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ github.repository }}-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build the frontend
