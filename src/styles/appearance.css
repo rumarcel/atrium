@@ -54,7 +54,6 @@ textarea {
 }
 
 .search-field,
-.primary-nav__item--active,
 .category-filter__button--active,
 .refresh-button,
 .icon-button,
@@ -138,7 +137,6 @@ html[data-color-mode="light"] .service-webview-placeholder {
 }
 
 html[data-color-mode="light"] .search-field kbd,
-html[data-color-mode="light"] .phase-note,
 html[data-color-mode="light"] .category-filter__button,
 html[data-color-mode="light"] .monitoring-summary__refresh,
 html[data-color-mode="light"] .monitoring-metric__icon,
@@ -223,7 +221,6 @@ html[data-theme-decoration="minimal"] .app-toast {
   box-shadow: none;
 }
 
-html[data-theme-decoration="minimal"] .phase-note,
 html[data-theme-decoration="minimal"] .service-card__launch,
 html[data-theme-decoration="minimal"] .app-footer__separator {
   display: none;

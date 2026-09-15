@@ -42,7 +42,7 @@
   gap: 7px;
   border: 1px solid transparent;
   border-radius: 9px;
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   font-weight: 620;
   white-space: nowrap;
   transition:
@@ -197,21 +197,21 @@
 .service-webview-loading strong,
 .service-webview-error strong {
   color: var(--color-text-primary);
-  font-size: 0.92rem;
+  font-size: var(--text-md);
   font-weight: 620;
 }
 
 .service-webview-loading p,
 .service-webview-error p {
   margin: 6px 0 0;
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   line-height: 1.55;
 }
 
 .service-webview-error > span {
   margin-bottom: 9px;
   color: var(--color-offline);
-  font-size: 0.65rem;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -244,14 +244,14 @@
 }
 
 .service-context-menu__heading strong {
-  font-size: 0.74rem;
+  font-size: var(--text-xs);
   font-weight: 650;
 }
 
 .service-context-menu__heading span {
   margin-top: 4px;
   color: var(--color-text-tertiary);
-  font-size: 0.6rem;
+  font-size: var(--text-2xs);
 }
 
 .service-context-menu > button {
@@ -266,7 +266,7 @@
   color: var(--color-text-secondary);
   background: transparent;
   text-align: left;
-  font-size: 0.68rem;
+  font-size: var(--text-2xs);
   cursor: pointer;
 }
 
@@ -286,7 +286,7 @@
 .service-context-menu__plus {
   width: 16px;
   text-align: center;
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   font-weight: 400;
   line-height: 1;
 }
@@ -295,7 +295,7 @@
   padding: 2px 5px;
   border: 1px solid var(--color-border);
   border-radius: 5px;
-  font-size: 0.5rem;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -319,7 +319,7 @@
   color: var(--color-text-primary);
   background: rgba(27, 28, 33, 0.98);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.36);
-  font-size: 0.67rem;
+  font-size: var(--text-2xs);
   line-height: 1.4;
 }
 

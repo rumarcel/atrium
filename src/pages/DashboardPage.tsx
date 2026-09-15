@@ -518,11 +518,6 @@ export function DashboardPage() {
     setSettingsView(null);
   }, []);
 
-  const handleDashboardClick = useCallback(() => {
-    setSettingsView(null);
-    tabs.activateTab(DASHBOARD_TAB_ID);
-  }, [tabs.activateTab]);
-
   const handleReloadTab = useCallback(
     (serviceId: string) => {
       void reloadServiceWebview(serviceId).catch((reloadError) => {
@@ -682,8 +677,6 @@ export function DashboardPage() {
           searchValue={searchValue}
           onSearchChange={setSearchValue}
           searchInputRef={searchInputRef}
-          isDashboardActive={isDashboardActive}
-          onDashboardClick={handleDashboardClick}
           onSettingsClick={() => handleOpenSettings()}
         />
       ) : null}
@@ -726,13 +719,6 @@ export function DashboardPage() {
                 <p className="dashboard-intro__description">
                   {t("dashboard.description")}
                 </p>
-              </div>
-              <div
-                className="phase-note phase-note--ready"
-                aria-label={t("dashboard.currentPhase")}
-              >
-                <span>{t("dashboard.phaseLabel")}</span>
-                <p>{t("dashboard.phaseDescription")}</p>
               </div>
             </section>
 

@@ -1,17 +1,11 @@
 import type { ChangeEvent, RefObject } from "react";
-import {
-  GridIcon,
-  SearchIcon,
-  SettingsIcon,
-} from "../../../components/icons/AppIcons";
+import { SearchIcon, SettingsIcon } from "../../../components/icons/AppIcons";
 import { useTranslation } from "../../i18n";
 
 interface AppHeaderProps {
   searchValue: string;
   onSearchChange: (value: string) => void;
   searchInputRef: RefObject<HTMLInputElement | null>;
-  isDashboardActive: boolean;
-  onDashboardClick: () => void;
   onSettingsClick: () => void;
 }
 
@@ -19,8 +13,6 @@ export function AppHeader({
   searchValue,
   onSearchChange,
   searchInputRef,
-  isDashboardActive,
-  onDashboardClick,
   onSettingsClick,
 }: AppHeaderProps) {
   const { t } = useTranslation();
@@ -44,20 +36,6 @@ export function AppHeader({
         </div>
       </div>
 
-      <nav className="primary-nav" aria-label={t("header.primaryNavigation")}>
-        <button
-          className={
-            isDashboardActive
-              ? "primary-nav__item primary-nav__item--active"
-              : "primary-nav__item"
-          }
-          type="button"
-          onClick={onDashboardClick}
-        >
-          <GridIcon width={17} height={17} />
-          {t("header.dashboard")}
-        </button>
-      </nav>
 
       <div className="app-header__actions">
         <label className="search-field">
