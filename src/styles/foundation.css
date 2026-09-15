@@ -35,6 +35,23 @@
   --shell-header: 56px;
   --content-width: 1440px;
 
+  /* Depth. A panel is lifted by a one-pixel highlight along its top edge and a
+     shadow that stays under it, not by a border that gets heavier. Both are
+     mixed from the theme's own colours so a light palette lifts the same way. */
+  --lift-edge: inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 6%, transparent);
+  --lift-1: 0 1px 2px rgba(0, 0, 0, 0.22);
+  --lift-2:
+    0 8px 24px rgba(0, 0, 0, 0.26),
+    0 1px 3px rgba(0, 0, 0, 0.2);
+
+  /* A surface with a touch of gradient reads as a physical panel; a flat fill
+     reads as a rectangle of a different colour. */
+  --surface-gradient: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--color-surface-elevated) 70%, var(--color-surface)),
+    var(--color-surface)
+  );
+
   --motion-fast: 120ms;
   --motion: 180ms;
 

@@ -558,17 +558,20 @@ export function DashboardPage() {
   const attention = useMemo(() => {
     let down = 0;
     let look = 0;
+    let ok = 0;
     for (const service of enabledServices) {
       const state = serviceState(healthById[service.id]);
       if (state === "down") {
         down += 1;
       } else if (state === "attention") {
         look += 1;
+      } else if (state === "ok") {
+        ok += 1;
       }
     }
-    return { down, look };
+    return { down, look, ok };
   }, [enabledServices, healthById]);
-  const onlineCount = enabledServices.length - attention.down - attention.look;
+  const onlineCount = attention.ok;
   const verdict = useServerVerdict({
     monitor,
     servicesDown: attention.down,

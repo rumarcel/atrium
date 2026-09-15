@@ -573,3 +573,14 @@ html[data-theme="code"] :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 0;
 }
+
+
+/* Themes that declare no shadow get none, including the depth the shell adds:
+   a flat theme must stay flat rather than gaining lift through the back door. */
+html[data-theme="code"],
+html[data-theme-decoration="minimal"] {
+  --lift-edge: none;
+  --lift-1: none;
+  --lift-2: none;
+  --surface-gradient: var(--color-surface);
+}

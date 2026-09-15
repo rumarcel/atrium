@@ -29,6 +29,7 @@
   flex-direction: column;
   gap: var(--space-5);
   border-right: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 55%, var(--color-background));
 }
 
 .rail__brand {
@@ -42,6 +43,7 @@
   display: inline-flex;
   width: 44px;
   height: 44px;
+  box-shadow: var(--lift-1);
   align-items: center;
   justify-content: center;
   flex: none;
@@ -105,7 +107,8 @@
 
 .rail__item--active {
   color: var(--color-text-primary);
-  background: var(--color-surface);
+  background: var(--surface-gradient);
+  box-shadow: var(--lift-edge), var(--lift-1);
 }
 
 /* The active marker is a bar on the leading edge, so the label keeps its
@@ -171,9 +174,33 @@
 
 .main {
   display: flex;
+  position: relative;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
+  isolation: isolate;
+}
+
+.main::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 340px;
+  background:
+    radial-gradient(
+      120% 100% at 82% -10%,
+      color-mix(in srgb, var(--color-accent) 16%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      90% 80% at 96% 4%,
+      color-mix(in srgb, #7b5cff 12%, transparent),
+      transparent 58%
+    );
+  pointer-events: none;
 }
 
 .topbar {
@@ -198,7 +225,8 @@
   border: 1px solid var(--color-border);
   border-radius: 999px;
   color: var(--color-text-tertiary);
-  background: var(--color-surface);
+  background: var(--surface-gradient);
+  box-shadow: var(--lift-edge);
 }
 
 .search:focus-within {
@@ -226,6 +254,7 @@
   border-radius: 50%;
   color: #fff;
   background: linear-gradient(145deg, #8f6bff, #5b8cff);
+  box-shadow: var(--lift-1);
   font-size: var(--text-md);
   font-weight: 620;
 }
@@ -251,7 +280,8 @@
 
 .hero {
   position: relative;
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
+  padding-top: var(--space-2);
 }
 
 .hero__eyebrow {
@@ -262,9 +292,10 @@
 .hero h1 {
   margin: var(--space-1) 0 var(--space-2);
   color: var(--color-text-primary);
-  font-size: var(--text-2xl);
-  font-weight: 650;
-  letter-spacing: -0.03em;
+  font-size: calc(var(--text-2xl) * 1.35);
+  font-weight: 660;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
 }
 
 .hero p {
@@ -321,20 +352,33 @@
   gap: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-large);
-  background: var(--color-surface);
+  background: var(--surface-gradient);
+  box-shadow: var(--lift-edge), var(--lift-1);
   text-align: left;
   transition:
     border-color var(--motion-fast) ease,
-    background var(--motion-fast) ease;
+    box-shadow var(--motion) ease,
+    transform var(--motion) ease;
 }
 
 button.card:hover {
   border-color: var(--color-border-strong);
-  background: var(--color-surface-hover);
+  box-shadow: var(--lift-edge), var(--lift-2);
+  transform: translateY(-1px);
+}
+
+button.card:active {
+  transform: none;
+}
+
+.card:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .card__icon {
   display: inline-flex;
+  position: relative;
   width: 52px;
   height: 52px;
   align-items: center;
@@ -342,6 +386,7 @@ button.card:hover {
   flex: none;
   border-radius: var(--radius-medium);
   background: var(--color-surface-elevated);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
 }
 
 .card__body {
@@ -614,16 +659,19 @@ button.card:hover {
   gap: var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-large);
-  background: var(--color-surface);
+  background: var(--surface-gradient);
+  box-shadow: var(--lift-edge), var(--lift-1);
   text-align: center;
   transition:
     border-color var(--motion-fast) ease,
-    background var(--motion-fast) ease;
+    box-shadow var(--motion) ease,
+    transform var(--motion) ease;
 }
 
 .tile:hover {
   border-color: var(--color-border-strong);
-  background: var(--color-surface-hover);
+  box-shadow: var(--lift-edge), var(--lift-2);
+  transform: translateY(-2px);
 }
 
 .tile__mark {
@@ -634,6 +682,7 @@ button.card:hover {
   justify-content: center;
   border-radius: var(--radius-medium);
   background: var(--color-surface-elevated);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
 }
 
 .tile__name {
