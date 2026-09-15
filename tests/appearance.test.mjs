@@ -191,8 +191,11 @@ test("resolved tokens project to the bounded CSS variable contract", () => {
 
   assert.equal(variables["--color-accent"], "#ABCDEF");
   assert.equal(variables["--theme-blur"], "3px");
-  assert.equal(variables["--radius-small"], "4px");
-  assert.equal(variables["--theme-density"], "0.9");
+  // Derived from the theme rather than restated, so a design change to the
+  // Code palette does not have to be re-encoded here to keep this passing.
+  const codeDark = BUNDLED_THEMES.code.dark;
+  assert.equal(variables["--radius-small"], `${codeDark.radiusSmall}px`);
+  assert.equal(variables["--theme-density"], String(codeDark.density));
   assert.match(variables["--font-family-app"], /Cascadia/);
   assert.equal(Object.keys(variables).length, 23);
   assert.equal(Object.hasOwn(variables, "--custom-css"), false);

@@ -224,9 +224,9 @@ html[data-theme-decoration="minimal"] .service-card:hover {
 
 .dashboard {
   padding:
-    calc(46px * var(--theme-density))
+    calc(24px * var(--theme-density))
     calc(34px * var(--theme-density))
-    calc(54px * var(--theme-density));
+    calc(48px * var(--theme-density));
 }
 
 .settings-page__scroll {
@@ -539,4 +539,39 @@ html:is(:not([data-theme="default"]), [data-color-mode="light"])
       background-color var(--duration-standard) ease,
       border-color var(--duration-standard) ease;
   }
+}
+
+/* A terminal is made of hard edges, flat surfaces and solid selection blocks,
+   not rounded floating panels. The palette alone never carried that, so the
+   Code theme states the form explicitly. */
+html[data-theme="code"] .service-card,
+html[data-theme="code"] .server-status,
+html[data-theme="code"] .download-center,
+html[data-theme="code"] .settings-panel,
+html[data-theme="code"] .app-tab,
+html[data-theme="code"] .service-tab {
+  box-shadow: none;
+}
+
+html[data-theme="code"] .server-status__copy h2,
+html[data-theme="code"] .section-heading h2,
+html[data-theme="code"] .service-card h3 {
+  letter-spacing: -0.01em;
+}
+
+/* Selection reads as a filled block, the way a terminal highlights a line. */
+html[data-theme="code"] .app-tab--active,
+html[data-theme="code"] .category-filter__button--active {
+  color: var(--color-background);
+  background: var(--color-accent);
+}
+
+html[data-theme="code"] .app-tab--active svg {
+  color: var(--color-background);
+}
+
+/* Focus is a hard outline rather than a soft ring. */
+html[data-theme="code"] :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 0;
 }
