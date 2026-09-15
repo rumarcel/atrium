@@ -194,7 +194,9 @@ html[data-theme="custom"] .settings-panel {
 }
 
 html[data-theme="code"] .eyebrow,
-html[data-theme="code"] .settings-kicker,
+html[data-theme="code"] .settings-kicker {
+  letter-spacing: 0.08em;
+}
 
 html[data-theme="code"] .eyebrow::before,
 html[data-theme="code"] .settings-kicker::before {
