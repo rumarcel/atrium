@@ -193,16 +193,16 @@ export const englishCatalog = {
   "discovery.title": "Find services",
   "discovery.readOnly": "Read only",
   "discovery.description":
-    "Read applications from a saved Homarr service, review every result, and choose what to add.",
+    "Read applications from Homarr or your paired server agent, review the results, and choose what to add. Nothing is imported automatically.",
   "discovery.noHomarrSource":
-    "Add and save a Homarr service with Homarr API authentication, then store its API key to enable discovery.",
-  "discovery.source": "Homarr source",
-  "discovery.scan": "Scan Homarr",
+    "Homarr is optional. To use it as another source, save a Homarr service with Homarr API authentication and store its API key.",
+  "discovery.source": "Discovery source",
+  "discovery.scan": "Scan source",
   "discovery.scanning": "Scanning…",
   "discovery.saveBeforeScan":
     "Save or discard the current catalog changes before starting another scan.",
   "discovery.found": "{{count}} applications found",
-  "discovery.skipped": "{{count}} invalid or excess entries skipped",
+  "discovery.skipped": "{{count}} unsupported, invalid or excess entries skipped",
   "discovery.empty": "Homarr did not return any applications.",
   "discovery.missingUrl": "No launch URL — review in Homarr",
   "discovery.duplicate": "Already present as {{serviceName}}",
@@ -214,8 +214,29 @@ export const englishCatalog = {
     "Selected applications are added as unsaved drafts so you can review them before saving.",
   "discovery.addSelected": "Add selected ({{count}})",
   "discovery.addedToDraft": "{{count}} discovered services added as unsaved drafts.",
-  "discovery.containerDeferred":
-    "Remote Docker and Podman discovery will use the restricted server channel in Phase 9; an exposed Docker TCP socket is not required.",
+  "discovery.agent.source": "Server Agent (Docker / Podman)",
+  "discovery.agent.setupHelp":
+    "Uses only 192.168.1.10. Enable and pair Server control with its certificate and token, then install the agent inventory collector. Dry-run mode is sufficient; scanning never sends a power command.",
+  "discovery.agent.error":
+    "Could not read the server inventory. Check Server control pairing and connectivity. Older agents need an upgrade with the inventory endpoint and collector. No services were added.",
+  "discovery.agent.ready": "{{count}} of 2 inventory sources ready",
+  "discovery.agent.state.ready": "Snapshot ready",
+  "discovery.agent.state.missing": "No snapshot — runtime or collector may not be installed",
+  "discovery.agent.state.stale": "Snapshot is too old; refresh the server collector",
+  "discovery.agent.state.unavailable": "Collector could not read this runtime",
+  "discovery.agent.state.invalid": "Snapshot failed validation; check the server collector",
+  "discovery.agent.age": "{{seconds}} seconds old",
+  "discovery.agent.containers": "{{count}} containers",
+  "discovery.agent.rebootRequired": "The server reports that a reboot is required. This does not confirm that it is safe to reboot.",
+  "discovery.agent.maintenanceUnknown": "Reboot requirement not reported; update status is unknown.",
+  "discovery.agent.empty": "No importable services returned. Check the runtime statuses above; you can still add services manually.",
+  "discovery.agent.missingUrl": "No confirmed published web URL — review and add manually",
+  "discovery.agent.reviewHelp":
+    "Select each service explicitly. Only recognized published web ports can be imported; stopped containers and unknown protocols need manual review. Selected services become unsaved drafts.",
+  "discovery.agent.urlHint":
+    "URLs and protocols are defaults inferred from the image and published port, not verified connections. Before saving or opening, adjust the draft for custom HTTPS, reverse proxies or different web ports.",
+  "discovery.agent.scopeHelp":
+    "Server Agent reads sanitized Docker / Podman inventory for rootful containers only; rootless Podman is not included yet. It does not expose the Docker socket or change containers.",
 
   "tabs.openViews": "Open views",
   "tabs.listLabel": "Personal Hub tabs",

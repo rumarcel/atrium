@@ -203,9 +203,10 @@ Theme Studio and safe theme packs are part of this phase:
 - Optional custom SVG/WebP icons are selected once, validated as inert image
   content, limited to 256 KiB and kept in a versioned, 32-entry/2 MiB local
   cache. Invalid storage falls back safely to the built-in icon.
-- Remote Docker/Podman discovery is deliberately deferred to the restricted
-  server channel in Phase 9. Exposing an unauthenticated Docker TCP daemon would
-  grant much broader host control than a read-only UI operation implies.
+- Remote Docker/Podman discovery was deliberately deferred to the restricted
+  server channel and landed there as Phase 9.2.0. Exposing an unauthenticated
+  Docker TCP daemon would grant much broader host control than a read-only UI
+  operation implies.
 - mDNS, SSDP and narrowly scoped port discovery remain optional future provider
   adapters rather than a requirement for this phase.
 
@@ -277,11 +278,27 @@ Theme Studio and safe theme packs are part of this phase:
   dispatch. Live server enrollment, systemd/sudo compatibility and Windows toast
   delivery remain manual deployment checks; no real power action was tested.
 
-### Phase 9.2 — Optional later server management (not implemented)
+### Phase 9.2.0 — Read-only container inventory (completed)
+
+- Allowlisted read-only rootful Docker/Podman inventory over the existing
+  restricted channel, surfaced as a second discovery source beside Homarr with
+  the same review-before-add and duplicate detection.
+- The raw container socket is never exposed to the desktop app or to the network
+  agent. A separate administrator-installed root timer runs one fixed read-only
+  list command and writes sanitized snapshots; the agent only reads those files.
+- Neither the desktop nor a network request can run the exporter, choose its
+  command, restart a container or change the trust boundary. Power sudoers is
+  unchanged and scanning never dispatches a power command.
+- Bounded contract: at most 64 containers and 8 published ports each, no image
+  repository, environment, label or command line, 180-second snapshot expiry and
+  explicit ready/missing/stale/unavailable/invalid source states.
+- Rootful only. Rootless Podman/Docker lives in a separate user context and
+  needs its own account-scoped trust boundary; it is deliberately deferred.
+
+### Phase 9.2.1 — Optional later server management (not implemented)
 
 - Wake-on-LAN, container/service restart and maintenance status.
-- Allowlisted read-only Docker/Podman inventory over the restricted channel;
-  never expose the raw container socket to the desktop app.
+- Rootless container enumeration behind an account-scoped trust boundary.
 
 ## Phase 10 — Linux desktop support
 

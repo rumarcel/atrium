@@ -1,0 +1,11 @@
+[Unit]
+Description=Personal Hub rootful %i inventory refresh (opt-in)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=5s
+Unit=personal-hub-inventory@%i.service
+
+[Install]
+WantedBy=timers.target

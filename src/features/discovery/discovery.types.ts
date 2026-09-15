@@ -8,14 +8,30 @@ export interface ServiceDiscoveryCandidate {
   iconHint: string | null;
 }
 export interface ServiceDiscoveryResponse {
-  source: "homarr";
+  source: "homarr" | "server-agent";
   sourceServiceId: string;
   candidates: readonly ServiceDiscoveryCandidate[];
   skippedCount: number;
 }
 
+export interface ServerInventorySource {
+  runtime: "docker" | "podman";
+  scope: "rootful";
+  state: "ready" | "missing" | "stale" | "unavailable" | "invalid";
+  ageSeconds: number | null;
+  skippedCount: number;
+  containerCount: number;
+}
+
+export interface ServerInventoryDiscoveryResponse {
+  discovery: ServiceDiscoveryResponse;
+  sources: readonly ServerInventorySource[];
+  maintenance: { rebootRequired: true | null };
+}
+
 export interface ServiceDiscoveryClient {
   discoverHomarrServices: (serviceId: string) => Promise<ServiceDiscoveryResponse>;
+  discoverServerInventory: () => Promise<ServerInventoryDiscoveryResponse>;
 }
 
 export interface ServiceDiscoveryReviewItem {

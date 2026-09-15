@@ -1,4 +1,4 @@
-import { suggestServiceIcon } from "../services/icons/iconCatalog";
+import { suggestServiceIcon } from "../services/icons/iconCatalog.js";
 import type { DashboardService } from "../services/service.types";
 import type {
   ServiceDiscoveryCandidate,
@@ -14,6 +14,18 @@ function slug(value: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 56);
   return normalized || "discovered-service";
+}
+
+export function selectedDiscoveryServices(
+  candidates: readonly ServiceDiscoveryCandidate[],
+  existingServices: readonly DashboardService[],
+  selection: ReadonlySet<string>,
+  source: "homarr" | "server-agent",
+): readonly DashboardService[] {
+  // Recompute against the latest draft at the moment of adding, not scan time.
+  return createDiscoveryReviewItems(candidates, existingServices, source)
+    .filter((item) => selection.has(item.key) && item.duplicateOf === null)
+    .flatMap((item) => item.service === null ? [] : [item.service]);
 }
 
 function uniqueId(name: string, usedIds: Set<string>): string {
@@ -66,6 +78,7 @@ function duplicateService(
 export function createDiscoveryReviewItems(
   candidates: readonly ServiceDiscoveryCandidate[],
   existingServices: readonly DashboardService[],
+  source: "homarr" | "server-agent" = "homarr",
 ): readonly ServiceDiscoveryReviewItem[] {
   const usedIds = new Set(existingServices.map((service) => service.id));
   const knownServices = [...existingServices];
@@ -81,7 +94,7 @@ export function createDiscoveryReviewItems(
       ? {
           id: uniqueId(candidate.name, usedIds),
           name: candidate.name,
-          description: candidate.description ?? "Homarr",
+          description: candidate.description ?? (source === "server-agent" ? "Server Agent" : "Homarr"),
           url: candidate.url,
           category: suggestion.category,
           icon: suggestion.icon,

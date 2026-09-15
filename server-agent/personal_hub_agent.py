@@ -24,6 +24,8 @@ import time
 from typing import Callable
 import uuid
 
+from personal_hub_inventory import inventory_response
+
 
 HOST = "192.168.1.10"
 PORT = 9473
@@ -439,6 +441,9 @@ class AgentHandler(http.server.BaseHTTPRequestHandler):
     def _route(self) -> None:
         try:
             length = self._gate()
+            if self.command == "GET" and self.path == "/v1/inventory":
+                self._json(200, inventory_response(self.server.store.boot_id))
+                return
             if self.command == "GET" and self.path == "/v1/status":
                 self._json(200, {"version": 1, "serverId": "personal-hub-server",
                                  "bootId": self.server.store.boot_id,

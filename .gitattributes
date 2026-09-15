@@ -12,6 +12,7 @@ pnpm-lock.yaml text eol=lf
 *.mjs text eol=lf
 server-agent/*.py text eol=lf
 server-agent/*.service text eol=lf
+server-agent/*.timer text eol=lf
 server-agent/*.sudoers text eol=lf
 *.rs text eol=lf
 *.svg text eol=lf

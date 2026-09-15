@@ -33,9 +33,12 @@ server-side dry-run check remain required before enabling real power control.
 The desktop cards are separate native surfaces rather than an in-app widget editor.
 The server summary now exposes Glances uptime, and an
 explicit service-tab close tears down its native WebView so media cannot remain
-audible invisibly. Remote Docker/Podman inventory waits for the restricted
-server channel instead of requiring an exposed Docker daemon. Optional advanced
-server operations, Linux desktop support and mobile remain later work. The remaining
+audible invisibly. Phase 9.2.0 adds optional read-only rootful Docker/Podman
+inventory over that same restricted channel instead of requiring an exposed
+Docker daemon; it reads administrator-installed snapshot files and never
+receives a container socket. Container/service restarts, Wake-on-LAN,
+rootless container enumeration, Linux desktop support and mobile remain later
+work. The remaining
 work is tracked in
 [`ROADMAP.md`](ROADMAP.md).
 
@@ -51,8 +54,9 @@ work is tracked in
   token resolution, native persistence client and live Appearance provider.
 - `src/features/health`: native health-check client, bounded polling and runtime
   status types.
-- `src/features/discovery`: exact-shape Homarr discovery client, duplicate-safe
-  review models and the Settings review surface.
+- `src/features/discovery`: exact-shape Homarr and server-agent inventory
+  discovery clients, duplicate-safe review models and the Settings review
+  surface.
 - `src/features/downloads`: strict Download Center response parsing,
   visibility-aware polling and the compact read-only qBittorrent surface.
 - `src/features/serverControl`: main-UI-only enrollment, explicit power
@@ -405,8 +409,31 @@ enroll in **dry-run first**; real power additionally requires a reviewed, exact
 sudoers allowlist and an explicit `--allow-power` service override. Neither is
 deployed or enabled automatically. The included focused tests never issue power
 commands; live Linux/systemd/TLS enrollment still needs a manual check on the
-actual server. Wake-on-LAN, Docker inventory and container/service restarts are
-not included in this power-control phase.
+actual server. Wake-on-LAN and container/service restarts are not included in
+this power-control phase.
+
+### Read-only container inventory
+
+Phase 9.2.0 reuses the enrolled agent connection as a second discovery source
+beside Homarr. Settings → Find services can scan **Server Agent (Docker /
+Podman)** and review the same duplicate-checked candidate list before adding
+anything.
+
+The agent still has no container socket, Docker group, Docker sudo rule or
+container CLI execution. A separate, administrator-installed root timer runs a
+fixed read-only list command and writes sanitized snapshots; the agent only
+reads those files, and neither the desktop nor a network request can run the
+exporter, choose its command or restart a container. Snapshots expire after 180
+seconds and are reported with an explicit `ready`/`missing`/`stale`/
+`unavailable`/`invalid` state rather than silently omitted.
+
+The desktop receives no image repository, environment variable, label or command
+line — at most 64 containers with at most 8 published ports each. Published
+ports are treated as suggestions and are never probed during import. Only
+**rootful** Docker and Podman are enumerated; an empty result does not mean a
+user's rootless containers are absent. Scanning never sends a power command, so
+dry-run mode is sufficient. Installation is opt-in and manual; see the
+[server agent installation guide](server-agent/README.md).
 
 ## Appearance and languages
 

@@ -9,6 +9,7 @@ mod health;
 mod monitoring;
 mod provider_auth;
 mod server_control;
+mod server_inventory;
 mod service_discovery;
 mod service_settings;
 mod service_webviews;
@@ -126,6 +127,7 @@ pub fn run() {
             provider_auth::get_service_authentication_status,
             provider_auth::validate_service_authentication,
             service_discovery::discover_homarr_services,
+            server_inventory::discover_server_inventory,
             download_center::get_download_center_snapshot,
             service_webviews::open_service_webview,
             service_webviews::activate_service_webview,

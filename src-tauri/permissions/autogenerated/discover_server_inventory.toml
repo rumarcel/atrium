@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-discover-server-inventory"
+description = "Enables the discover_server_inventory command without any pre-configured scope."
+commands.allow = ["discover_server_inventory"]
+
+[[permission]]
+identifier = "deny-discover-server-inventory"
+description = "Denies the discover_server_inventory command without any pre-configured scope."
+commands.deny = ["discover_server_inventory"]

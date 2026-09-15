@@ -37,6 +37,7 @@
     "allow-get-service-authentication-status",
     "allow-validate-service-authentication",
     "allow-discover-homarr-services",
+    "allow-discover-server-inventory",
     "allow-get-download-center-snapshot",
     "allow-open-service-webview",
     "allow-activate-service-webview",

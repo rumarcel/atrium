@@ -198,16 +198,16 @@ const turkishOverrides = {
   "discovery.title": "Servisleri bul",
   "discovery.readOnly": "Salt okunur",
   "discovery.description":
-    "Kayıtlı bir Homarr servisinden uygulamaları oku, tüm sonuçları incele ve eklenecekleri seç.",
+    "Homarr veya eşleştirilmiş sunucu ajanından uygulamaları oku, sonuçları incele ve eklenecekleri seç. Hiçbir şey otomatik içe aktarılmaz.",
   "discovery.noHomarrSource":
-    "Keşfi etkinleştirmek için Homarr API kimlik doğrulamalı bir Homarr servisi ekleyip kaydedin, ardından API anahtarını kasaya yazın.",
-  "discovery.source": "Homarr kaynağı",
-  "discovery.scan": "Homarr'ı tara",
+    "Homarr isteğe bağlıdır. Ek kaynak olarak kullanmak için Homarr API kimlik doğrulamalı bir servis kaydedip API anahtarını kasaya yazın.",
+  "discovery.source": "Keşif kaynağı",
+  "discovery.scan": "Kaynağı tara",
   "discovery.scanning": "Taranıyor…",
   "discovery.saveBeforeScan":
     "Yeni tarama başlatmadan önce mevcut katalog değişikliklerini kaydedin veya geri alın.",
   "discovery.found": "{{count}} uygulama bulundu",
-  "discovery.skipped": "{{count}} geçersiz veya fazla kayıt atlandı",
+  "discovery.skipped": "{{count}} desteklenmeyen, geçersiz veya fazla kayıt atlandı",
   "discovery.empty": "Homarr herhangi bir uygulama döndürmedi.",
   "discovery.missingUrl": "Açılış URL'si yok — Homarr'da inceleyin",
   "discovery.duplicate": "Zaten {{serviceName}} olarak mevcut",
@@ -219,8 +219,29 @@ const turkishOverrides = {
     "Seçilen uygulamalar kaydetmeden önce inceleyebilmeniz için taslak olarak eklenir.",
   "discovery.addSelected": "Seçilenleri ekle ({{count}})",
   "discovery.addedToDraft": "Keşfedilen {{count}} servis kaydedilmemiş taslak olarak eklendi.",
-  "discovery.containerDeferred":
-    "Uzak Docker ve Podman keşfi Phase 9'daki kısıtlı sunucu kanalını kullanacak; dışarı açılmış Docker TCP soketi gerekmeyecek.",
+  "discovery.agent.source": "Sunucu Ajanı (Docker / Podman)",
+  "discovery.agent.setupHelp":
+    "Yalnız 192.168.1.10 kullanılır. Sunucu kontrolünü sertifika ve token ile eşleştirip etkinleştirin, ardından ajan envanter toplayıcısını kurun. Deneme modu yeterlidir; tarama güç komutu göndermez.",
+  "discovery.agent.error":
+    "Sunucu envanteri okunamadı. Sunucu kontrolü eşleştirmesini ve bağlantıyı kontrol edin. Eski ajanlar envanter uç noktası ve toplayıcıyı içeren sürüme güncellenmelidir. Hiçbir servis eklenmedi.",
+  "discovery.agent.ready": "2 envanter kaynağından {{count}} tanesi hazır",
+  "discovery.agent.state.ready": "Envanter hazır",
+  "discovery.agent.state.missing": "Envanter yok — çalışma zamanı veya toplayıcı kurulu olmayabilir",
+  "discovery.agent.state.stale": "Envanter eski; sunucudaki toplayıcıyı yenileyin",
+  "discovery.agent.state.unavailable": "Toplayıcı bu çalışma zamanını okuyamadı",
+  "discovery.agent.state.invalid": "Envanter doğrulanamadı; sunucudaki toplayıcıyı kontrol edin",
+  "discovery.agent.age": "{{seconds}} saniye önce",
+  "discovery.agent.containers": "{{count}} container",
+  "discovery.agent.rebootRequired": "Sunucu yeniden başlatma gerektiğini bildiriyor. Bu, yeniden başlatmanın güvenli olduğunu doğrulamaz.",
+  "discovery.agent.maintenanceUnknown": "Yeniden başlatma gereksinimi bildirilmedi; güncelleme durumu bilinmiyor.",
+  "discovery.agent.empty": "İçe aktarılabilir servis dönmedi. Yukarıdaki çalışma zamanı durumlarını kontrol edin; servisleri yine elle ekleyebilirsiniz.",
+  "discovery.agent.missingUrl": "Doğrulanmış dışa açık web URL'si yok — inceleyip elle ekleyin",
+  "discovery.agent.reviewHelp":
+    "Her servisi kendiniz seçin. Yalnız tanınan dışa açık web portları içe aktarılır; durmuş container'lar ve bilinmeyen protokoller elle incelenmelidir. Seçilen servisler kaydedilmemiş taslak olur.",
+  "discovery.agent.urlHint":
+    "URL ve protokoller image ile dışa açılan porttan tahmin edilen varsayılanlardır; bağlantıları doğrulanmamıştır. Kaydetmeden veya açmadan önce özel HTTPS, ters proxy veya farklı web portları için taslağı düzenleyin.",
+  "discovery.agent.scopeHelp":
+    "Sunucu Ajanı yalnız rootful container'ların ayıklanmış Docker / Podman envanterini okur; rootless Podman henüz dahil değildir. Docker soketini dışarı açmaz ve container'ları değiştirmez.",
 
   "tabs.openViews": "Açık görünümler",
   "tabs.listLabel": "Personal Hub sekmeleri",

@@ -48,6 +48,7 @@ The examples assume Debian/Ubuntu-style command paths and an unused account name
    sudo install -d -o root -g personalhub-agent -m 0750 /etc/personal-hub-agent
    sudo install -d -o personalhub-agent -g personalhub-agent -m 0700 /var/lib/personal-hub-agent
    sudo install -o root -g root -m 0644 personal_hub_agent.py /opt/personal-hub-agent/personal_hub_agent.py
+   sudo install -o root -g root -m 0644 personal_hub_inventory.py /opt/personal-hub-agent/personal_hub_inventory.py
    sudo install -o root -g root -m 0644 personal-hub-agent.service /etc/systemd/system/personal-hub-agent.service
    ```
 
@@ -167,6 +168,7 @@ exact `Content-Type: application/json`. No redirects, cookies or alternate route
 | Method / route | Request / result |
 | --- | --- |
 | `GET /v1/status` | `{version:1,serverId:"personal-hub-server",bootId,uptimeSeconds,dryRun,activeOperation}` |
+| `GET /v1/inventory` | Authenticated, optional sanitized rootful Docker/Podman snapshots and limited maintenance hint; see below |
 | `POST /v1/operations` | Exact `{id,action,bootId,dryRun}` → operation, HTTP 200 |
 | `GET /v1/operations/{id}` | Operation or HTTP 404 |
 | `DELETE /v1/operations/{id}` | Cancel scheduled operation before deadline, or return existing cancelled record; otherwise HTTP 409 |
@@ -213,6 +215,135 @@ concurrent clients; five-second socket/overall request deadline; 10-second subpr
 128 KiB journal limit. Error replies are generic `{error:code}` with no secrets.
 There is no request log, token echo, shell endpoint, Docker socket or local-machine
 control API. The certificate/key/token and state directory are permission-checked.
+
+## Phase 9.2.0 — Optional read-only rootful container inventory
+
+The **network agent still has no container socket access**, Docker group, Docker
+sudo rule, or container CLI execution. A separate, administrator-installed root
+timer can run a fixed read-only list command and write sanitized snapshots. The
+agent only reads these files. Neither a network request nor the desktop can run
+the exporter, choose its command/path, restart a container, install an update, or
+change this trust boundary. Existing power sudoers remains unchanged.
+
+This first implementation covers **rootful Docker and rootful Podman only**.
+Rootless Podman/Docker containers belong to a separate user context and are not
+enumerated; an empty rootful result does **not** mean that user's containers are
+absent. Rootless publication needs a separately designed, account-scoped trust
+boundary and is deferred. Host-network containers and services with no published
+IPv4 TCP mapping need manual configuration. Docker/Podman is never required for
+the rest of Personal Hub.
+
+### Manual opt-in installation
+
+Review these files on the actual Linux host; these are **not** automatically run
+by Personal Hub. Install the regular agent and its `personal_hub_inventory.py`
+module first, including when upgrading a pre-inventory agent. Confirm the selected
+runtime executable is root-owned at `/usr/bin/docker` or `/usr/bin/podman` and
+that its normal **rootful** storage/configuration is the intended one.
+
+```sh
+sudo install -d -o root -g personalhub-agent -m 0750 /var/lib/personal-hub-inventory
+sudo install -d -o root -g root -m 0700 /etc/personal-hub-inventory/docker
+sudo install -o root -g root -m 0644 export_inventory.py /opt/personal-hub-agent/export_inventory.py
+sudo install -o root -g root -m 0644 personal_hub_inventory.py /opt/personal-hub-agent/personal_hub_inventory.py
+sudo install -o root -g root -m 0644 personal-hub-inventory@.service /etc/systemd/system/personal-hub-inventory@.service
+sudo install -o root -g root -m 0644 personal-hub-inventory@.timer /etc/systemd/system/personal-hub-inventory@.timer
+sudo systemctl daemon-reload
+```
+
+Keep the Docker configuration directory empty and root-owned. The exporter fixes
+Docker's endpoint to `unix:///var/run/docker.sock`, explicitly disables Podman
+remote mode, and does not inherit `DOCKER_HOST`, `DOCKER_CONTEXT`, `CONTAINER_HOST`
+or a user's environment. There is no shell or arbitrary command argument. The
+rootful Podman CLI may update its own runtime/database bookkeeping while listing;
+the exporter performs no workload mutation, but is **not a security sandbox**.
+Its scripts, unit, runtime binaries and configuration must remain administrator
+controlled. Never grant these privileges to `personalhub-agent` itself.
+
+Enable only the runtime(s) actually in use, after review:
+
+```sh
+# Rootful Docker (omit if unused):
+sudo systemctl enable --now personal-hub-inventory@docker.timer
+# Rootful Podman (omit if unused):
+sudo systemctl enable --now personal-hub-inventory@podman.timer
+```
+
+Each timer refreshes around every 30 seconds. It writes only
+`/var/lib/personal-hub-inventory/docker.json` or `podman.json` using atomic replace
+and fsync, owned by `root:personalhub-agent` with mode `0640`. The agent cannot
+write to their root-owned parent. Existing agent installations need a reviewed
+**agent-service-only** restart to load the new route; no host reboot is needed.
+Do not restart an agent with uncertain/in-flight power work just to upgrade it.
+
+To disable an exporter, stop and disable its matching timer. Its last snapshot
+expires after 180 seconds; until then it may still appear fresh. Remove only the
+specific snapshot if immediate withdrawal is desired, after reviewing its path.
+Do not remove the separate power-operation journal. No power permission or live
+reboot/shutdown test is required to use inventory in dry-run mode.
+
+### Data contract and limits
+
+Authenticated `GET /v1/inventory` returns HTTP 200 with exact fields:
+
+```json
+{
+  "version": 1,
+  "target": "192.168.1.10",
+  "sources": [
+    {"runtime":"docker","scope":"rootful","state":"missing","ageSeconds":null,"skippedCount":0,"containers":[]},
+    {"runtime":"podman","scope":"rootful","state":"missing","ageSeconds":null,"skippedCount":0,"containers":[]}
+  ],
+  "maintenance": {"rebootRequired": null}
+}
+```
+
+There are always two sources, Docker then Podman. Source state is `ready`,
+`missing`, `stale`, `unavailable`, or `invalid`. A source's containers appear only
+when ready. Read failures, invalid metadata/permissions, timestamps more than 30
+seconds in the future, snapshots older than 180 seconds, or a previous Linux boot
+never yield import candidates. A missing exporter does not prevent agent startup
+or power controls. Authentication errors still use the original HTTP error gate.
+
+Each container is exactly `{id,name,application,state,ports}`. The ID is 12 lower
+hex characters; name is at most 80 ASCII letters/digits/dots/underscores/hyphens,
+starting with a letter or digit. State is `running`, `stopped` or `unknown`.
+Application is a known built-in app key or null, inferred only from the image's
+final repository component; it is a hint, **not verified application identity**.
+Raw image names/tags, labels, environment, commands, mounts, registry information
+and internal addresses are not exported. The list command requests only the five
+fields needed for this reduction, not a full JSON/inspect dump.
+
+Each port is `{hostPort,containerPort}` with integers 1–65535. Only explicitly
+published TCP on `0.0.0.0` or `192.168.1.10` is admitted. Localhost, other host
+addresses, IPv6-only binds, un-published internal ports, UDP and port-range strings
+are omitted. Maximum: 64 containers per runtime, eight ports per container,
+64 KiB per snapshot and less than 128 KiB aggregate. Skipped containers (including
+invalid rows, repeated short IDs, and the count limit) are counted up to 50,000; omitted ports
+are not counted. A non-ready source has no containers. CLI failures produce an
+unavailable snapshot, never retain an older ready list or echo stderr.
+
+The on-disk document is version 1 with exact
+`{version,runtime,scope,bootId,generatedAt,state,skippedCount,containers}` fields;
+`generatedAt` is Unix milliseconds and its state is `ready` or `unavailable`.
+Root ownership, protected ancestor directories, regular-file type, no final
+symlink, a single hardlink and bounded reads are enforced by the agent. Exports
+are capped at 256 KiB of CLI stdout and an eight-second CLI deadline; the unit
+also has a 12-second runtime limit. Errors never include raw CLI data.
+
+`maintenance.rebootRequired` is true only when the regular `/run/reboot-required`
+sentinel exists; otherwise it is null/unknown, **never false**. This does not
+inspect package updates and does not mean a reboot is safe: active downloads,
+streams, writes, other services and distro-specific maintenance remain unknown.
+No update installation, Wake-on-LAN, service/container restart or automatic power
+action is included in this phase. Discovery remains preview-and-review only;
+the desktop does not automatically add imported services or treat image hints as
+proof of HTTP protocol, authentication, or reachability.
+
+CLI field references: [Docker container list](https://docs.docker.com/reference/cli/docker/container/ls/)
+and [Podman ps](https://docs.podman.io/en/latest/markdown/podman-ps.1.html).
+Host-specific CLI versions, systemd, permissions and rootful storage still need
+manual read-only validation on the actual server; mocks do not prove deployment.
 
 ## Focused verification and maintenance
 

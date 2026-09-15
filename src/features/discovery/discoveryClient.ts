@@ -3,9 +3,19 @@ import type {
   ServiceDiscoveryCandidate,
   ServiceDiscoveryClient,
   ServiceDiscoveryResponse,
+  ServerInventoryDiscoveryResponse,
+  ServerInventorySource,
 } from "./discovery.types";
 
 const DISCOVER_HOMARR_COMMAND = "discover_homarr_services";
+const DISCOVER_SERVER_INVENTORY_COMMAND = "discover_server_inventory";
+const SERVER_ICON_HINTS = new Set([
+  "jellyfin", "plex", "emby", "radarr", "sonarr", "bazarr", "prowlarr",
+  "lidarr", "readarr", "immich", "navidrome", "audiobookshelf", "qbittorrent",
+  "sabnzbd", "transmission", "metube", "homarr", "home-assistant", "nextcloud",
+  "portainer", "glances", "grafana", "pihole", "adguard-home", "crafty",
+  "gerbera", "docker", "podman",
+]);
 const RESPONSE_KEYS = new Set([
   "source",
   "sourceServiceId",
@@ -84,9 +94,9 @@ function optionalUrl(value: unknown): string | null {
 
 function parseCandidate(value: unknown): ServiceDiscoveryCandidate {
   if (!isRecord(value)) {
-    throw new Error("A Homarr discovery candidate was invalid.");
+    throw new Error("A discovery candidate was invalid.");
   }
-  assertExactKeys(value, CANDIDATE_KEYS, "A Homarr discovery candidate");
+  assertExactKeys(value, CANDIDATE_KEYS, "A discovery candidate");
   return {
     sourceId: boundedString(value.sourceId, 200, "A discovery source ID"),
     name: boundedString(value.name, 80, "A discovered service name"),
@@ -97,6 +107,99 @@ function parseCandidate(value: unknown): ServiceDiscoveryCandidate {
     ),
     url: optionalUrl(value.url),
     iconHint: optionalString(value.iconHint, 512, "A discovered icon hint"),
+  };
+}
+
+function boundedInteger(value: unknown, maximum: number, context: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > maximum) {
+    throw new Error(`${context} was invalid.`);
+  }
+  return value;
+}
+
+function parseServerCandidate(value: unknown): ServiceDiscoveryCandidate {
+  const candidate = parseCandidate(value);
+  if (candidate.iconHint !== null && !SERVER_ICON_HINTS.has(candidate.iconHint)) {
+    throw new Error("The server inventory icon hint was invalid.");
+  }
+  if (candidate.url !== null) {
+    // Only native-derived, published web ports on the paired server are eligible.
+    // A URL parser alone would normalize alternate hosts, encoded paths and ports.
+    const match = /^https?:\/\/192\.168\.1\.10:([1-9][0-9]{0,4})\/$/.exec(candidate.url);
+    if (match === null || Number(match[1]) > 65_535) {
+      throw new Error("The server inventory service target was invalid.");
+    }
+  }
+  return candidate;
+}
+
+function parseInventorySource(value: unknown): ServerInventorySource {
+  if (!isRecord(value)) {
+    throw new Error("The inventory source was invalid.");
+  }
+  assertExactKeys(value, new Set([
+    "runtime", "scope", "state", "ageSeconds", "skippedCount", "containerCount",
+  ]), "The inventory source");
+  if (value.runtime !== "docker" && value.runtime !== "podman") {
+    throw new Error("The inventory runtime was invalid.");
+  }
+  if (value.scope !== "rootful") {
+    throw new Error("The inventory scope was invalid.");
+  }
+  if (
+    value.state !== "ready" && value.state !== "missing" && value.state !== "stale" &&
+    value.state !== "unavailable" && value.state !== "invalid"
+  ) {
+    throw new Error("The inventory state was invalid.");
+  }
+  return {
+    runtime: value.runtime,
+    scope: value.scope,
+    state: value.state,
+    ageSeconds: value.ageSeconds === null ? null : boundedInteger(value.ageSeconds, Number.MAX_SAFE_INTEGER, "The inventory age"),
+    skippedCount: boundedInteger(value.skippedCount, 100_000, "The inventory skipped count"),
+    containerCount: boundedInteger(value.containerCount, 64, "The inventory container count"),
+  };
+}
+
+export function parseServerInventoryDiscoveryResponse(value: unknown): ServerInventoryDiscoveryResponse {
+  if (!isRecord(value)) {
+    throw new Error("The server inventory response was invalid.");
+  }
+  assertExactKeys(value, new Set(["discovery", "sources", "maintenance"]), "The server inventory response");
+  if (!isRecord(value.discovery)) {
+    throw new Error("The server inventory discovery was invalid.");
+  }
+  assertExactKeys(value.discovery, RESPONSE_KEYS, "The server inventory discovery");
+  if (value.discovery.source !== "server-agent" || value.discovery.sourceServiceId !== "server-agent") {
+    throw new Error("The server inventory source was invalid.");
+  }
+  if (!Array.isArray(value.discovery.candidates) || value.discovery.candidates.length > 256) {
+    throw new Error("The server inventory candidate list was invalid.");
+  }
+  if (!Array.isArray(value.sources) || value.sources.length !== 2) {
+    throw new Error("The inventory sources were invalid.");
+  }
+  const sources = value.sources.map(parseInventorySource);
+  if (new Set(sources.map((source) => source.runtime)).size !== 2) {
+    throw new Error("The inventory sources were duplicated.");
+  }
+  if (!isRecord(value.maintenance)) {
+    throw new Error("The inventory maintenance status was invalid.");
+  }
+  assertExactKeys(value.maintenance, new Set(["rebootRequired"]), "The inventory maintenance status");
+  if (value.maintenance.rebootRequired !== true && value.maintenance.rebootRequired !== null) {
+    throw new Error("The inventory maintenance status was invalid.");
+  }
+  return {
+    discovery: {
+      source: "server-agent",
+      sourceServiceId: "server-agent",
+      candidates: value.discovery.candidates.map(parseServerCandidate),
+      skippedCount: boundedInteger(value.discovery.skippedCount, 100_000, "The discovery skipped count"),
+    },
+    sources,
+    maintenance: { rebootRequired: value.maintenance.rebootRequired },
   };
 }
 
@@ -145,7 +248,17 @@ export async function discoverHomarrServices(
 
 export const nativeServiceDiscoveryClient: ServiceDiscoveryClient = {
   discoverHomarrServices,
+  discoverServerInventory,
 };
+
+export async function discoverServerInventory(): Promise<ServerInventoryDiscoveryResponse> {
+  if (!isTauri()) {
+    throw new Error("Service discovery is available only in the desktop app.");
+  }
+  return parseServerInventoryDiscoveryResponse(
+    await invoke<unknown>(DISCOVER_SERVER_INVENTORY_COMMAND),
+  );
+}
 
 export function describeDiscoveryError(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {

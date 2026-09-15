@@ -42,20 +42,20 @@ pub struct DiscoverHomarrServicesRequest {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceDiscoveryCandidate {
-    source_id: String,
-    name: String,
-    description: Option<String>,
-    url: Option<String>,
-    icon_hint: Option<String>,
+    pub(crate) source_id: String,
+    pub(crate) name: String,
+    pub(crate) description: Option<String>,
+    pub(crate) url: Option<String>,
+    pub(crate) icon_hint: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceDiscoveryResponse {
-    source: &'static str,
-    source_service_id: String,
-    candidates: Vec<ServiceDiscoveryCandidate>,
-    skipped_count: usize,
+    pub(crate) source: &'static str,
+    pub(crate) source_service_id: String,
+    pub(crate) candidates: Vec<ServiceDiscoveryCandidate>,
+    pub(crate) skipped_count: usize,
 }
 
 #[tauri::command]

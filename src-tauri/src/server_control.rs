@@ -166,6 +166,7 @@ pub struct ServerControl {
     owner: Option<File>,
     runtime: Mutex<Runtime>,
     operation: futures_util::lock::Mutex<()>,
+    inventory_operation: futures_util::lock::Mutex<()>,
 }
 
 impl ServerControl {
@@ -205,6 +206,7 @@ impl ServerControl {
                 notice,
             }),
             operation: futures_util::lock::Mutex::new(()),
+            inventory_operation: futures_util::lock::Mutex::new(()),
         })
     }
 
@@ -312,6 +314,33 @@ impl ServerControl {
             client,
             credential: credential_vault::read_server_control_token()?,
         })
+    }
+
+    /// On-demand, read-only inventory uses the enrolled trust path but never
+    /// takes the power-operation gate. Slow discovery cannot delay cancellation.
+    /// No caller can choose a URL or increase the power response-size limit.
+    pub(crate) async fn read_inventory<T: DeserializeOwned>(&self) -> Result<T, String> {
+        let _guard = self
+            .inventory_operation
+            .try_lock()
+            .ok_or("Server inventory discovery is already in progress.")?;
+        let revision = self.lock()?.document.revision;
+        let transport = self.transport()?;
+        let result = transport
+            .request_bounded(Method::GET, "/v1/inventory", None, 128 * 1024)
+            .await;
+        {
+            let state = self.lock()?;
+            if !state.document.preferences.enabled || state.document.revision != revision {
+                return Err("Server enrollment changed during discovery. Try again.".into());
+            }
+        }
+        result.map_err(|error| match error {
+            RemoteError::Unauthorized => "The agent rejected inventory authentication.",
+            RemoteError::Rejected => "Inventory is unavailable. Update the server agent and install its optional exporter.",
+            RemoteError::Unreachable => "The trusted server inventory endpoint could not be reached.",
+            RemoteError::Invalid => "The server inventory response is invalid or too large.",
+        }.into())
     }
 
     fn remember_status(&self, result: &Result<AgentStatus, RemoteError>) -> Result<(), String> {
@@ -718,6 +747,16 @@ impl Transport {
         path: &str,
         body: Option<serde_json::Value>,
     ) -> Result<T, RemoteError> {
+        self.request_bounded(method, path, body, MAX_BODY).await
+    }
+
+    async fn request_bounded<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<serde_json::Value>,
+        maximum_bytes: usize,
+    ) -> Result<T, RemoteError> {
         // Every caller uses a fixed path or a validated, locally generated ID.
         let mut authorization =
             reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.credential.secret()))
@@ -744,7 +783,7 @@ impl Transport {
         if !response.status().is_success()
             || response
                 .content_length()
-                .is_some_and(|length| length > MAX_BODY as u64)
+                .is_some_and(|length| length > maximum_bytes as u64)
         {
             return Err(RemoteError::Invalid);
         }
@@ -762,7 +801,7 @@ impl Transport {
             .await
             .map_err(|_| RemoteError::Unreachable)?
         {
-            if bytes.len() + chunk.len() > MAX_BODY {
+            if bytes.len() + chunk.len() > maximum_bytes {
                 return Err(RemoteError::Invalid);
             }
             bytes.extend_from_slice(&chunk);

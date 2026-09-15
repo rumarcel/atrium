@@ -226,6 +226,20 @@ class ProtocolTests(unittest.TestCase):
                                 "uptimeSeconds": 42, "dryRun": True, "activeOperation": None})
         self.assertNotIn(TOKEN, json.dumps(body))
 
+    def test_inventory_uses_existing_auth_gate_and_no_power_dispatch(self):
+        result = {"version": 1, "target": agent.HOST, "sources": [],
+                  "maintenance": {"rebootRequired": None}}
+        with mock.patch.object(agent, "inventory_response", return_value=result) as read:
+            self.assertEqual(self.request(path="/v1/inventory"), (200, result))
+            read.assert_called_once_with(BOOT)
+            read.reset_mock()
+            self.assertEqual(self.request(path="/v1/inventory", token="invalid")[0], 401)
+            read.assert_not_called()
+            self.assertEqual(self.request("POST", "/v1/inventory")[0], 404)
+            self.assertEqual(self.request(path="/v1/inventory?runtime=docker")[0], 400)
+            read.assert_not_called()
+        self.assertIsNone(self.store.active())
+
     def test_host_origin_query_and_missing_authentication_are_rejected(self):
         cases = ({"host": "localhost:9473"}, {"extra": ("Origin: https://example.test",)},
                  {"path": "/v1/status?token=secret"}, {"token": "invalid"},

@@ -1,0 +1,22 @@
+[Unit]
+Description=Personal Hub rootful %i inventory snapshot (read-only CLI)
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 -B /opt/personal-hub-agent/export_inventory.py --runtime %i
+WorkingDirectory=/opt/personal-hub-agent
+UMask=0077
+TimeoutStartSec=12
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectControlGroups=true
+# The privileged exporter has no listener. Rootful Podman may need its own
+# state/database writes even for ps; do not advertise this unit as a sandbox.
+# No permission is added to the separate unprivileged network agent.
+StandardOutput=null
+StandardError=journal

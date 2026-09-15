@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "../../i18n";
 import { ServiceIcon } from "../../services/components/ServiceIcon";
 import type { DashboardService } from "../../services/service.types";
@@ -6,8 +6,15 @@ import {
   describeDiscoveryError,
   nativeServiceDiscoveryClient,
 } from "../discoveryClient";
-import { createDiscoveryReviewItems } from "../discoveryModel";
-import type { ServiceDiscoveryClient } from "../discovery.types";
+import { createDiscoveryReviewItems, selectedDiscoveryServices } from "../discoveryModel";
+import type {
+  ServiceDiscoveryClient,
+  ServiceDiscoveryResponse,
+  ServerInventoryDiscoveryResponse,
+} from "../discovery.types";
+
+const SERVER_AGENT_SOURCE = "server-agent";
+const homarrSourceKey = (id: string) => `homarr:${id}`;
 
 interface ServiceDiscoveryPanelProps {
   persistedServices: readonly DashboardService[];
@@ -32,62 +39,97 @@ export function ServiceDiscoveryPanel({
       ),
     [persistedServices],
   );
-  const [sourceServiceId, setSourceServiceId] = useState(sources[0]?.id ?? "");
-  const [result, setResult] = useState<
-    Awaited<ReturnType<ServiceDiscoveryClient["discoverHomarrServices"]>> | null
-  >(null);
+  const [sourceKey, setSourceKey] = useState(
+    sources[0] ? homarrSourceKey(sources[0].id) : SERVER_AGENT_SOURCE,
+  );
+  const isServerAgent = sourceKey === SERVER_AGENT_SOURCE;
+  const [result, setResult] = useState<ServiceDiscoveryResponse | null>(null);
+  const [inventory, setInventory] = useState<ServerInventoryDiscoveryResponse | null>(null);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const scanGeneration = useRef(0);
+  const context = { persistedServices, existingServices, disabled, client, sourceKey };
+  const latestContext = useRef(context);
+  latestContext.current = context;
 
   useEffect(() => {
-    if (!sources.some((source) => source.id === sourceServiceId)) {
-      setSourceServiceId(sources[0]?.id ?? "");
-      setResult(null);
-      setSelection(new Set());
+    if (!isServerAgent && !sources.some((source) => homarrSourceKey(source.id) === sourceKey)) {
+      setSourceKey(sources[0] ? homarrSourceKey(sources[0].id) : SERVER_AGENT_SOURCE);
     }
-  }, [sourceServiceId, sources]);
+  }, [isServerAgent, sourceKey, sources]);
+
+  useEffect(() => {
+    // A scan belongs to the exact saved catalog, draft and source it started with.
+    // A late reply must not replace a newer scan or repopulate a changed draft.
+    scanGeneration.current += 1;
+    setIsScanning(false);
+    setResult(null);
+    setInventory(null);
+    setSelection(new Set());
+    setError(null);
+    return () => { scanGeneration.current += 1; };
+  }, [persistedServices, existingServices, disabled, client, sourceKey]);
 
   const reviewItems = useMemo(
     () =>
-      createDiscoveryReviewItems(result?.candidates ?? [], existingServices),
-    [existingServices, result?.candidates],
+      createDiscoveryReviewItems(result?.candidates ?? [], existingServices, result?.source),
+    [existingServices, result?.candidates, result?.source],
   );
+  const selectedCount = reviewItems.filter(
+    (item) => selection.has(item.key) && item.service !== null && item.duplicateOf === null,
+  ).length;
 
   const scan = async () => {
-    if (!sourceServiceId || disabled || isScanning) {
+    if (disabled || isScanning || (!isServerAgent && !sources.some((source) => homarrSourceKey(source.id) === sourceKey))) {
       return;
     }
+    const generation = ++scanGeneration.current;
+    const isCurrent = () => {
+      const current = latestContext.current;
+      return generation === scanGeneration.current &&
+        current.persistedServices === persistedServices &&
+        current.existingServices === existingServices &&
+        current.disabled === disabled && current.client === client && current.sourceKey === sourceKey;
+    };
     setIsScanning(true);
     setError(null);
     setResult(null);
+    setInventory(null);
     setSelection(new Set());
     try {
-      const next = await client.discoverHomarrServices(sourceServiceId);
+      const nextInventory = isServerAgent ? await client.discoverServerInventory() : null;
+      const next = nextInventory?.discovery ?? await client.discoverHomarrServices(sourceKey.slice("homarr:".length));
+      if (!isCurrent()) return;
       setResult(next);
-      const initial = createDiscoveryReviewItems(
+      setInventory(nextInventory);
+      const initial = isServerAgent ? [] : createDiscoveryReviewItems(
         next.candidates,
         existingServices,
+        next.source,
       )
         .filter((item) => item.service !== null && item.duplicateOf === null)
         .map((item) => item.key);
       setSelection(new Set(initial));
     } catch (reason) {
-      setError(describeDiscoveryError(reason));
+      if (!isCurrent()) return;
+      // Agent responses are never rendered as raw errors: they can contain
+      // network diagnostics from an authenticated privileged endpoint.
+      setError(isServerAgent ? "server-agent" : describeDiscoveryError(reason));
     } finally {
-      setIsScanning(false);
+      if (isCurrent()) setIsScanning(false);
     }
   };
 
   const addSelected = () => {
-    const selected = reviewItems
-      .filter((item) => selection.has(item.key))
-      .flatMap((item) => (item.service === null ? [] : [item.service]));
+    if (disabled || result === null) return;
+    const selected = selectedDiscoveryServices(result.candidates, existingServices, selection, result.source);
     if (selected.length === 0) {
       return;
     }
     onAdd(selected);
     setResult(null);
+    setInventory(null);
     setSelection(new Set());
   };
 
@@ -102,27 +144,28 @@ export function ServiceDiscoveryPanel({
       </div>
 
       <p className="discovery-description">{t("discovery.description")}</p>
-      {sources.length === 0 ? (
-        <div className="settings-inline-note">{t("discovery.noHomarrSource")}</div>
-      ) : (
         <div className="discovery-toolbar">
           <label className="settings-field">
             <span>{t("discovery.source")}</span>
             <select
-              value={sourceServiceId}
-              disabled={disabled || isScanning}
+              value={sourceKey}
+              disabled={disabled}
               onChange={(event) => {
-                setSourceServiceId(event.currentTarget.value);
+                scanGeneration.current += 1;
+                setSourceKey(event.currentTarget.value);
+                setIsScanning(false);
                 setResult(null);
+                setInventory(null);
                 setSelection(new Set());
                 setError(null);
               }}
             >
               {sources.map((source) => (
-                <option key={source.id} value={source.id}>
-                  {source.name}
+                <option key={source.id} value={homarrSourceKey(source.id)}>
+                  Homarr — {source.name}
                 </option>
               ))}
+              <option value={SERVER_AGENT_SOURCE}>{t("discovery.agent.source")}</option>
             </select>
           </label>
           <button
@@ -134,12 +177,35 @@ export function ServiceDiscoveryPanel({
             {isScanning ? t("discovery.scanning") : t("discovery.scan")}
           </button>
         </div>
-      )}
 
-      {disabled && sources.length > 0 ? (
+      {isServerAgent ? (
+        <div className="settings-inline-note">{t("discovery.agent.setupHelp")}</div>
+      ) : null}
+      {sources.length === 0 ? <p className="discovery-hint">{t("discovery.noHomarrSource")}</p> : null}
+      {disabled ? (
         <p className="discovery-hint">{t("discovery.saveBeforeScan")}</p>
       ) : null}
-      {error ? <div className="discovery-error" role="alert">{error}</div> : null}
+      {error ? <div className="discovery-error" role="alert">{isServerAgent ? t("discovery.agent.error") : error}</div> : null}
+
+      {inventory ? (
+        <div className="settings-inline-note" role="status">
+          <p>{t("discovery.agent.ready", {
+            count: inventory.sources.filter((source) => source.state === "ready").length,
+          })}</p>
+          {inventory.sources.map((source) => (
+            <p key={source.runtime}>
+              <strong>{source.runtime === "docker" ? "Docker" : "Podman"} (rootful): </strong>
+              {t(`discovery.agent.state.${source.state}`)}
+              {source.ageSeconds !== null ? ` · ${t("discovery.agent.age", { seconds: source.ageSeconds })}` : ""}
+              {` · ${t("discovery.agent.containers", { count: source.containerCount })}`}
+              {source.skippedCount > 0 ? ` · ${t("discovery.skipped", { count: source.skippedCount })}` : ""}
+            </p>
+          ))}
+          <p>{t(inventory.maintenance.rebootRequired === true
+            ? "discovery.agent.rebootRequired" : "discovery.agent.maintenanceUnknown")}</p>
+          <p>{t("discovery.agent.urlHint")}</p>
+        </div>
+      ) : null}
 
       {result ? (
         <div className="discovery-results">
@@ -153,7 +219,7 @@ export function ServiceDiscoveryPanel({
           </div>
 
           {reviewItems.length === 0 ? (
-            <div className="settings-inline-note">{t("discovery.empty")}</div>
+            <div className="settings-inline-note">{t(isServerAgent ? "discovery.agent.empty" : "discovery.empty")}</div>
           ) : (
             <div className="discovery-list">
               {reviewItems.map((item) => {
@@ -168,7 +234,7 @@ export function ServiceDiscoveryPanel({
                   >
                     <input
                       type="checkbox"
-                      checked={selection.has(item.key)}
+                      checked={!unavailable && !duplicate && selection.has(item.key)}
                       disabled={disabled || unavailable || duplicate}
                       onChange={(event) => {
                         const checked = event.currentTarget.checked;
@@ -193,7 +259,7 @@ export function ServiceDiscoveryPanel({
                     </span>
                     <span className="discovery-item__copy">
                       <strong>{item.candidate.name}</strong>
-                      <span>{item.candidate.url ?? t("discovery.missingUrl")}</span>
+                      <span>{item.candidate.url ?? t(isServerAgent ? "discovery.agent.missingUrl" : "discovery.missingUrl")}</span>
                     </span>
                     <span className="discovery-item__meta">
                       {duplicate
@@ -209,20 +275,20 @@ export function ServiceDiscoveryPanel({
           )}
 
           <div className="discovery-actions">
-            <span>{t("discovery.reviewHelp")}</span>
+            <span>{t(isServerAgent ? "discovery.agent.reviewHelp" : "discovery.reviewHelp")}</span>
             <button
               className="settings-button--primary"
               type="button"
-              disabled={disabled || selection.size === 0}
+              disabled={disabled || selectedCount === 0}
               onClick={addSelected}
             >
-              {t("discovery.addSelected", { count: selection.size })}
+              {t("discovery.addSelected", { count: selectedCount })}
             </button>
           </div>
         </div>
       ) : null}
 
-      <p className="discovery-safety-note">{t("discovery.containerDeferred")}</p>
+      <p className="discovery-safety-note">{t("discovery.agent.scopeHelp")}</p>
     </section>
   );
 }
