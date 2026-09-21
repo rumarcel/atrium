@@ -80,6 +80,18 @@ Container and service restarts, Wake-on-LAN, rootless container enumeration,
 Linux desktop support and mobile are not in this release. Remaining work is
 tracked in [`ROADMAP.md`](ROADMAP.md).
 
+## Where this is going
+
+Everything described in this README is the current desktop application: a client
+for a server someone else already set up. Atrium is being turned into the server
+platform itself — a Core and a privileged Agent that run on the machine, an
+authenticated API, and applications installed from declarative manifests instead
+of linked to by hand.
+
+That target is documented under [`docs/`](docs/README.md) and none of it is
+implemented yet. [`docs/PROTOTYPE-ASSESSMENT.md`](docs/PROTOTYPE-ASSESSMENT.md)
+explains what this prototype contributes to it and what it does not.
+
 The sections from here on are reference material: how each part works, what it
 refuses to do, and how to build it.
 

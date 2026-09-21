@@ -3,6 +3,11 @@
 This roadmap records product direction rather than promising fixed release dates.
 The current dark Atrium appearance remains the initial and fallback theme.
 
+> This document is the **Windows desktop application's** phase history and
+> remains accurate for it. The forward plan for Atrium as a server platform is in
+> [`docs/ROADMAP.md`](docs/ROADMAP.md), and the target architecture it belongs to
+> starts at [`docs/README.md`](docs/README.md).
+
 ## Product decisions
 
 - Do not add a dashboard clock, calendar or visible polling timestamps. Internal
