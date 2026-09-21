@@ -343,7 +343,7 @@ mod tests {
     use super::*;
     use serde_json::{json, Value};
 
-    const ENROLLED: &str = "192.168.1.10";
+    const ENROLLED: &str = "10.0.0.10";
 
     fn fixture() -> Value {
         json!({"version":1,"target":ENROLLED,"sources":[
@@ -365,7 +365,7 @@ mod tests {
         let result = parse(fixture()).unwrap();
         assert_eq!(
             result.discovery.candidates[0].url.as_deref(),
-            Some("http://192.168.1.10:18096/")
+            Some("http://10.0.0.10:18096/")
         );
         assert_eq!(
             result.discovery.candidates[0].icon_hint.as_deref(),
@@ -376,7 +376,7 @@ mod tests {
         value["sources"][0]["containers"][0]["ports"][0]["hostPort"] = json!(80);
         assert_eq!(
             parse(value).unwrap().discovery.candidates[0].url.as_deref(),
-            Some("http://192.168.1.10:80/")
+            Some("http://10.0.0.10:80/")
         );
         assert!(authorize_main("main").is_ok());
         assert!(authorize_main("widget-server").is_err());

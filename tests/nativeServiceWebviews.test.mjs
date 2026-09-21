@@ -46,7 +46,7 @@ function service(id) {
     id,
     name: id,
     description: "Test service",
-    url: `http://192.168.1.10/${id}`,
+    url: `http://10.0.0.10/${id}`,
     icon: "server",
     category: "Tests",
     enabled: true,

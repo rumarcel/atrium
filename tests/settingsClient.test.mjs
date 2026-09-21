@@ -36,7 +36,7 @@ function configuration(overrides = {}) {
         id: "jellyfin",
         name: "Jellyfin",
         description: "Media server",
-        url: "http://192.168.1.10:8096",
+        url: "http://10.0.0.10:8096",
         icon: "jellyfin",
         category: "Media",
         enabled: true,
@@ -283,7 +283,7 @@ test("service settings reject credentials in JSON fields and URLs", () => {
   assert.throws(
     () =>
       parseServiceConfiguration(
-        configuration({ url: "http://admin:secret@192.168.1.10:8096" }),
+        configuration({ url: "http://admin:secret@10.0.0.10:8096" }),
       ),
     /must not contain embedded credentials/,
   );

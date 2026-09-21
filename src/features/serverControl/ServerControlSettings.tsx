@@ -166,7 +166,7 @@ export function ServerControlSettings({ client = nativeServerControlClient, desk
           <label className="settings-field">
             <span>{t("serverControl.address")}</span>
             <input type="text" inputMode="numeric" value={draft.address} disabled={setupLocked} maxLength={15} spellCheck={false}
-              autoCapitalize="off" autoCorrect="off" autoComplete="off" placeholder="192.168.1.10"
+              autoCapitalize="off" autoCorrect="off" autoComplete="off" placeholder="10.0.0.10"
               aria-invalid={!addressValid}
               onChange={(event) => { const address = event.currentTarget.value.trim(); setDraft((value) => ({ ...value, address })); setSaved(false); }} />
             <small>{addressValid ? t("serverControl.addressDescription", { port: String(SERVER_CONTROL_PORT) }) : t("serverControl.addressInvalid")}</small>

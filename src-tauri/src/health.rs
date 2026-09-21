@@ -375,7 +375,7 @@ mod tests {
     #[test]
     fn relaxed_tls_accepts_private_and_loopback_https_targets() {
         for url in [
-            "https://192.168.1.10:9443",
+            "https://192.168.10.20:9443",
             "https://10.0.0.2",
             "https://172.16.2.3",
             "https://127.0.0.1",
@@ -397,8 +397,8 @@ mod tests {
             "https://example.com",
             "https://0.0.0.0",
             "https://[::]",
-            "http://192.168.1.10",
-            "https://user:secret@192.168.1.10",
+            "http://10.0.0.10",
+            "https://user:secret@10.0.0.10",
         ] {
             assert!(
                 validate_request(&request(url, TlsPolicy::AllowInvalidLocalCertificate)).is_err()
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn strict_tls_allows_regular_http_and_https_targets() {
-        for url in ["http://192.168.1.10:8096", "https://example.com"] {
+        for url in ["http://10.0.0.10:8096", "https://example.com"] {
             let (_, tls_exception_used) =
                 validate_request(&request(url, TlsPolicy::Strict)).unwrap();
             assert!(!tls_exception_used);

@@ -1060,7 +1060,7 @@ mod tests {
       "services": [{
         "id": "jellyfin",
         "name": "Jellyfin",
-        "url": "http://192.168.1.10:8096",
+        "url": "http://10.0.0.10:8096",
         "icon": "jellyfin",
         "category": "Media",
         "enabled": true,
@@ -1171,13 +1171,13 @@ mod tests {
         assert!(ServiceConfiguration::parse_document(&secret_field).is_err());
 
         let credential_url = TEST_SEED.replace(
-            "http://192.168.1.10:8096",
-            "http://admin:secret@192.168.1.10:8096",
+            "http://10.0.0.10:8096",
+            "http://admin:secret@10.0.0.10:8096",
         );
         assert!(ServiceConfiguration::parse_document(&credential_url).is_err());
 
         let public_tls_exception = TEST_SEED
-            .replace("http://192.168.1.10:8096", "https://example.com")
+            .replace("http://10.0.0.10:8096", "https://example.com")
             .replace(
                 "\"accent\": \"violet\"",
                 "\"accent\": \"violet\", \"tlsPolicy\": \"allow-invalid-local-certificate\"",
@@ -1219,7 +1219,7 @@ mod tests {
         let unknown_adapter = private_http.replace("homarr-api-key", "arbitrary-header");
         assert!(ServiceConfiguration::parse_document(&unknown_adapter).is_err());
 
-        let public_http = private_http.replace("192.168.1.10", "example.com");
+        let public_http = private_http.replace("10.0.0.10", "example.com");
         assert!(ServiceConfiguration::parse_document(&public_http).is_err());
 
         let conflicting_authorization = TEST_SEED.replace(
@@ -1232,7 +1232,7 @@ mod tests {
     #[test]
     fn https_authentication_drops_an_irrelevant_plaintext_opt_in() {
         let document = TEST_SEED
-            .replace("http://192.168.1.10:8096", "https://192.168.1.10:8096")
+            .replace("http://10.0.0.10:8096", "https://10.0.0.10:8096")
             .replace(
                 "\"accent\": \"violet\"",
                 "\"accent\": \"violet\", \"authentication\": { \"browser\": \"http-basic\", \"allowInsecureLocalHttp\": true }",

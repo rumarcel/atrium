@@ -211,7 +211,7 @@ export const englishCatalog = {
   "discovery.addedToDraft": "{{count}} discovered services added as unsaved drafts.",
   "discovery.agent.source": "Server Agent (Docker / Podman)",
   "discovery.agent.setupHelp":
-    "Uses only 192.168.1.10. Enable and pair Server control with its certificate and token, then install the agent inventory collector. Dry-run mode is sufficient; scanning never sends a power command.",
+    "Uses only 10.0.0.10. Enable and pair Server control with its certificate and token, then install the agent inventory collector. Dry-run mode is sufficient; scanning never sends a power command.",
   "discovery.agent.error":
     "Could not read the server inventory. Check Server control pairing and connectivity. Older agents need an upgrade with the inventory endpoint and collector. No services were added.",
   "discovery.agent.ready": "{{count}} of 2 inventory sources ready",
@@ -239,7 +239,7 @@ export const englishCatalog = {
   "serverControl.noAddress": "No address enrolled",
   "serverControl.address": "Server address",
   "serverControl.addressDescription": "The private IPv4 address of the Linux server running the agent. Its fixed port {{port}} is not configurable. Changing this address requires storing that server's token again.",
-  "serverControl.addressInvalid": "Enter a plain private IPv4 address such as 192.168.1.10, with no scheme or port.",
+  "serverControl.addressInvalid": "Enter a plain private IPv4 address such as 10.0.0.10, with no scheme or port.",
   "tabs.reloadTab": "Reload {{serviceName}}",
   "tabs.reloadService": "Reload {{serviceName}}",
   "tabs.closeTab": "Close {{serviceName}} tab",
@@ -275,7 +275,7 @@ export const englishCatalog = {
   "settings.name": "Name",
   "settings.descriptionLabel": "Description",
   "settings.url": "URL",
-  "settings.urlPlaceholder": "https://192.168.1.10:8443",
+  "settings.urlPlaceholder": "https://10.0.0.10:8443",
   "settings.urlHelp": "HTTP(S) only. Credentials cannot be embedded in URLs.",
   "settings.category": "Category",
   "settings.categoryHelp":
@@ -531,7 +531,7 @@ export const englishCatalog = {
   "serverControl.enable": "Enable server control",
   "serverControl.enableDescription": "Allow power actions only for the fixed server, with a trusted certificate and stored agent token.",
   "serverControl.certificate": "Agent certificate (PEM)",
-  "serverControl.certificateDescription": "Paste only the agent's public certificate, never its private key. Obtain it through a trusted channel; it must include 192.168.1.10 as an IP subject alternative name. Invalid certificates are not bypassed.",
+  "serverControl.certificateDescription": "Paste only the agent's public certificate, never its private key. Obtain it through a trusted channel; it must include 10.0.0.10 as an IP subject alternative name. Invalid certificates are not bypassed.",
   "serverControl.token": "Agent token (64 hexadecimal characters)",
   "serverControl.tokenStored": "An agent token is stored. Leave blank to keep it, or enter a replacement.",
   "serverControl.tokenMissing": "No agent token is stored. Enter the token generated during agent setup.",

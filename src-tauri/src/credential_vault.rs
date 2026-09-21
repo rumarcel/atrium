@@ -1100,10 +1100,10 @@ mod tests {
 
     #[test]
     fn server_control_credential_is_not_addressable_by_service_cleanup() {
-        let vault_key = server_control_credential_target("192.168.1.10", 9473);
-        let bound_origin = server_control_origin("192.168.1.10", 9473);
-        assert_eq!(vault_key, "PersonalHub/server-control/v1/192.168.1.10:9473");
-        assert_eq!(bound_origin, "https://192.168.1.10:9473");
+        let vault_key = server_control_credential_target("10.0.0.10", 9473);
+        let bound_origin = server_control_origin("10.0.0.10", 9473);
+        assert_eq!(vault_key, "PersonalHub/server-control/v1/10.0.0.10:9473");
+        assert_eq!(bound_origin, "https://10.0.0.10:9473");
         // A different enrolled address must never resolve to the same vault key.
         assert_ne!(
             vault_key,
@@ -1115,13 +1115,13 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert!(validate_service_id("../server-control/v1/192.168.1.10:9473").is_err());
+        assert!(validate_service_id("../server-control/v1/10.0.0.10:9473").is_err());
         assert!(
             origin_metadata_matches(Some(&origin_metadata(&bound_origin)), &bound_origin).unwrap()
         );
         for other in [
-            "http://192.168.1.10:9473",
-            "https://192.168.1.10:9474",
+            "http://10.0.0.10:9473",
+            "https://10.0.0.10:9474",
             "https://192.168.0.14:9473",
         ] {
             assert!(

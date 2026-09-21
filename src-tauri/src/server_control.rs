@@ -782,7 +782,7 @@ fn validate_address(value: &str) -> Result<String, String> {
     let address: std::net::Ipv4Addr = value
         .trim()
         .parse()
-        .map_err(|_| "The server address must be a plain IPv4 address such as 192.168.1.10.")?;
+        .map_err(|_| "The server address must be a plain IPv4 address such as 10.0.0.10.")?;
     if !(address.is_private() || address.is_loopback() || address.is_link_local()) {
         return Err("The server address must be a private, loopback or link-local address.".into());
     }
@@ -1311,7 +1311,7 @@ mod tests {
             boot_id: "00000000-0000-0000-0000-000000000000".into(),
             deadline: Instant::now() + Duration::from_secs(60),
         };
-        let enrolled = "192.168.1.10";
+        let enrolled = "10.0.0.10";
         let mut request = ConfirmRequest {
             confirmation_id: pending.public.id.clone(),
             target: enrolled.into(),
@@ -1329,32 +1329,29 @@ mod tests {
 
     #[test]
     fn server_control_address_accepts_only_private_literals() {
-        for valid in ["192.168.1.10", "10.0.0.5", "172.16.4.2", "127.0.0.1"] {
+        for valid in ["10.0.0.10", "10.0.0.5", "172.16.4.2", "127.0.0.1"] {
             assert_eq!(validate_address(valid).unwrap(), valid);
         }
-        assert_eq!(
-            validate_address("  192.168.1.10  ").unwrap(),
-            "192.168.1.10"
-        );
+        assert_eq!(validate_address("  10.0.0.10  ").unwrap(), "10.0.0.10");
         for invalid in [
             "",
             "8.8.8.8",
             "203.0.113.7",
             "example.com",
-            "192.168.1.10:9473",
-            "https://192.168.1.10",
-            "192.168.1.10/../x",
-            "user:pass@192.168.1.10",
+            "10.0.0.10:9473",
+            "https://10.0.0.10",
+            "10.0.0.10/../x",
+            "user:pass@10.0.0.10",
             "::1",
             "192.168.0.999",
         ] {
             assert!(validate_address(invalid).is_err(), "accepted {invalid}");
         }
         // The derived identifiers stay bound to one host and one fixed port.
-        assert_eq!(target_of("192.168.1.10"), "192.168.1.10:9473");
-        assert_eq!(origin_of("192.168.1.10"), "https://192.168.1.10:9473");
+        assert_eq!(target_of("10.0.0.10"), "10.0.0.10:9473");
+        assert_eq!(origin_of("10.0.0.10"), "https://10.0.0.10:9473");
         assert_ne!(
-            credential_target_of("192.168.1.10"),
+            credential_target_of("10.0.0.10"),
             credential_target_of("192.168.0.14")
         );
     }

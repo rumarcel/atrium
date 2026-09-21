@@ -534,9 +534,18 @@ added.
 
 Never place passwords, tokens or URL-embedded credentials in repository files.
 The bundled `public/config/services.json` acts as a first-run/default seed and
-can reveal local host addresses even though they are not Internet-routable. Before
-publishing a reusable release, replace that seed with a sanitized example. The
-user's real catalog and Credential Manager entries remain outside the repository.
+can reveal local host addresses even though they are not Internet-routable. It
+now points at the placeholder address `10.0.0.10`, which exists on nobody's
+network and is meant to be replaced; RFC 5737 documentation addresses cannot be
+used there because several entries need an RFC1918 literal to exercise the
+local-TLS policy. Replacing the seed entirely with an empty catalogue and a
+first-run "add your server" step is the real fix and is planned with the client's
+migration — see [`docs/ROADMAP.md`](docs/ROADMAP.md). The user's real catalog and
+Credential Manager entries remain outside the repository.
+
+The server agent's listening address is configuration, not a constant: both
+systemd units read `ATRIUM_AGENT_HOST` from `/etc/personal-hub-agent/agent.env`,
+and a missing or empty value fails the service instead of falling back.
 
 ## Development
 

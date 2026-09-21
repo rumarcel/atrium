@@ -14,7 +14,7 @@ function candidate(overrides = {}) {
     sourceId: "docker:jellyfin:8096",
     name: "Jellyfin",
     description: null,
-    url: "http://192.168.1.10:8096/",
+    url: "http://10.0.0.10:8096/",
     iconHint: "jellyfin",
     ...overrides,
   };
@@ -22,7 +22,7 @@ function candidate(overrides = {}) {
 
 function inventory() {
   return {
-    address: "192.168.1.10",
+    address: "10.0.0.10",
     discovery: {
       source: "server-agent",
       sourceServiceId: "server-agent",
@@ -43,7 +43,7 @@ test("agent inventory preserves exact DTO, inferred URLs and unknown maintenance
     value.maintenance.rebootRequired = rebootRequired;
     assert.deepEqual(parseServerInventoryDiscoveryResponse(value), value);
   }
-  for (const url of [null, "http://192.168.1.10:80/", "https://192.168.1.10:443/", "https://192.168.1.10:65535/"]) {
+  for (const url of [null, "http://10.0.0.10:80/", "https://10.0.0.10:443/", "https://10.0.0.10:65535/"]) {
     const value = inventory();
     value.discovery.candidates = [candidate({ url })];
     assert.equal(parseServerInventoryDiscoveryResponse(value).discovery.candidates[0].url, url);
@@ -64,12 +64,12 @@ test("missing, stale and failed inventories are visible without invented service
 test("agent inventory rejects wrong targets, URL rewrites and unsafe protocols", () => {
   for (const url of [
     "http://127.0.0.1:8096/", "http://192.168.0.14:8096/",
-    "http://192.168.1.10:0/", "http://192.168.1.10:65536/", "http://192.168.1.10:080/",
-    "http://192.168.1.10/", "http://192.168.1.10:8096", "http://192.168.1.10:8096/?token=secret",
-    "http://192.168.1.10:8096/#secret", "http://user:secret@192.168.1.10:8096/",
-    "http://192.168.1.10:8096/web/", "http://192.168.1.10:8096/%2f",
-    "http://192.168.1.10:8096/../", "http://3232235533:8096/",
-    "https://192.168.1.10.evil.example:8096/", "file:///etc/passwd", "javascript:alert(1)",
+    "http://10.0.0.10:0/", "http://10.0.0.10:65536/", "http://10.0.0.10:080/",
+    "http://10.0.0.10/", "http://10.0.0.10:8096", "http://10.0.0.10:8096/?token=secret",
+    "http://10.0.0.10:8096/#secret", "http://user:secret@10.0.0.10:8096/",
+    "http://10.0.0.10:8096/web/", "http://10.0.0.10:8096/%2f",
+    "http://10.0.0.10:8096/../", "http://3232235533:8096/",
+    "https://10.0.0.10.evil.example:8096/", "file:///etc/passwd", "javascript:alert(1)",
   ]) {
     const value = inventory();
     value.discovery.candidates = [candidate({ url })];
@@ -139,14 +139,14 @@ test("manual-review candidates cannot be imported and additions recheck latest d
   assert.equal(initial[1].service, null);
   assert.equal(selectedDiscoveryServices(candidates, [], new Set(), "server-agent").length, 0);
   assert.equal(selectedDiscoveryServices(candidates, selected, selection, "server-agent").length, 0);
-  const equivalent = { ...selected[0], id: "existing", name: "Media", url: "http://192.168.1.10:8096/#tab" };
+  const equivalent = { ...selected[0], id: "existing", name: "Media", url: "http://10.0.0.10:8096/#tab" };
   assert.equal(selectedDiscoveryServices(candidates, [equivalent], selection, "server-agent").length, 0);
 });
 
 test("the inventory address binds every candidate and rejects non-private hosts", () => {
   // A candidate on any host other than the declared address is refused, so a
   // native response cannot smuggle in a service that is not on this server.
-  for (const address of ["192.168.1.10", "10.0.0.5", "172.16.4.2", "127.0.0.1"]) {
+  for (const address of ["10.0.0.10", "10.0.0.5", "172.16.4.2", "127.0.0.1"]) {
     const value = inventory();
     value.address = address;
     value.discovery.candidates = [candidate({ url: `http://${address}:8096/` })];
@@ -156,7 +156,7 @@ test("the inventory address binds every candidate and rejects non-private hosts"
     mismatched.discovery.candidates = [candidate({ url: "http://192.168.99.99:8096/" })];
     assert.throws(() => parseServerInventoryDiscoveryResponse(mismatched), /service target was invalid/);
   }
-  for (const address of ["", "8.8.8.8", "example.com", "192.168.1.10:9473", "192.168.1.999", null, 13]) {
+  for (const address of ["", "8.8.8.8", "example.com", "10.0.0.10:9473", "192.168.1.999", null, 13]) {
     const value = inventory();
     value.address = address;
     assert.throws(() => parseServerInventoryDiscoveryResponse(value), /address was invalid/, String(address));

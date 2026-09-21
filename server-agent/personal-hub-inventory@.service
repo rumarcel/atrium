@@ -6,8 +6,10 @@ After=network.target
 Type=oneshot
 User=root
 Group=root
-# Use the same address as personal-hub-agent.service.
-ExecStart=/usr/bin/python3 -B /opt/personal-hub-agent/export_inventory.py --runtime %i --host 192.168.1.10
+# Reads the same ATRIUM_AGENT_HOST value as personal-hub-agent.service, so the
+# address is configured once. A missing file or unset value fails this unit.
+EnvironmentFile=/etc/personal-hub-agent/agent.env
+ExecStart=/usr/bin/python3 -B /opt/personal-hub-agent/export_inventory.py --runtime %i --host ${ATRIUM_AGENT_HOST}
 WorkingDirectory=/opt/personal-hub-agent
 UMask=0077
 TimeoutStartSec=12

@@ -9,10 +9,13 @@ StartLimitBurst=3
 Type=simple
 User=personalhub-agent
 Group=personalhub-agent
-# Replace 192.168.1.10 with this server's own private IPv4 address. It must
-# match the certificate's IP SAN and the address enrolled in the desktop app.
-# There is no default: the agent refuses to start without --host.
-ExecStart=/usr/bin/python3 -B /opt/personal-hub-agent/personal_hub_agent.py --host 192.168.1.10
+# The listening address is configuration, not a constant in this unit. Set
+# ATRIUM_AGENT_HOST in /etc/personal-hub-agent/agent.env to this server's own
+# private IPv4 address; it must match the certificate's IP SAN and the address
+# enrolled in the desktop app. There is no default and no fallback: a missing
+# file, or an unset value, leaves --host empty and the agent refuses to start.
+EnvironmentFile=/etc/personal-hub-agent/agent.env
+ExecStart=/usr/bin/python3 -B /opt/personal-hub-agent/personal_hub_agent.py --host ${ATRIUM_AGENT_HOST}
 WorkingDirectory=/opt/personal-hub-agent
 StateDirectory=personal-hub-agent
 StateDirectoryMode=0700

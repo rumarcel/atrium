@@ -202,7 +202,7 @@ class FakeSocket:
         self.output.extend(data)
 
 
-HOST = "192.168.1.10"
+HOST = "10.0.0.10"
 AUTHORITY = f"{HOST}:{agent.PORT}"
 
 

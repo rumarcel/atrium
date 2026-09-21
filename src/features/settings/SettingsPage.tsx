@@ -249,7 +249,7 @@ function blankService(
     id,
     name: t("settings.newServiceName"),
     description: t("settings.newServiceDescription"),
-    url: "http://192.168.1.10:8080",
+    url: "http://10.0.0.10:8080",
     category: t("settings.newServiceCategory"),
     icon: "service",
     accent: "slate",

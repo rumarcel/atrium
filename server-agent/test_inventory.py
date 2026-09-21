@@ -10,7 +10,7 @@ import export_inventory as exporter
 import personal_hub_inventory as inventory
 
 
-HOST = "192.168.1.10"
+HOST = "10.0.0.10"
 PORT_RE = exporter.port_pattern(HOST)
 BOOT = "12345678-1234-4234-8234-123456789abc"
 OTHER_BOOT = "abcdef01-1234-4234-8234-123456789abc"
@@ -161,13 +161,13 @@ if __name__ == "__main__":
 
 class HostValidationTests(unittest.TestCase):
     def test_host_accepts_only_plain_private_ipv4(self):
-        for valid in ("192.168.1.10", "192.168.1.10", "10.0.0.5", "172.16.4.2", "127.0.0.1",
+        for valid in ("192.168.10.20", "10.0.0.10", "10.0.0.5", "172.16.4.2", "127.0.0.1",
                       "169.254.1.1"):
             self.assertEqual(inventory.validate_host(valid), valid)
         # A hostname, port, URL or public address would make the desktop's
         # enrolled-address comparison and the certificate IP SAN ambiguous.
         for invalid in ("", "8.8.8.8", "203.0.113.7", "example.com", "localhost",
-                        "192.168.1.10:9473", "https://192.168.1.10", "192.168.1.10/",
-                        " 192.168.1.10", "192.168.1.256", "192.168.1", "::1", "0.0.0.0"):
+                        "10.0.0.10:9473", "https://10.0.0.10", "10.0.0.10/",
+                        " 10.0.0.10", "192.168.1.256", "192.168.1", "::1", "0.0.0.0"):
             with self.assertRaises(ValueError, msg=invalid):
                 inventory.validate_host(invalid)

@@ -216,7 +216,7 @@ const turkishOverrides = {
   "discovery.addedToDraft": "Keşfedilen {{count}} servis kaydedilmemiş taslak olarak eklendi.",
   "discovery.agent.source": "Sunucu Ajanı (Docker / Podman)",
   "discovery.agent.setupHelp":
-    "Yalnız 192.168.1.10 kullanılır. Sunucu kontrolünü sertifika ve token ile eşleştirip etkinleştirin, ardından ajan envanter toplayıcısını kurun. Deneme modu yeterlidir; tarama güç komutu göndermez.",
+    "Yalnız 10.0.0.10 kullanılır. Sunucu kontrolünü sertifika ve token ile eşleştirip etkinleştirin, ardından ajan envanter toplayıcısını kurun. Deneme modu yeterlidir; tarama güç komutu göndermez.",
   "discovery.agent.error":
     "Sunucu envanteri okunamadı. Sunucu kontrolü eşleştirmesini ve bağlantıyı kontrol edin. Eski ajanlar envanter uç noktası ve toplayıcıyı içeren sürüme güncellenmelidir. Hiçbir servis eklenmedi.",
   "discovery.agent.ready": "2 envanter kaynağından {{count}} tanesi hazır",
@@ -244,7 +244,7 @@ const turkishOverrides = {
   "serverControl.noAddress": "Kayıtlı adres yok",
   "serverControl.address": "Sunucu adresi",
   "serverControl.addressDescription": "Agent'ı çalıştıran Linux sunucusunun özel IPv4 adresi. Sabit {{port}} portu değiştirilemez. Bu adresi değiştirmek, o sunucunun jetonunu yeniden kaydetmeyi gerektirir.",
-  "serverControl.addressInvalid": "192.168.1.10 gibi düz bir özel IPv4 adresi girin; şema veya port eklemeyin.",
+  "serverControl.addressInvalid": "10.0.0.10 gibi düz bir özel IPv4 adresi girin; şema veya port eklemeyin.",
   "tabs.reloadTab": "{{serviceName}} sayfasını yenile",
   "tabs.reloadService": "{{serviceName}} sayfasını yenile",
   "tabs.closeTab": "{{serviceName}} sekmesini kapat",
@@ -280,7 +280,7 @@ const turkishOverrides = {
   "settings.name": "Ad",
   "settings.descriptionLabel": "Açıklama",
   "settings.url": "URL",
-  "settings.urlPlaceholder": "https://192.168.1.10:8443",
+  "settings.urlPlaceholder": "https://10.0.0.10:8443",
   "settings.urlHelp": "Yalnız HTTP(S). URL'lere kimlik bilgisi eklenemez.",
   "settings.category": "Kategori",
   "settings.categoryHelp":
@@ -537,7 +537,7 @@ const turkishOverrides = {
   "serverControl.enable": "Sunucu kontrolünü etkinleştir",
   "serverControl.enableDescription": "Yalnızca sabit sunucuda, güvenilen sertifika ve kayıtlı agent anahtarıyla güç işlemlerine izin verir.",
   "serverControl.certificate": "Agent sertifikası (PEM)",
-  "serverControl.certificateDescription": "Yalnızca agent'ın herkese açık sertifikasını yapıştırın; özel anahtarını asla eklemeyin. Sertifikayı güvenilir bir kanaldan alın; IP subject alternative name alanında 192.168.1.10 bulunmalıdır. Geçersiz sertifikalar atlanmaz.",
+  "serverControl.certificateDescription": "Yalnızca agent'ın herkese açık sertifikasını yapıştırın; özel anahtarını asla eklemeyin. Sertifikayı güvenilir bir kanaldan alın; IP subject alternative name alanında 10.0.0.10 bulunmalıdır. Geçersiz sertifikalar atlanmaz.",
   "serverControl.token": "Agent anahtarı (64 onaltılık karakter)",
   "serverControl.tokenStored": "Bir agent anahtarı kayıtlı. Korumak için boş bırakın veya değiştirmek için yenisini girin.",
   "serverControl.tokenMissing": "Kayıtlı agent anahtarı yok. Agent kurulumunda oluşturulan anahtarı girin.",

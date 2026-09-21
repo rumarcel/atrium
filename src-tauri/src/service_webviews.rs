@@ -1821,7 +1821,7 @@ mod tests {
     fn registry_entry(attached_to_tab: bool, last_used: u64) -> RegistryEntry {
         RegistryEntry {
             label: format!("service-test-{last_used}"),
-            url: "http://192.168.1.10:8080".into(),
+            url: "http://10.0.0.10:8080".into(),
             tls_policy: TlsPolicy::Strict,
             browser_authentication: ServiceAuthentication::default().into(),
             ready: true,
@@ -1854,12 +1854,12 @@ mod tests {
     fn trusted_catalog_rejects_edge_whitespace() {
         assert!(TrustedService::try_from(&configured_service(
             "Test Service ",
-            "http://192.168.1.10:8080"
+            "http://10.0.0.10:8080"
         ))
         .is_err());
         assert!(TrustedService::try_from(&configured_service(
             "Test Service",
-            "http://192.168.1.10:8080 "
+            "http://10.0.0.10:8080 "
         ))
         .is_err());
     }
@@ -1969,13 +1969,13 @@ mod tests {
     #[test]
     fn navigation_origin_rejects_lookalikes_credentials_and_wrong_ports() {
         let origin =
-            AllowedOrigin::from_url(&Url::parse("https://192.168.1.10:8443/app").unwrap()).unwrap();
+            AllowedOrigin::from_url(&Url::parse("https://10.0.0.10:8443/app").unwrap()).unwrap();
 
-        assert!(origin.matches(&Url::parse("https://192.168.1.10:8443/next").unwrap()));
-        assert!(!origin.matches(&Url::parse("https://192.168.1.10:9443/next").unwrap()));
-        assert!(!origin.matches(&Url::parse("http://192.168.1.10:8443/next").unwrap()));
-        assert!(!origin.matches(&Url::parse("https://192.168.1.10.evil.test:8443/next").unwrap()));
-        assert!(!origin.matches(&Url::parse("https://192.168.1.10:8443@evil.test/next").unwrap()));
+        assert!(origin.matches(&Url::parse("https://10.0.0.10:8443/next").unwrap()));
+        assert!(!origin.matches(&Url::parse("https://10.0.0.10:9443/next").unwrap()));
+        assert!(!origin.matches(&Url::parse("http://10.0.0.10:8443/next").unwrap()));
+        assert!(!origin.matches(&Url::parse("https://10.0.0.10.evil.test:8443/next").unwrap()));
+        assert!(!origin.matches(&Url::parse("https://10.0.0.10:8443@evil.test/next").unwrap()));
     }
 
     #[test]
@@ -1989,8 +1989,8 @@ mod tests {
             "http://[::1]:80"
         );
         assert_eq!(
-            canonical_origin(&Url::parse("https://192.168.1.10:9443/").unwrap()).unwrap(),
-            "https://192.168.1.10:9443"
+            canonical_origin(&Url::parse("https://10.0.0.10:9443/").unwrap()).unwrap(),
+            "https://10.0.0.10:9443"
         );
 
         let oversized_host = std::iter::repeat_n("a", 260).collect::<Vec<_>>().join(".");
@@ -2073,14 +2073,14 @@ mod tests {
         for url in [
             "https://example.com",
             "https://8.8.8.8",
-            "http://192.168.1.10",
+            "http://10.0.0.10",
             "https://0.0.0.0",
         ] {
             assert!(validate_local_tls_exception(&Url::parse(url).unwrap()).is_err());
         }
 
         assert!(
-            validate_local_tls_exception(&Url::parse("https://192.168.1.10:9443").unwrap()).is_ok()
+            validate_local_tls_exception(&Url::parse("https://10.0.0.10:9443").unwrap()).is_ok()
         );
     }
 

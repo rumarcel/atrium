@@ -14,10 +14,14 @@ This repository does not install anything on the server automatically.
 ## Requirements and trust model
 
 - A systemd-based Linux server with a static private IPv4 address. Set that
-  address once in `--host` in both reviewed systemd units; the examples below
-  use `192.168.1.10`. The agent refuses to start without it, and accepts only an
-  RFC1918, loopback or link-local literal, which must match the certificate's IP
-  SAN and the address enrolled in the desktop app.
+  address **once**, as `ATRIUM_AGENT_HOST` in `/etc/personal-hub-agent/agent.env`;
+  both reviewed systemd units read it from there, so no address is written into a
+  unit file or into the source. The examples below use `10.0.0.10`, which is a
+  placeholder — substitute your server's own address. The agent refuses to start
+  without it, and accepts only an RFC1918, loopback or link-local literal, which
+  must match the certificate's IP SAN and the address enrolled in the desktop
+  app. (RFC 5737 documentation addresses such as `192.0.2.10` cannot be used
+  here: they are not private, so the agent rejects them.)
 - CPython 3.10+ with OpenSSL support; no pip packages. Startup explicitly checks
   the certificate's IP SAN and validity using CPython's stdlib certificate decoder.
 - A dedicated, unprivileged `personalhub-agent` user and private state directory.
@@ -58,6 +62,20 @@ The examples assume Debian/Ubuntu-style command paths and an unused account name
    sudo install -o root -g root -m 0644 personal-hub-agent.service /etc/systemd/system/personal-hub-agent.service
    ```
 
+   Then write the one piece of configuration both units read. Replace
+   `10.0.0.10` with this server's own private IPv4 address:
+
+   ```sh
+   printf 'ATRIUM_AGENT_HOST=10.0.0.10
+' | sudo tee /etc/personal-hub-agent/agent.env >/dev/null
+   sudo chown root:personalhub-agent /etc/personal-hub-agent/agent.env
+   sudo chmod 0640 /etc/personal-hub-agent/agent.env
+   ```
+
+   The units use `EnvironmentFile=` without a leading `-`, so a missing file or
+   an unset value fails the service at startup rather than falling back to a
+   guessed address.
+
 2. Generate a unique private TLS key/certificate and token **on the server**.
    The token is written directly to its protected file, not printed. Do not paste
    these secrets into source control, support logs or chat:
@@ -67,7 +85,7 @@ The examples assume Debian/Ubuntu-style command paths and an unused account name
      -keyout /etc/personal-hub-agent/server.key \
      -out /etc/personal-hub-agent/server.crt \
      -subj '/CN=Atrium Server' \
-     -addext 'subjectAltName=IP:192.168.1.10' \
+     -addext 'subjectAltName=IP:10.0.0.10' \
      -addext 'extendedKeyUsage=serverAuth'
    sudo openssl rand -hex -out /etc/personal-hub-agent/token 32
    sudo chown root:personalhub-agent /etc/personal-hub-agent/server.key /etc/personal-hub-agent/server.crt /etc/personal-hub-agent/token
@@ -166,7 +184,7 @@ Do not enable unattended reboot/shutdown as an installation check.
 
 ## Protocol v1
 
-All routes require `Host: 192.168.1.10:9473` and `Authorization: Bearer <64-hex-token>`.
+All routes require `Host: 10.0.0.10:9473` and `Authorization: Bearer <64-hex-token>`.
 Duplicate auth/host headers, query strings, browser Origin headers, request bodies
 on GET/DELETE, transfer encoding and unexpected JSON keys are rejected. POST uses
 exact `Content-Type: application/json`. No redirects, cookies or alternate routes.
@@ -295,7 +313,7 @@ Authenticated `GET /v1/inventory` returns HTTP 200 with exact fields:
 ```json
 {
   "version": 1,
-  "target": "192.168.1.10",
+  "target": "10.0.0.10",
   "sources": [
     {"runtime":"docker","scope":"rootful","state":"missing","ageSeconds":null,"skippedCount":0,"containers":[]},
     {"runtime":"podman","scope":"rootful","state":"missing","ageSeconds":null,"skippedCount":0,"containers":[]}
@@ -321,7 +339,7 @@ and internal addresses are not exported. The list command requests only the five
 fields needed for this reduction, not a full JSON/inspect dump.
 
 Each port is `{hostPort,containerPort}` with integers 1–65535. Only explicitly
-published TCP on `0.0.0.0` or `192.168.1.10` is admitted. Localhost, other host
+published TCP on `0.0.0.0` or `10.0.0.10` is admitted. Localhost, other host
 addresses, IPv6-only binds, un-published internal ports, UDP and port-range strings
 are omitted. Maximum: 64 containers per runtime, eight ports per container,
 64 KiB per snapshot and less than 128 KiB aggregate. Skipped containers (including

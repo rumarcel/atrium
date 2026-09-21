@@ -1091,10 +1091,10 @@ mod tests {
 
     #[test]
     fn api_url_preserves_a_configured_prefix() {
-        let base = Url::parse("http://192.168.1.10:61208/glances/").unwrap();
+        let base = Url::parse("http://10.0.0.10:61208/glances/").unwrap();
         assert_eq!(
             api_url(&base, 4, "cpu").unwrap().as_str(),
-            "http://192.168.1.10:61208/glances/api/4/cpu"
+            "http://10.0.0.10:61208/glances/api/4/cpu"
         );
     }
 
