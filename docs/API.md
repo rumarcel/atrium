@@ -74,7 +74,10 @@ GET  /healthz
 ```
 
 ```jsonc
-// POST /api/v1/pair/begin   { "deviceName": "Study laptop", "platform": "windows", "clientNonce": "<32B base64>" }
+// POST /api/v1/pair/begin
+//   { "deviceName": "Study laptop", "platform": "windows",
+//     "clientNonce": "<32B base64>",
+//     "bindingProfile": "atrium-pair-binding/native-tls-exporter-v1" }
 { "pairingId": "c9f0f895fb98ab9159f51fd0297e236d", "serverNonce": "<32B base64>", "expiresAt": "2026-09-22T18:40:00Z" }
 
 // POST /api/v1/pair/complete { "pairingId": "...", "proofC": "<base64 HMAC-SHA256>" }
@@ -83,9 +86,15 @@ GET  /healthz
   "server": { "id": "...", "name": "..." } }
 ```
 
-Both proofs are computed over a transcript that includes the server's SPKI hash
-and an RFC 8446 TLS exporter, so the exchange is bound to this specific TLS
-connection and this specific server key. The construction, the mandatory secret
+Both proofs are computed over a transcript that names its **binding profile** and,
+for the native profile, includes the server's SPKI hash and an RFC 8446 TLS
+exporter, so the exchange is bound to this specific TLS connection and this
+specific server key. The profile is **not negotiated**: an armed secret permits
+exactly the profiles the operator armed it for, and a request naming any other is
+refused with the same generic `pairing_rejected`. Alpha arms and implements only
+`native-tls-exporter-v1`; the browser profile exists in the transcript so the web
+client is an addition rather than a replacement, and is gated on the certificate
+decision in A-24 (ADR-003 §4a). The construction, the mandatory secret
 format (16 random bytes, 128 bits, 26 Crockford Base32 symbols) and every
 lifecycle rule are specified in
 [ADR-003](adr/0003-authentication-and-device-pairing.md); implementing this

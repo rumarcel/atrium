@@ -111,8 +111,13 @@ true on the owner's server running the prototype. Partial credit does not exist.
 5. Core runs as `atrium`, not root. `ps -o user= -p $(pidof atrium-core)` proves
    it. Agent runs as root and has no listening TCP socket
    (`ss -lntp` shows nothing for it).
-6. `/etc/atrium/tls.key`, the identity file and the secrets key are `0600` and
-   owned by `atrium`. The agent socket is `0660 root:atrium`.
+6. The device identity private key **cannot be replaced by the service
+   identity**. `/etc/atrium/tls.key` is `0640 root:atrium` inside a
+   `0750 root:root` directory; the identity file and the secrets key are the
+   same. Proven two ways: by `stat`, and by attempting — as the `atrium` user —
+   to write, truncate, unlink and replace each file and to create a new file in
+   the directory, all of which must fail. The agent socket is `0660 root:atrium`.
+   (Amended 2026-09-22; see *Criteria amended during planning* below.)
 7. `server_id` and the TLS key pair survive a reboot, a Core restart and a Core
    upgrade. Changing the machine's IP address reissues the certificate without
    changing the key pair.
@@ -143,6 +148,9 @@ true on the owner's server running the prototype. Partial credit does not exist.
 15. A man-in-the-middle presenting a different TLS key cannot complete pairing
     even when given the correct secret — proven by a test that substitutes the
     SPKI and the TLS exporter in the transcript and requires the server to reject.
+    The transcript's **binding profile** is part of what is proven: a proof
+    computed under a different profile does not verify, and a client asking for a
+    profile the armed secret does not permit is refused. (Amended 2026-09-22.)
 16. A server that cannot produce a valid `proofS` is rejected by the client, which
     reports `untrusted` and stores nothing — proven by a test with a server that
     returns a well-formed but wrong `proofS`.
@@ -178,8 +186,14 @@ true on the owner's server running the prototype. Partial credit does not exist.
 
 29. Stopping Agent makes privileged capability unavailable with reason
     `agent_unreachable`, while every read endpoint keeps working.
-30. Corrupting the state database starts Core in recovery mode: it serves
-    `/healthz`, diagnostics and the restore path, and does not crash-loop.
+30. Corrupting the state database starts Core in recovery mode. It does not
+    crash-loop; `/healthz` reports the recovery state and the reason; redacted
+    diagnostics remain available; the corruption is clearly reported rather than
+    masked. **Recovery mode exposes no state-changing route of any kind** — no
+    restore, no pairing, no device change, no Agent call — proven by sweeping the
+    router. Restore is performed locally with `atriumctl restore`, after which
+    normal Core resumes and previously paired devices still work.
+    (Amended 2026-09-22; see *Criteria amended during planning* below.)
 31. Every error response carries a stable `code`, a `diagnosis` and a
     `requestId`. A test enumerates the code table and fails if any route can
     produce an uncoded error.
@@ -247,6 +261,49 @@ anything is built on top of it, which is the whole point of doing them at M1.
 48. Core makes no outbound network connection during normal operation other than
     an explicitly configured update check, verified by running with the internet
     disconnected for the full acceptance run.
+
+### Criteria amended during planning
+
+Two criteria were rewritten during M1 planning and one was extended. The rule is
+that a criterion may be amended only by making the property it protects stronger,
+never by making it easier to pass, and the change is recorded rather than applied
+quietly.
+
+**Criterion 6 — identity key ownership.**
+
+- *Was:* "`/etc/atrium/tls.key`, the identity file and the secrets key are `0600`
+  and owned by `atrium`."
+- *Now:* `0640 root:atrium` inside a `0750 root:root` directory, proven by `stat`
+  **and** by failed write, truncate, unlink, replace and create attempts as the
+  `atrium` user.
+- *Why this is stronger:* the old wording made the key owned by the service
+  identity, which meant arbitrary code execution as `atrium` could replace the
+  server's identity — forcing every paired device to re-pair and changing what the
+  server *is*. The new wording makes that impossible at the discretionary-access
+  layer, not merely at the systemd layer, and it is the only version of the
+  criterion that can be proven by attempting the attack.
+
+**Criterion 30 — catastrophic recovery.**
+
+- *Was:* "starts Core in recovery mode: it serves `/healthz`, diagnostics and the
+  restore path, and does not crash-loop."
+- *Now:* the same no-crash-loop, health, diagnostics and clear-reporting
+  requirements, plus **no state-changing route in recovery mode at all**, with
+  restore performed locally by `atriumctl restore` and normal service resuming
+  afterwards.
+- *Why this is stronger:* a remote restore endpoint that works when the state
+  database is unreadable needs an authentication source outside that database. The
+  two ways to build it are an unauthenticated remote restore — which lets a LAN
+  attacker roll the server back to an older state — or a duplicate authentication
+  store, which duplicates the most security-sensitive state in the product and can
+  disagree with it exactly when a revocation lands mid-corruption. Removing the
+  remote restore removes both. The cost is honest and stated: catastrophic
+  recovery needs the console, which is a deliberate exception to the product's
+  no-terminal goal, documented in `SECURITY.md` §19 rather than hidden.
+
+**Criterion 15 — pairing binding.** Extended to cover the transcript's binding
+profile, because the profile is what keeps the future browser client from
+requiring a different protocol. Nothing was removed.
 
 ### M2 — container boundary acceptance criteria
 

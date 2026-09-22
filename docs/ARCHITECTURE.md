@@ -355,11 +355,18 @@ The full construction, its attacker model and every lifecycle rule are specified
 in [ADR-003](adr/0003-authentication-and-device-pairing.md) — it is a security
 design, not a UI flow, and it is documented there rather than summarized here.
 
+The transcript names an explicit **binding profile**, because browser JavaScript
+cannot read a TLS exporter or a peer certificate. The native profile is the one
+Alpha implements; a browser profile is additive, gated on the certificate
+decision in A-24, and can never be reached by downgrade because a profile is
+armed at the server console rather than negotiated (ADR-003 §4a).
+
 ### 5.4 Sessions and tokens
 
 - **Native clients** hold an opaque 256-bit device token in the OS keychain
   (Windows Credential Manager, macOS Keychain, Secret Service). Sent as
-  `Authorization: Bearer`. Bound to `deviceId`; revocable individually.
+  `Authorization: Bearer`. Bound to `deviceId`; revocable individually. The
+  server stores `SHA-256(token)` only (ADR-003 §7).
 - **Browser clients** exchange the pairing result for an `HttpOnly`, `Secure`,
   `SameSite=Strict` session cookie plus a CSRF token, because a browser cannot
   hold a bearer token safely.
@@ -370,7 +377,7 @@ design, not a UI flow, and it is documented there rather than summarized here.
 
 | Data | Location | Owner | Format |
 | --- | --- | --- | --- |
-| Identity, TLS key | `/etc/atrium/` | Core | JSON + PEM, `0600` |
+| Identity, TLS key | `/etc/atrium/` | **root**, read-only to Core | `root:atrium 0640` in a `root:root 0750` directory. Core must read the key to serve TLS and must not be able to replace it; generation is a one-off install-time step and rotation is a console action. The public certificate lives in the writable state directory. |
 | State: devices, users, apps, settings, audit, operations | `/var/lib/atrium/atrium.db` | Core | SQLite, WAL |
 | Secrets (app credentials, tokens) | `/var/lib/atrium/secrets.db` | Core | SQLite, encrypted with a key in `/etc/atrium/`, `0600` |
 | Metric history | `/var/lib/atrium/metrics.db` | Core | SQLite, fixed-size ring |
@@ -435,7 +442,9 @@ exception that reaches the user as a stack trace or a generic banner.
 - Core degrades in layers: a broken provider disables its domain, not the product.
   An unreachable Agent disables privileged operations **and the entire container
   domain**, while unprivileged reads keep working. A corrupt database starts a
-  recovery mode, not a crash loop.
+  recovery mode, not a crash loop — and that recovery mode serves **no
+  state-changing route at all**: it reports, and the owner restores from the
+  server console (`SECURITY.md` §19).
 - Operations that cannot be confirmed (a reboot request whose response was lost)
   remain `unknown` and are reconciled against observed boot identity. They are
   never retried automatically. This is prototype behaviour promoted to a platform

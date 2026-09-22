@@ -32,11 +32,23 @@ identity with software-publisher trust (ADR-016 separates three keys); and TLS 1
 was justified as necessary for exporters, which is not true (ADR-003 §4 now states
 it as a deliberate baseline instead).
 
+A third pass, during M1 planning, asked three questions the earlier reviews had
+not. Does the exporter binding strand the future browser client? — it would have,
+so the transcript now names a **binding profile** and the browser path is
+additive rather than a replacement (ADR-003 §4a). Is Argon2id right for a
+256-bit random device token? — no, and it is superseded by `SHA-256` with the
+reasoning recorded (ADR-003 §7). Can the running Core replace its own identity
+key? — it could, and now cannot: the key is `root:atrium 0640` in a root-owned
+directory, enforced by ownership rather than by a unit file. The same pass
+removed a proposed recovery authentication mirror in favour of console-only
+restore, and amended two M1 acceptance criteria to match — recorded in
+[`../ROADMAP.md`](../ROADMAP.md#criteria-amended-during-planning).
+
 | ADR | Decision | Status |
 | --- | --- | --- |
 | [ADR-001](0001-core-and-agent-separation.md) | Core and Agent separation | accepted, revised |
 | [ADR-002](0002-provider-adapter-architecture.md) | Provider/adapter architecture with runtime capability negotiation | accepted, revised |
-| [ADR-003](0003-authentication-and-device-pairing.md) | Server identity, SPKI pinning and code-based pairing | accepted, revised |
+| [ADR-003](0003-authentication-and-device-pairing.md) | Server identity, SPKI pinning, binding-profile pairing, SHA-256 device-token verifier | accepted, revised ×2 |
 | [ADR-004](0004-privileged-operation-model.md) | Closed typed privileged operation set, no shell, no sudo, no byte payloads | accepted, revised |
 | [ADR-005](0005-application-platform.md) | Declarative app manifests as the application platform | accepted, revised |
 | [ADR-006](0006-local-first-and-remote-access.md) | Local-first with optional, tiered remote access | accepted |

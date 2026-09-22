@@ -148,8 +148,11 @@ behavioural).
 ## 5. Authentication
 
 - **Devices** authenticate with an opaque 256-bit random token (`Authorization:
-  Bearer`), stored hashed (Argon2id) server-side and in the OS keychain
-  client-side.
+  Bearer`), held in the OS keychain client-side and stored server-side **only as
+  `SHA-256(token)`**, compared in constant time. A password hash is deliberately
+  not used: the token is 256 bits from the OS CSPRNG, so there is no guessing
+  resistance to buy, and a slow verifier would add latency to every request plus a
+  cache whose invalidation could outlive a revocation (ADR-003 §7).
 - **Browsers** authenticate with an `HttpOnly; Secure; SameSite=Strict` session
   cookie plus a double-submit CSRF token. Session lifetime is bounded and
   refreshed on use.
@@ -157,7 +160,8 @@ behavioural).
   ADR-003.
 - There is no password login in Alpha, because there is no password to steal and
   no reset flow to abuse. Multi-user accounts (post-Alpha) introduce passwords
-  with Argon2id hashing, rate limiting, and optional TOTP.
+  with a real password hash — Argon2id — rate limiting, and optional TOTP. That is
+  the case where a password hash earns its cost, because a human chose the secret.
 - Failed authentication is constant-time compared and returns an identical
   response shape regardless of whether the device id existed.
 
@@ -194,7 +198,14 @@ provides:
    five global failures disable pairing until re-armed on the server.
 6. **Claim-on-first-pair with a bounded window**, so a LAN attacker cannot win a
    race against a freshly installed server without reading its console.
-7. **Discovery is never trust.** An mDNS record is a hint. The SPKI pin is
+7. **The binding is explicit, and the browser is not a dead end.** The transcript
+   names its binding profile, so the native profile (exporter plus SPKI) and a
+   future browser profile can never be confused and cannot be downgraded into
+   one another — a profile is armed at the console, never negotiated. Browser
+   pairing is gated on the certificate decision in §14, because a browser with no
+   trust anchor has nothing to bind to; ADR-003 §4a states this plainly rather
+   than pretending page JavaScript can read TLS internals.
+8. **Discovery is never trust.** An mDNS record is a hint. The SPKI pin is
    established during pairing and checked on every later connection; a mismatch is
    a hard failure with an explicit "this is not the server you paired with" state,
    never a "continue anyway" button.
@@ -229,7 +240,7 @@ Rules:
 | Secret | Where | Protection |
 | --- | --- | --- |
 | TLS private key | `/etc/atrium/tls.key` | `0600 atrium:atrium`, never leaves the machine, never in a backup export |
-| Device token hashes | Core state DB | Argon2id, no plaintext ever stored |
+| Device token digests | Core state DB | `SHA-256(token)`, constant-time comparison, no plaintext ever stored, deleted transactionally on revocation |
 | Pairing secret | memory only, with a hashed record for attempt counting | never persisted in plaintext, never logged |
 | App secrets (generated passwords, API keys) | secrets DB, encrypted with a key file at `/etc/atrium/secrets.key` (`0600`) | decrypted only when composing an install request; never returned by the API |
 | Third-party credentials the owner stores | same | API returns `{ kind, exists }` only — the prototype's rule, kept |
@@ -245,6 +256,15 @@ Diagnostics bundles are redacted by construction — fields are allowlisted into
 bundle rather than blocklisted out of it.
 
 ## 9. Privilege separation
+
+**The device identity private key is not writable by Core.** It is
+`root:atrium 0640` in a `root:root 0750` directory, so discretionary access
+control alone prevents the service identity from replacing it; the unit's
+`ReadOnlyPaths` is defence in depth, not the mechanism. Arbitrary code execution
+as `atrium` can read the key — it must, to serve TLS — but cannot rotate,
+truncate or delete it, and cannot create a file beside it. Generation happens
+once at install time in a separate short-lived invocation, and rotation is a
+root-only console action.
 
 **Core** — `User=atrium`, `NoNewPrivileges=true`, `ProtectSystem=strict`,
 `ProtectHome=true`, `PrivateTmp=true`, `ReadWritePaths=/var/lib/atrium`,
@@ -485,10 +505,27 @@ Every one of these must work without a terminal except where stated:
 | App shows `disowned` | Agent refused to act because ownership evidence did not match. The owner inspects the container and chooses to re-install or leave it alone. Atrium never re-claims it automatically. |
 | Bad configuration | Configuration snapshots before every change; restore from the UI. |
 | Failed update | Automatic rollback. |
-| Corrupt database | Degraded recovery mode serving diagnostics and restore-from-backup. |
+| Corrupt database | Degraded recovery mode: `/healthz` and redacted diagnostics stay available so the owner can see what is wrong. **Restore itself is a local console action** (`atriumctl restore`), never a remote endpoint — see the note below. |
 | Locked out entirely | Documented console reset that clears devices and pairing state without touching application data. |
 
 Revocation is always immediate, never "on next token expiry".
+
+**Catastrophic recovery is a deliberate exception to "no terminal required."**
+When the primary state database is unreadable, the component that knows who is
+allowed to do anything is exactly the component that is broken. The alternatives
+are an unauthenticated remote restore, which hands a LAN attacker the ability to
+roll a server back to an old state, or a second authentication store kept outside
+the database, which is a duplicate of the most security-sensitive state in the
+product and a consistency bug waiting to happen — a revocation could land in one
+and not the other.
+
+Neither is acceptable for the sake of avoiding a terminal on a day the machine is
+already broken. So recovery mode **serves no state-changing route at all**: no
+restore, no pairing, no device changes, no Agent call. It reports, and the owner
+restores from the console with physical or administrative access to the machine.
+This is the one place the product's own usability goal is knowingly traded for a
+narrower attack surface, and it is written down here rather than discovered in
+the code.
 
 ## 20. Known residual risks
 

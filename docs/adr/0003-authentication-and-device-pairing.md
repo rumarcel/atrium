@@ -3,7 +3,7 @@
 **Status:** accepted — revised in the hardening review of 2026-09-22
 **Date:** 2026-09-22
 **Related:** ADR-006, ADR-009
-**Assumptions:** A-06, A-07, A-08, A-24, A-30
+**Assumptions:** A-06, A-07, A-08, A-24, A-30, A-31
 
 The first revision of this ADR described the pairing exchange in prose. A security
 review found two things wrong with it: the channel binding used a hand-rolled input
@@ -17,6 +17,13 @@ bits, which needs 52 symbols. The generator is now pinned at **16 bytes / 128 bi
 / 26 symbols**, with the encoding, normalization and canonicality rules written out
 in §3 rather than left to whoever implements it. That review also corrected the
 claim that TLS 1.3 was mandatory *because* exporters need it; see §4.
+
+A third review asked whether the exporter binding creates a dead end for the
+browser client that the roadmap promises. It does not, but only because the
+transcript now carries an explicit **binding profile** (section 4a): the native
+profile is what M1 implements, the browser profile is additive, and the browser's
+real obstacle is its TLS trust anchor rather than this protocol. The same review
+superseded Argon2id for device tokens (section 7).
 
 The exchange is now specified precisely enough to implement and to attack.
 
@@ -145,7 +152,9 @@ K    = HKDF(secret16,                                          the DECODED 16 by
             info = "atrium-pair-v1" ‖ serverId,
             len  = 32)
 
-T    = serverId ‖ spki ‖ cb ‖ clientNonce ‖ serverNonce ‖ H(deviceName ‖ platform)
+prof = SHA-256(binding_profile_id)                             32 bytes, see section 4a
+
+T    = prof ‖ serverId ‖ spki ‖ cb ‖ clientNonce ‖ serverNonce ‖ H(deviceName ‖ platform)
 
 proofC = HMAC-SHA256(K, "atrium-pair-v1:client" ‖ T)
 proofS = HMAC-SHA256(K, "atrium-pair-v1:server" ‖ T)
@@ -161,6 +170,56 @@ owner has the secret for, and the client discards everything and reports
 `clientNonce` and `serverNonce` are 32 bytes from a CSPRNG. `pairingId`,
 `serverNonce` and the secret are each single-use; the `begin`→`complete` window is
 two minutes, independent of the secret's 15-minute lifetime.
+
+### 4a. Binding profiles, and why the browser is not a dead end
+
+Browser JavaScript cannot read a TLS exporter and cannot read the peer
+certificate. `cb` and `spki` are therefore computable by a native client and by
+nothing that runs in a page. A design that assumed otherwise would have to be
+replaced the day the web client arrives, which is exactly the outcome the product
+forbids.
+
+The transcript therefore carries an explicit **binding profile**, hashed into `T`
+so two profiles can never produce the same proof and a profile can never be
+silently reinterpreted.
+
+| Profile id | Used by | `spki` | `cb` | Where MITM resistance comes from |
+| --- | --- | --- | --- | --- |
+| `atrium-pair-binding/native-tls-exporter-v1` | native clients — **the only profile M1 implements** | SHA-256 of the handshake SPKI | RFC 8446 exporter | the binding itself: a relay has a different key and a different exporter |
+| `atrium-pair-binding/web-pki-v1` | a future browser client | 32 zero bytes | 32 zero bytes | **the browser's TLS trust anchor**, not the pairing exchange |
+
+Everything else is shared: one secret format, one key schedule, one proof
+structure, one device model, one token, one revocation path. Adding the second
+profile is an additive change to a field that already exists, not a replacement
+protocol. That is the whole point of putting the field in now.
+
+**The honest part.** `web-pki-v1` is strictly weaker than the native profile, and
+the weakness is not in the pairing exchange — it is that a browser reaching a
+self-signed server has no trust anchor at all, so anything it does is
+click-through security. The browser's problem is the certificate, not the
+protocol. It is therefore gated on the same decision A-24 already records: a
+locally installed Atrium CA, or an ACME certificate for a real name. Until one of
+those exists there is no honest browser pairing, and `web-pki-v1` stays
+unimplemented.
+
+**Downgrade is impossible without a console action.** A profile is not negotiated.
+Each armed secret records which profiles it permits; `atriumctl pair` arms
+`native-tls-exporter-v1` only. Browser pairing requires
+`atriumctl pair --allow-browser`, which prints what that profile does and does not
+protect against and refuses unless Core is configured as serving a
+PKI-trusted certificate — an operator assertion made at the console, because Core
+cannot observe what a browser trusts. A man-in-the-middle cannot ask for the
+weaker profile, because the client does not choose it and the server will not
+accept it.
+
+**If the certificate question is ever answered badly**, the fallback is a real
+augmented PAKE — **SPAKE2+, RFC 9383** — which would give a browser MITM
+resistance without any TLS visibility. It is recorded as the named fallback and
+deliberately not adopted now: it is not needed for native clients, the mature
+Rust implementations of SPAKE2+ specifically are thin, it would add a WASM crypto
+bundle to the web client, and it solves offline guessing, which a 128-bit secret
+does not have. Adopting it would be paying a large complexity cost against a
+threat this design does not face.
 
 ### 5. Why 128 bits, and what this construction is not
 
@@ -187,13 +246,35 @@ without reading its console output.
 ### 7. Credentials after pairing
 
 - **Native clients** receive an opaque 256-bit device token, stored in the OS
-  keychain, sent as `Authorization: Bearer`, hashed with Argon2id server-side,
-  bound to a device record, individually revocable.
+  keychain, sent as `Authorization: Bearer`, bound to a device record,
+  individually revocable. The server stores **`SHA-256(token)`** and nothing
+  else — see the note below.
 - **Browser clients** exchange the pairing result for an `HttpOnly; Secure;
   SameSite=Strict` session cookie plus a double-submit CSRF token, because a
   browser cannot hold a bearer token safely.
 - Every device is listed with name, platform, first seen and last seen, and can be
   revoked immediately — not at expiry.
+
+**Superseding note on the token verifier (2026-09-22).** An earlier revision of
+this ADR specified Argon2id. That was wrong for this threat model and is
+superseded. A device token is 256 bits from the OS CSPRNG; it is not a password,
+is never chosen by a human, and has no guessable distribution. A password hash
+buys resistance to offline guessing of a low-entropy secret, which does not exist
+here. What it does buy is per-request latency, a verification cache to hide that
+latency, the consistency bugs a cache invites on revocation, and an
+attacker-triggerable CPU cost on an unauthenticated-adjacent path.
+
+The verifier is therefore `SHA-256(token)`, compared in constant time. Requirements
+that come with it: the raw token exists only on the client; the server stores only
+the digest; the digest is deleted transactionally on revocation, with no cache
+outliving the transaction; tokens are never logged; and an unknown token and a
+revoked token produce an identical response.
+
+A keyed verifier (HMAC with a server-side key) was considered and rejected: it
+would protect against an attacker who can read the database but not the key file,
+and in this deployment both live on the same disk under the same service
+identity, so the key would sit next to the thing it protects. It adds a key to
+manage and rotate in exchange for no threat-model benefit.
 
 ## What each mechanism actually provides
 
@@ -241,8 +322,11 @@ without reading its console output.
 - **The secret must be copied, not remembered.** That is a real UX constraint, and
   the honest consequence of not using a PAKE. A short code is a feature request
   with a cryptographic prerequisite attached.
-- **The browser still sees a self-signed certificate and warns** (A-24). The
-  weakest point in the design; resolved before Beta per `SECURITY.md` §14.
+- **The browser still sees a self-signed certificate and warns** (A-24). This is
+  now the single decision that gates browser pairing as well (section 4a), which
+  raises its priority: it is no longer only a wart on the first-run experience,
+  it is the prerequisite for the web client having any honest onboarding at all.
+  Resolved before Beta per `SECURITY.md` §14.
 - Pinning means key rotation is a re-pair of every device, which needs a UI clear
   enough that it is not mistaken for an attack.
 - TLS 1.3 is required for the pairing endpoints. Every supported client platform
@@ -255,11 +339,19 @@ without reading its console output.
 
 ## Alternatives considered
 
-**SPAKE2+ (RFC 9383) or CPace for Alpha.** The cryptographically ideal answer, and
-the only way to have short human-typed codes safely. Rejected for Alpha on
-implementation-risk grounds: it needs a reviewed implementation and careful group
-handling, and a 128-bit copied secret reaches the same security goal with standard
-primitives. Recorded as the prerequisite if short codes are ever wanted.
+**SPAKE2+ (RFC 9383) or CPace for Alpha.** The cryptographically ideal answer: it
+would give short human-typed codes *and* a browser MITM resistance that needs no
+TLS visibility, which would make section 4a's second profile unnecessary.
+Rejected for Alpha on implementation-risk grounds: it needs a reviewed
+implementation with careful group handling, the mature Rust implementations of
+SPAKE2+ in particular are thin (the widely used `spake2` crate is balanced SPAKE2,
+not the augmented RFC 9383 variant), a browser client would have to ship a WASM
+crypto bundle, and the property it is famous for — offline-guessing resistance —
+is one a 128-bit copied secret does not need. It is recorded as the named
+prerequisite for short codes **and** as the named fallback if the browser
+certificate question in A-24 is answered badly. Adopting it because a crate exists
+would be the wrong reason; adopting it because the trust-anchor path fails would
+be the right one.
 
 **Hand-rolled channel binding over the SPKI hash alone** — the previous revision.
 Replaced: the SPKI hash is stable across connections, so it binds to the server's

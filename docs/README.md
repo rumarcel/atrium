@@ -43,6 +43,8 @@ the three trust roots that the phrase "Agent's own key" had blurred together
 | [`UX-STATES.md`](UX-STATES.md) | The states every surface must implement |
 | [`PLATFORM-MATRIX.md`](PLATFORM-MATRIX.md) | What is supported, planned, experimental, unsupported |
 | [`ROADMAP.md`](ROADMAP.md) | Stages, and the acceptance criteria for the first milestone |
+| [`M1-IMPLEMENTATION-PLAN.md`](M1-IMPLEMENTATION-PLAN.md) | How M1 gets built: layout, protocol, state, pairing, providers, units, installer, passes |
+| [`M1-TEST-PLAN.md`](M1-TEST-PLAN.md) | How M1 gets proved, and which tests need a real machine |
 | [`ASSUMPTIONS.md`](ASSUMPTIONS.md) | What the design believes but has not verified |
 | [`adr/`](adr/README.md) | The decisions that are frozen, and what they cost |
 
@@ -67,4 +69,7 @@ existing desktop application and is unaffected by any of the above.
 - **Unverified beliefs go in `ASSUMPTIONS.md` with an identifier**, and the
   document that depends on one cites it. An assumption that turns out to be wrong
   is a traceable design change, not a surprise.
+- **The M1 documents are implementation planning, not architecture.** They must
+  not contradict an ADR; where a criterion forced a larger design than it looked,
+  the plan says so in its own section rather than adjusting the criterion.
 - Nothing here promises a date.
