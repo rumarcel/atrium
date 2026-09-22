@@ -106,7 +106,12 @@ fn starts_reports_its_identity_and_signals_readiness() {
     }
 
     terminate(&mut child);
-    assert!(wait_for_exit(&mut child).success());
+    let status = wait_for_exit(&mut child);
+    assert!(
+        status.success(),
+        "clean shutdown expected, {}",
+        describe(status)
+    );
 }
 
 #[test]
@@ -118,7 +123,8 @@ fn sigterm_shuts_down_cleanly() {
     let status = wait_for_exit(&mut child);
     assert!(
         status.success(),
-        "SIGTERM must produce a clean exit, got {status:?}"
+        "SIGTERM must produce a clean exit, {}",
+        describe(status)
     );
 }
 
@@ -200,4 +206,15 @@ fn tcp_inodes() -> Vec<u64> {
         }
     }
     inodes
+}
+
+/// Exact description of how a process ended: an exit code and a signal are very
+/// different failures, and a bare `.success()` hides which one happened.
+fn describe(status: std::process::ExitStatus) -> String {
+    use std::os::unix::process::ExitStatusExt;
+    match (status.code(), status.signal()) {
+        (Some(code), _) => format!("exited with code {code}"),
+        (None, Some(signal)) => format!("killed by signal {signal}"),
+        (None, None) => format!("ended in an unknown way: {status:?}"),
+    }
 }

@@ -123,7 +123,12 @@ fn listens_accepts_and_closes_then_shuts_down_cleanly() {
     assert_eq!(read, 0, "agent must close the connection without speaking");
 
     terminate(&mut child);
-    assert!(wait_for_exit(&mut child).success());
+    let status = wait_for_exit(&mut child);
+    assert!(
+        status.success(),
+        "clean shutdown expected, {}",
+        describe(status)
+    );
 }
 
 #[test]
@@ -133,7 +138,8 @@ fn refuses_to_start_without_a_socket() {
     let status = wait_for_exit(&mut child);
     assert!(
         !status.success(),
-        "starting with no socket configured must fail, got {status:?}"
+        "starting with no socket configured must fail, {}",
+        describe(status)
     );
 
     let mut stderr = String::new();
@@ -155,7 +161,8 @@ fn refuses_a_relative_socket_path() {
     let status = wait_for_exit(&mut child);
     assert!(
         !status.success(),
-        "a relative socket path must be refused, got {status:?}"
+        "a relative socket path must be refused, {}",
+        describe(status)
     );
 }
 
@@ -169,7 +176,8 @@ fn refuses_to_bind_over_an_existing_path() {
     let status = wait_for_exit(&mut child);
     assert!(
         !status.success(),
-        "agent must not unlink a path it did not create, got {status:?}"
+        "agent must not unlink a path it did not create, {}",
+        describe(status)
     );
     assert!(socket.exists(), "the existing file must be left alone");
 }
@@ -188,7 +196,12 @@ fn holds_no_tcp_socket() {
     let tcp_held: Vec<u64> = held.iter().copied().filter(|i| tcp.contains(i)).collect();
 
     terminate(&mut child);
-    wait_for_exit(&mut child);
+    let status = wait_for_exit(&mut child);
+    assert!(
+        status.success(),
+        "clean shutdown expected, {}",
+        describe(status)
+    );
 
     assert!(
         tcp_held.is_empty(),
@@ -234,4 +247,15 @@ fn tcp_inodes() -> Vec<u64> {
         }
     }
     inodes
+}
+
+/// Exact description of how a process ended: an exit code and a signal are very
+/// different failures, and a bare `.success()` hides which one happened.
+fn describe(status: std::process::ExitStatus) -> String {
+    use std::os::unix::process::ExitStatusExt;
+    match (status.code(), status.signal()) {
+        (Some(code), _) => format!("exited with code {code}"),
+        (None, Some(signal)) => format!("killed by signal {signal}"),
+        (None, None) => format!("ended in an unknown way: {status:?}"),
+    }
 }
