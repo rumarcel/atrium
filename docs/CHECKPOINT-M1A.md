@@ -5,7 +5,8 @@
 | | |
 | --- | --- |
 | Checkpoint date | 2026-09-22 |
-| Checkpoint commit | `9b9d18f` — `feat(server): M1A workspace, process skeletons and architectural gates` |
+| Checkpoint commit | whatever `m1a-checkpoint` points at — the tip of `product/m1-alpha`, with CI green on all four jobs |
+| M1A implementation | `9b9d18f` — `feat(server): M1A workspace, process skeletons and architectural gates` |
 | Branch | `product/m1-alpha` |
 | Tag | `m1a-checkpoint` |
 | Next pass | **M1B — identity, certificates, persistent-state/recovery skeleton** |
@@ -49,23 +50,48 @@ discovery, container access or invented placeholder data.
 
 ## What is known to pass, and where
 
-Verified locally on the Windows development workstation:
+**Remote CI is green on all four jobs** for the checkpoint commit: frontend,
+the Windows Tauri build, the Python prototype agent, and the new server
+workspace. The server job ran **56 tests**, the boundary gates, and a real
+`sudo` check confirming Core refuses to start as uid 0.
+
+Verified locally on the Windows development workstation (24 of those 56, the
+portable crates):
 
 - `cargo fmt --all --check`
 - `cargo clippy --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`
 - `cargo check --target x86_64-unknown-linux-gnu --all-targets`
-- `cargo test` for the five portable crates — **24 tests**
-- `bash server/ci/boundary-checks.sh` — all gates
+- `cargo test` for the five portable crates
+- `bash server/ci/boundary-checks.sh`
 
-**Relies on Linux CI** — 30 further tests that cannot execute on Windows: the
-Agent listener and socket tests, the Core root guard, `notify`/`signals`, and
-both process-lifecycle suites (spawn, readiness, `SIGTERM`, exit codes, no TCP
-socket held). Plus the CI-only `sudo` check that Core refuses uid 0.
+The rest — the Agent listener and socket tests, the Core root guard,
+`notify`/`signals`, and both process-lifecycle suites — cannot execute on
+Windows and are proven only by the Linux CI run.
+
+### What that first CI run caught
+
+Worth reading before M1B, because it is the reason the checkpoint exists:
+
+1. **A real defect.** Core signalled `READY=1` and *then* installed its
+   `SIGTERM` handler, so a stop arriving in that window killed it with signal 15
+   instead of a clean exit. systemd closes that window in milliseconds on a fast
+   stop-after-start. Fixed by acquiring the handlers before readiness, with an
+   API shape (`signals::listen()` then `.recv().await`) that makes the ordering
+   hard to get wrong.
+2. **A test artefact.** The lifecycle tests dropped the stderr pipe's read end
+   when the ready line arrived; the child's next log write then failed with
+   `EPIPE` and `tracing` panicked, showing up as exit code 101. Fixed by keeping
+   the reader alive for the whole test and reporting the child's own output in
+   every failing assertion.
+
+Neither was visible from the Windows cross-check. Assume the same of M1B.
 
 ## Known limitations
 
 - The Linux binaries are **cross-checked, not executed** on the development
-  workstation (no WSL, no Linux toolchain). CI is the only place they run.
+  workstation (no WSL, no Linux toolchain). CI is the only place they run, and
+  it has already caught one defect and one test bug that the cross-check could
+  not. Push early and read the CI result.
 - `systemd-analyze verify` runs in CI as **informational** (`continue-on-error`),
   because its exit status depends on runner state. The blocking check on unit
   content is the deployment-policy test.
