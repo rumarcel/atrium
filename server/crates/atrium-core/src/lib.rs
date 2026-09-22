@@ -68,6 +68,11 @@ pub async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         "atrium-core is starting"
     );
 
+    // Before readiness, never after: a stop request that arrives between
+    // READY=1 and the handler being installed would hit the default
+    // disposition and kill the process uncleanly.
+    let mut shutdown = signals::listen()?;
+
     let notified = notify::ready()?;
 
     tracing::info!(
@@ -78,7 +83,7 @@ pub async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         "atrium-core is ready"
     );
 
-    let signal = signals::wait_for_shutdown().await?;
+    let signal = shutdown.recv().await;
 
     tracing::info!(
         event = "stopping",

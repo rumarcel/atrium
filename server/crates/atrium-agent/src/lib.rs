@@ -76,6 +76,9 @@ pub async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     let source = listener::resolve(&listener::Environment::current())?;
     let socket = bind(&source)?;
 
+    // Before readiness, never after - see atrium_agent::signals.
+    let mut shutdown = signals::listen()?;
+
     let notified = notify::ready()?;
 
     tracing::info!(
@@ -88,7 +91,7 @@ pub async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     );
 
     let signal = tokio::select! {
-        result = signals::wait_for_shutdown() => result?,
+        signal = shutdown.recv() => signal,
         () = accept_until_shutdown(&socket) => unreachable!("the accept loop does not return"),
     };
 
