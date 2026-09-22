@@ -46,6 +46,7 @@ the three trust roots that the phrase "Agent's own key" had blurred together
 | [`M1-IMPLEMENTATION-PLAN.md`](M1-IMPLEMENTATION-PLAN.md) | How M1 gets built: layout, protocol, state, pairing, providers, units, installer, passes |
 | [`M1-TEST-PLAN.md`](M1-TEST-PLAN.md) | How M1 gets proved, and which tests need a real machine |
 | [`ASSUMPTIONS.md`](ASSUMPTIONS.md) | What the design believes but has not verified |
+| [`CHECKPOINT-M1A.md`](CHECKPOINT-M1A.md) | **Read this first if you are resuming.** Where the work stopped and what comes next |
 | [`adr/`](adr/README.md) | The decisions that are frozen, and what they cost |
 
 Sixteen ADRs. The three added by the hardening review —
