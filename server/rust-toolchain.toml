@@ -1,0 +1,6 @@
+# Applies to cargo invocations made from inside server/. CI drives the workspace
+# with --manifest-path from the repository root, where the repository's default
+# toolchain applies; both resolve to stable.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

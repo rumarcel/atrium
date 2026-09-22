@@ -113,8 +113,8 @@ true on the owner's server running the prototype. Partial credit does not exist.
    (`ss -lntp` shows nothing for it).
 6. The device identity private key **cannot be replaced by the service
    identity**. `/etc/atrium/tls.key` is `0640 root:atrium` inside a
-   `0750 root:root` directory; the identity file and the secrets key are the
-   same. Proven two ways: by `stat`, and by attempting — as the `atrium` user —
+   `0750 root:atrium` directory — the `atrium` group may traverse and read and
+   has no write bit — and the identity file and the secrets key are the same. Proven two ways: by `stat`, and by attempting — as the `atrium` user —
    to write, truncate, unlink and replace each file and to create a new file in
    the directory, all of which must fail. The agent socket is `0660 root:atrium`.
    (Amended 2026-09-22; see *Criteria amended during planning* below.)
@@ -273,7 +273,7 @@ quietly.
 
 - *Was:* "`/etc/atrium/tls.key`, the identity file and the secrets key are `0600`
   and owned by `atrium`."
-- *Now:* `0640 root:atrium` inside a `0750 root:root` directory, proven by `stat`
+- *Now:* `0640 root:atrium` inside a `0750 root:atrium` directory, proven by `stat`
   **and** by failed write, truncate, unlink, replace and create attempts as the
   `atrium` user.
 - *Why this is stronger:* the old wording made the key owned by the service

@@ -1,0 +1,64 @@
+[Unit]
+Description=Atrium Core
+Documentation=https://github.com/rumarcel/atrium
+After=network-online.target
+# Wants, never Requires: Core must keep serving reads when Agent is stopped
+# (criterion 29). A hard dependency here would take Core down with it.
+Wants=network-online.target atrium-agent.socket
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=atrium
+Group=atrium
+# Empty on purpose. This is how "Core is in no supplementary group, and
+# specifically not docker" is enforced rather than assumed (criterion 34).
+SupplementaryGroups=
+ExecStart=/usr/lib/atrium/atrium-core
+Restart=on-failure
+RestartSec=5s
+
+# Core writes nothing here in M1A. The directory is declared now because
+# systemd creates it with the right owner and mode, and the state store that
+# uses it arrives in M1B.
+StateDirectory=atrium
+StateDirectoryMode=0700
+# Identity material is root-owned and group-readable by atrium; the unit makes
+# the whole tree read-only as defence in depth, not as the mechanism. The
+# mechanism is the discretionary access control described in
+# docs/M1-IMPLEMENTATION-PLAN.md section 4.2.
+ReadOnlyPaths=/etc/atrium /usr/lib/atrium
+
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectProc=invisible
+# ProcSubset stays at "all": Core reads /proc/stat, /proc/meminfo, /proc/loadavg
+# and /proc/uptime from M1F onwards. ProtectProc=invisible still hides other
+# processes' entries.
+ProcSubset=all
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+# AF_NETLINK is required from M1F: glibc's getifaddrs() uses it. AF_UNIX is for
+# the agent socket and for sd_notify.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

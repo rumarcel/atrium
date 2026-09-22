@@ -1,0 +1,13 @@
+[package]
+name = "atriumctl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Atrium: console tool for operations that must not be reachable over the network"
+
+# No dependencies yet, and no argument-parsing crate until there are arguments
+# worth parsing. This crate is also the home of the workspace's static
+# deployment-policy tests, which is why it must stay platform-neutral.
+[dependencies]

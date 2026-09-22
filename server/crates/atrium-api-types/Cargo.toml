@@ -1,0 +1,12 @@
+[package]
+name = "atrium-api-types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Atrium: pure shared types and constants (no I/O)"
+
+# No dependencies, on purpose. This crate is I/O-free by policy and
+# server/ci/boundary-checks.sh fails the build if that changes.
+[dependencies]

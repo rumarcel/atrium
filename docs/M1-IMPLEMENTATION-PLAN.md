@@ -365,7 +365,7 @@ certificate, which lives in the writable state directory.
 
 | Path | Owner | Mode | Core may write | Contents |
 | --- | --- | --- | --- | --- |
-| `/etc/atrium/` | `root:root` | `0750` | **no** | identity material; group `atrium` may traverse and read, never write or create |
+| `/etc/atrium/` | `root:atrium` | `0750` | **no** | identity material. Group `atrium` gets `r-x`: traverse and list, **no write bit**, so Core cannot create, unlink or rename anything here |
 | `/etc/atrium/identity.json` | `root:atrium` | `0640` | **no** | `server_id`, created_at, key fingerprint — immutable after first boot |
 | `/etc/atrium/tls.key` | `root:atrium` | `0640` | **no** | PKCS#8 DER, ECDSA P-256 — Core reads it to serve TLS and cannot replace it |
 | `/etc/atrium/secrets.key` | `root:atrium` | `0640` | **no** | 32 random bytes; **generated in M1, used from M3** |
@@ -384,10 +384,18 @@ rest of the identity material and is not read by any M1 code path. This is state
 here so nobody later mistakes it for dead code and deletes it.
 
 **The identity key is not writable by the service identity, and that is enforced
-by ownership rather than by systemd.** `/etc/atrium/` is `root:root 0750`, so the
-`atrium` group can traverse and read but cannot create, rename or unlink; the
-three files inside are `root:atrium 0640`, so Core can read them and cannot write
-them. `ReadOnlyPaths=/etc/atrium` in the unit is defence in depth on top of that,
+by ownership rather than by systemd.** `/etc/atrium/` is `root:atrium 0750`: the
+owner is root, the group is `atrium`, and the group bits are `r-x` — traverse and
+list, with **no write bit**, so Core cannot create, rename or unlink anything in
+the directory. The three files inside are `root:atrium 0640`, so Core can read
+them and cannot write them, and cannot `chmod` or `chown` them because it does
+not own them.
+
+A `root:root 0750` directory would have been wrong and an earlier draft said so:
+with no group match, the `atrium` user has no execute bit on the directory, cannot
+traverse it, and therefore cannot open `tls.key` at all — the service would fail
+to serve TLS. The group must be `atrium` for the read to work; the missing write
+bit is what makes the write fail. `ReadOnlyPaths=/etc/atrium` in the unit is defence in depth on top of that,
 not the mechanism — a unit file is one edit away from being wrong, and
 discretionary access control is not.
 
@@ -1251,7 +1259,7 @@ install path; M1 has no release-signing pipeline yet, so the exception is
    /usr/lib/atrium/atrium-core init-identity`; then
    `chown root:atrium /etc/atrium/{tls.key,identity.json,secrets.key}`,
    `chmod 0640` on those three, and finally
-   `chown root:root /etc/atrium && chmod 0750 /etc/atrium`.
+   `chown root:atrium /etc/atrium && chmod 0750 /etc/atrium`.
    After this the `atrium` group can traverse and read, and nothing running as
    `atrium` can create, replace or unlink anything in there. The installer
    verifies the resulting ownership and modes and **fails the install** if they
@@ -1416,6 +1424,27 @@ to specific criteria. **No pass begins until the previous one is reviewed.**
 - **Security exercised:** the forbidden-dependency and no-shell gates exist
   before there is any code to hide in.
 - **Non-goals:** no HTTP, no TLS, no database, no protocol.
+
+**As built.** Four notes where the implementation reads differently from the
+sketch above, none of them a change of decision:
+
+1. `server/tests/` at workspace level is not valid cargo layout — a virtual
+   manifest compiles no test targets of its own. The static deployment-policy
+   tests live in `atriumctl/tests/`, which is dependency-free and therefore
+   builds on Windows too, and the process-lifecycle tests live in each binary's
+   own `tests/` where `CARGO_BIN_EXE_*` resolves.
+2. `cargo deny` is configured (`server/deny.toml`) but not yet wired into CI.
+   The dependency *boundaries* are enforced by `boundary-checks.sh` against
+   cargo's resolved metadata, which needs no extra tooling; the licence and
+   advisory scanning it adds belongs with the pass that introduces dependency
+   auditing.
+3. `atriumctl` takes no argument-parsing crate yet. `clap` arrives with the
+   first command that needs it.
+4. Two hardening behaviours were added during M1A's own security review, both
+   inside its scope: Core refuses to start with an effective uid of 0, and
+   Agent refuses an environment-chosen socket path while running as root. Both
+   are pure functions with unit tests, and Core's is additionally exercised
+   against a real uid 0 in CI.
 
 ### M1B — identity and state
 - **Files:** `atrium-core/src/{identity,config,db/*,recovery}.rs`,
@@ -1618,7 +1647,7 @@ versions.
 | 3 | Both units active after install and after reboot | M1A units, M1H | `systemctl status` before and after reboot |
 | 4 | Uninstall removes everything, data optional | M1H | VM uninstall + filesystem diff |
 | 5 | Core is `atrium`; Agent has no TCP listener | M1A, M1H | `ps -o user=`, `ss -lntp` |
-| 6 | Identity key not replaceable by the service identity: `0640 root:atrium` in a `0750 root:root` directory; socket `0660 root:atrium` | M1B, M1H | `stat` **and** failed write/truncate/unlink/replace/create as `atrium` |
+| 6 | Identity key not replaceable by the service identity: `0640 root:atrium` in a `0750 root:atrium` directory (group read+traverse, no group write); socket `0660 root:atrium` | M1B, M1H | `stat` **and** failed write/truncate/unlink/replace/create as `atrium` |
 | 7 | Identity survives reboot/restart/upgrade; IP change reissues cert, same key | M1B | SPKI hash captured before/after, byte-equal |
 | 8 | Agent rejects other uids | M1C | Root integration test connecting as `nobody` |
 | 9 | Client lists the server without an address | M1G | Two-host LAN test |
@@ -1707,7 +1736,7 @@ recorded as decisions so nobody reopens them by accident.
 | --- | --- |
 | Argon2id vs SHA-256 for device tokens | **`SHA-256(token)`**, constant-time, no cache (§7.3, ADR-003 §7 supersession) |
 | Recovery authentication mirror | **Not built.** Recovery reports and refuses; restore is a console action (§4.6, criterion 30 amended) |
-| Identity key ownership | **`root:atrium 0640` in a `root:root 0750` directory**, proven by attempted write (§4.2, criterion 6 amended) |
+| Identity key ownership | **`root:atrium 0640` in a `root:atrium 0750` directory** — group read and traverse, no group write — proven by attempted write (§4.2, criterion 6 amended) |
 | Pairing vs the future browser client | **Binding profiles** (§6.4a). Native profile implemented; browser profile additive and gated on A-24 |
 | Unsigned installer | **Accepted as specified**: refuses by default, `--unsigned-local-build` for developers, loud, never a persistent setting, never used for a release |
 | Second-device role | Every M1 device is `owner`; M1 is single-user |
@@ -1732,7 +1761,7 @@ plan; they are marked **[fixed]** and the change is already in the sections abov
 | **Can a compromised Core reach root?** | No path found. Its entire privileged surface is two parameterless read-only operations. It cannot name a path, a socket, a unit, a package or a container; it cannot hand Agent bytes that become configuration; it cannot install anything. Its residual authority is its own data, denial of service, and reboot-by-nothing (M1 has no power operation at all). |
 | **Can Core influence Agent into interpreting attacker-controlled bytes as privileged configuration?** | No. The only Core-supplied value Agent persists is `request_id`, written into Agent's own journal. **[fixed]** Agent now validates it as 1-64 hex characters before journaling, so Core cannot shape Agent's audit trail even within serde's escaping. |
 | **Can an arbitrary path reach a root operation?** | No. **[fixed]** The runtime probe's candidate socket paths are now stated as a compiled-in constant list, closing a reading of the original draft in which Core might have supplied one. No operation has a path parameter, and the enumeration gate fails the build if one appears. |
-| **Can a compromised Core destroy or rotate the server's identity?** | **[fixed, then strengthened]** In the first draft `/etc/atrium/` was writable by Core. Identity is now generated once at install time, the directory is `root:root 0750`, and the three files are `root:atrium 0640` — so the guarantee rests on discretionary access control, with the unit's `ReadOnlyPaths` as defence in depth rather than as the mechanism. Certificate reissue writes only the public certificate, in the state directory. Criterion 6 was amended to prove it by attempted write. |
+| **Can a compromised Core destroy or rotate the server's identity?** | **[fixed, then strengthened]** In the first draft `/etc/atrium/` was writable by Core. Identity is now generated once at install time, the directory is `root:atrium 0750` with no group write bit, and the three files are `root:atrium 0640` — so the guarantee rests on discretionary access control, with the unit's `ReadOnlyPaths` as defence in depth rather than as the mechanism. Certificate reissue writes only the public certificate, in the state directory. Criterion 6 was amended to prove it by attempted write. |
 | **Can a client bypass pairing?** | No. Every route outside the pairing surface requires a device token; a device can be created only by `pair/complete`; `pair/complete` requires a secret that only the server console can arm. A claimed server with no armed secret refuses every attempt. |
 | **Can pairing be relayed?** | No. Both proofs cover the SPKI and the RFC 8446 exporter, and `begin` and `complete` must share one TLS connection. A machine-in-the-middle holding the correct secret still fails, which is criterion 15's explicit test. |
 | **Can a hostile value substitute for the pin?** | **[clarified]** The `spki` in `pair/info` and in the mDNS TXT record are display-only. The pin comes from the handshake; an advertised value is compared, never adopted. Section 7.1a states this so no implementer takes the convenient shortcut. |

@@ -1,0 +1,22 @@
+[package]
+name = "atrium-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Atrium Core: the unprivileged server component"
+
+# Core must never gain a container-runtime client, a shell helper, or a
+# dependency on atrium-agent. server/ci/boundary-checks.sh enforces all three
+# against cargo's own metadata, not against a reviewer's memory.
+[dependencies]
+atrium-api-types.workspace = true
+atrium-protocol.workspace = true
+nix = { workspace = true, features = ["user"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+nix = { workspace = true, features = ["signal", "process"] }

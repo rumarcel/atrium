@@ -1,0 +1,11 @@
+[package]
+name = "atrium-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Atrium: native API client. Platform-neutral; must keep building on Windows."
+
+[dependencies]
+atrium-api-types.workspace = true

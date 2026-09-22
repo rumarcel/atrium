@@ -258,7 +258,8 @@ bundle rather than blocklisted out of it.
 ## 9. Privilege separation
 
 **The device identity private key is not writable by Core.** It is
-`root:atrium 0640` in a `root:root 0750` directory, so discretionary access
+`root:atrium 0640` in a `root:atrium 0750` directory. The group bits give the
+service identity traverse and read and **no write**, so discretionary access
 control alone prevents the service identity from replacing it; the unit's
 `ReadOnlyPaths` is defence in depth, not the mechanism. Arbitrary code execution
 as `atrium` can read the key — it must, to serve TLS — but cannot rotate,

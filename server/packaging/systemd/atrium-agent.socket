@@ -1,0 +1,16 @@
+[Unit]
+Description=Atrium Agent socket
+Documentation=https://github.com/rumarcel/atrium
+
+[Socket]
+ListenStream=/run/atrium/agent.sock
+# The socket unit owns the permissions so they are declared where an
+# administrator can read them, and Agent never has to chmod anything.
+SocketUser=root
+SocketGroup=atrium
+SocketMode=0660
+RemoveOnStop=true
+Accept=no
+
+[Install]
+WantedBy=sockets.target

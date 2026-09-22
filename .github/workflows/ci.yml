@@ -90,3 +90,67 @@ jobs:
         # Standard library only; the agent deliberately has no pip dependencies.
         run: python -m unittest test_agent test_inventory
         working-directory: server-agent
+
+  server:
+    name: Server workspace
+    # Core and Agent target Linux. This job is independent of the Windows
+    # Tauri job above: the two Cargo workspaces have separate manifests,
+    # separate lockfiles and separate caches, and neither builds the other.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Rust
+        run: rustup toolchain install stable --profile minimal --component clippy --component rustfmt
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            server/target
+          key: server-${{ runner.os }}-${{ github.repository }}-${{ hashFiles('server/Cargo.lock') }}
+          restore-keys: server-${{ runner.os }}-${{ github.repository }}-
+      - name: Generate the Turkish locale
+        # Criterion 12's decode test asserts that case conversion is ASCII-only.
+        # It must not silently skip, so the locale is generated here rather than
+        # left to chance. The test itself arrives in M1E.
+        run: |
+          sudo locale-gen tr_TR.UTF-8
+          sudo update-locale
+      - name: Check formatting
+        run: cargo fmt --manifest-path server/Cargo.toml --all --check
+      - name: Lint
+        run: cargo clippy --manifest-path server/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Build
+        run: cargo build --manifest-path server/Cargo.toml --all-targets --locked
+      - name: Core refuses to run as root
+        # The unit says User=atrium and the process checks for itself. This is
+        # the only place the check can be exercised against a real uid 0, so it
+        # runs here rather than in the test harness.
+        run: |
+          set +e
+          sudo -E env ATRIUM_CORE_LOG=info ./server/target/debug/atrium-core
+          status=$?
+          set -e
+          echo "exit status: ${status}"
+          test "${status}" -ne 0
+      - name: Run tests
+        run: cargo test --manifest-path server/Cargo.toml --locked
+      - name: Architecture and execution gates
+        # Dependency direction, forbidden dependency families, no shell
+        # execution, no container-runtime socket, unsafe confinement, and the
+        # ADR-015 prototype-identifier reservations.
+        run: bash server/ci/boundary-checks.sh
+      - name: Validate systemd units
+        # Informational. systemd-analyze resolves ExecStart and User, so its
+        # exit status depends on machine state the runner does not have; the
+        # blocking check on unit content is the deployment-policy test above.
+        continue-on-error: true
+        run: |
+          sudo useradd --system --no-create-home --shell /usr/sbin/nologin atrium || true
+          sudo install -D -m 0755 /bin/true /usr/lib/atrium/atrium-core
+          sudo install -D -m 0755 /bin/true /usr/lib/atrium/atrium-agent
+          systemd-analyze verify server/packaging/systemd/atrium-core.service \
+                                 server/packaging/systemd/atrium-agent.service \
+                                 server/packaging/systemd/atrium-agent.socket

@@ -1,0 +1,56 @@
+[Unit]
+Description=Atrium Agent
+Documentation=https://github.com/rumarcel/atrium
+Requires=atrium-agent.socket
+After=atrium-agent.socket
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=root
+Group=root
+ExecStart=/usr/lib/atrium/atrium-agent
+Restart=on-failure
+RestartSec=5s
+
+# 0700 root:root, unreadable by the atrium user (criterion 41). Agent writes
+# nothing here in M1A; its journal arrives in M1C.
+StateDirectory=atrium-agent
+StateDirectoryMode=0700
+
+NoNewPrivileges=true
+# Empty, even though Agent is root: M1A has no privileged action, so it needs
+# no capability at all. M2 adds exactly what it needs, with review. Reading a
+# root-owned socket needs no CAP_DAC_OVERRIDE because uid 0 is the owner.
+CapabilityBoundingSet=
+AmbientCapabilities=
+# Agent speaks one Unix socket and nothing else. Both directives together make
+# a listening TCP socket impossible rather than merely absent (criterion 5).
+PrivateNetwork=true
+RestrictAddressFamilies=AF_UNIX
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+# Enabled alongside the socket so `systemctl status atrium-agent` shows active
+# immediately after install (criterion 3). The socket unit still owns the
+# listener and still hands it over.
+WantedBy=multi-user.target

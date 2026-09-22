@@ -1,0 +1,27 @@
+[package]
+name = "atrium-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Atrium Agent: the privileged server component"
+
+# Agent must never gain an HTTP crate, a TLS crate, a SQL crate or a container
+# runtime client. It speaks one typed protocol on one Unix socket and nothing
+# else. server/ci/boundary-checks.sh enforces this against cargo metadata.
+[dependencies]
+atrium-protocol.workspace = true
+nix = { workspace = true, features = ["user"] }
+tokio = { workspace = true, features = [
+    "rt",
+    "macros",
+    "net",
+    "signal",
+    "time",
+] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+nix = { workspace = true, features = ["signal", "process"] }

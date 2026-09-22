@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+# This is a second, independent Cargo workspace. The Windows desktop application
+# in ../src-tauri keeps its own manifest, its own lockfile and its own CI job;
+# nothing here is a member of it and nothing there is a member of this. See
+# docs/M1-IMPLEMENTATION-PLAN.md section 1.
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+repository = "https://github.com/rumarcel/atrium"
+
+[workspace.dependencies]
+# Deliberately small. Every addition to this list is reviewed against
+# docs/M1-IMPLEMENTATION-PLAN.md section 18, and the crate-boundary rules are
+# enforced mechanically by server/ci/boundary-checks.sh.
+tokio = { version = "1", default-features = false }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "std",
+    "fmt",
+    "json",
+    "env-filter",
+] }
+nix = { version = "0.29", default-features = false }
+
+atrium-api-types = { path = "crates/atrium-api-types" }
+atrium-pairing = { path = "crates/atrium-pairing" }
+atrium-protocol = { path = "crates/atrium-protocol" }
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
+panic = "abort"

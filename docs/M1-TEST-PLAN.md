@@ -234,7 +234,7 @@ stays green, and run explicitly in CI's privileged job and in the VM suite.
 | `agent_state_dir_is_root_only` — `sudo -u atrium ls /var/lib/atrium-agent` fails with `EACCES` | root | 41 |
 | `agent_journal_and_core_audit_correlate` — issue N calls, assert N Agent journal lines and N audit rows sharing `request_id` | root | 33 |
 | `core_cannot_open_runtime_socket` — as `atrium`, `connect("/var/run/docker.sock")` returns `EACCES`. **Fails the test if Docker is absent**, rather than passing vacuously | root to set up, Docker installed | 35 |
-| `file_modes_and_owners` — every path in the layout table asserted with `stat`: `/etc/atrium` is `root:root 0750`; `tls.key`, `identity.json` and `secrets.key` are `root:atrium 0640`; the agent socket is `root:atrium 0660` | root | 6 |
+| `file_modes_and_owners` — every path in the layout table asserted with `stat`: `/etc/atrium` is `root:atrium 0750` (group traverse+read, no write); `tls.key`, `identity.json` and `secrets.key` are `root:atrium 0640`; the agent socket is `root:atrium 0660` | root | 6 |
 | `core_can_read_the_identity_key` — as `atrium`, open `tls.key` for reading succeeds. The invariant is "read yes, write no", so the read half is asserted too | root to set up | 6 |
 | `core_cannot_modify_the_identity_key` — as `atrium`: open for write, `O_TRUNC`, `unlink`, `rename` over it, and `chmod` — **all five must fail**, each asserted separately with the errno | root to set up | 6 |
 | `core_cannot_create_in_the_identity_directory` — as `atrium`, creating `tls.key.new` and any other file in `/etc/atrium` fails with `EACCES`, which is what makes replace-by-rename impossible | root to set up | 6 |
