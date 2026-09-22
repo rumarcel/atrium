@@ -1,16 +1,24 @@
 //! Process lifecycle for Atrium Agent.
+//!
+//! Every assertion reports the child's own stderr on failure, for the reason
+//! given in the Core equivalent: the process usually explains itself, and
+//! throwing that away costs a diagnosis.
 
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
-use std::time::Duration;
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(20);
+const POLL: Duration = Duration::from_millis(25);
+const SETTLE: Duration = Duration::from_millis(200);
+
+type Capture = Arc<Mutex<Vec<String>>>;
 
 /// A private directory for one test's socket, removed when the test ends.
 struct Scratch(PathBuf);
@@ -34,72 +42,99 @@ impl Drop for Scratch {
     }
 }
 
-fn spawn(socket: Option<&Path>) -> Child {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_atrium-agent"));
-    command
-        .env("ATRIUM_AGENT_LOG", "info")
-        .env_remove("NOTIFY_SOCKET")
-        .env_remove("LISTEN_FDS")
-        .env_remove("LISTEN_PID")
-        .env_remove("ATRIUM_AGENT_SOCKET")
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    if let Some(path) = socket {
-        command.env("ATRIUM_AGENT_SOCKET", path);
-    }
-    command.spawn().expect("atrium-agent must be spawnable")
+/// A running `atrium-agent`, with everything it has written to stderr.
+struct Proc {
+    child: Child,
+    capture: Capture,
 }
 
-fn wait_for_line(child: &mut Child, needle: &str) -> Vec<String> {
-    let stderr = child.stderr.take().expect("stderr was piped");
-    let (sender, receiver) = mpsc::channel();
+impl Proc {
+    fn start(socket: Option<&Path>) -> Self {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_atrium-agent"));
+        command
+            .env("ATRIUM_AGENT_LOG", "info")
+            .env_remove("NOTIFY_SOCKET")
+            .env_remove("LISTEN_FDS")
+            .env_remove("LISTEN_PID")
+            .env_remove("ATRIUM_AGENT_SOCKET")
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        if let Some(path) = socket {
+            command.env("ATRIUM_AGENT_SOCKET", path);
+        }
 
-    std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            if sender.send(line).is_err() {
-                return;
+        let mut child = command.spawn().expect("atrium-agent must be spawnable");
+        let stderr = child.stderr.take().expect("stderr was piped");
+        let capture: Capture = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&capture);
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                sink.lock().expect("capture lock").push(line);
             }
-        }
-    });
+        });
 
-    let deadline = std::time::Instant::now() + READY_TIMEOUT;
-    let mut seen = Vec::new();
-    loop {
-        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-        assert!(
-            !remaining.is_zero(),
-            "timed out waiting for {needle:?}; saw: {seen:#?}"
-        );
-        match receiver.recv_timeout(remaining) {
-            Ok(line) => {
-                let matched = line.contains(needle);
-                seen.push(line);
-                if matched {
-                    return seen;
-                }
+        Self { child, capture }
+    }
+
+    fn lines(&self) -> Vec<String> {
+        self.capture.lock().expect("capture lock").clone()
+    }
+
+    fn wait_for(&self, needle: &str) -> Vec<String> {
+        let deadline = Instant::now() + READY_TIMEOUT;
+        loop {
+            let lines = self.lines();
+            if lines.iter().any(|line| line.contains(needle)) {
+                return lines;
             }
-            Err(_) => panic!("stderr closed before {needle:?}; saw: {seen:#?}"),
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {needle:?}; child said: {lines:#?}"
+            );
+            std::thread::sleep(POLL);
         }
+    }
+
+    fn terminate(&self) {
+        let pid = nix::unistd::Pid::from_raw(i32::try_from(self.child.id()).expect("pid fits"));
+        nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM)
+            .expect("SIGTERM must be sendable");
+    }
+
+    fn wait_exit(&mut self) -> ExitStatus {
+        let deadline = Instant::now() + EXIT_TIMEOUT;
+        loop {
+            if let Some(status) = self.child.try_wait().expect("wait must succeed") {
+                std::thread::sleep(SETTLE);
+                return status;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the process did not exit within {EXIT_TIMEOUT:?}; child said: {:#?}",
+                self.lines()
+            );
+            std::thread::sleep(POLL);
+        }
+    }
+
+    fn shutdown_cleanly(&mut self) {
+        self.terminate();
+        let status = self.wait_exit();
+        assert!(
+            status.success(),
+            "clean shutdown expected, {}; child said: {:#?}",
+            describe(status),
+            self.lines()
+        );
     }
 }
 
-fn terminate(child: &mut Child) {
-    let pid = nix::unistd::Pid::from_raw(i32::try_from(child.id()).expect("pid fits in i32"));
-    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM)
-        .expect("SIGTERM must be sendable");
-}
-
-fn wait_for_exit(child: &mut Child) -> std::process::ExitStatus {
-    let deadline = std::time::Instant::now() + EXIT_TIMEOUT;
-    loop {
-        if let Some(status) = child.try_wait().expect("wait must succeed") {
-            return status;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the process did not exit within {EXIT_TIMEOUT:?}"
-        );
-        std::thread::sleep(Duration::from_millis(25));
+fn describe(status: ExitStatus) -> String {
+    use std::os::unix::process::ExitStatusExt;
+    match (status.code(), status.signal()) {
+        (Some(code), _) => format!("exited with code {code}"),
+        (None, Some(signal)) => format!("killed by signal {signal}"),
+        (None, None) => format!("ended in an unknown way: {status:?}"),
     }
 }
 
@@ -107,8 +142,8 @@ fn wait_for_exit(child: &mut Child) -> std::process::ExitStatus {
 fn listens_accepts_and_closes_then_shuts_down_cleanly() {
     let scratch = Scratch::new("accept");
     let socket = scratch.socket();
-    let mut child = spawn(Some(&socket));
-    wait_for_line(&mut child, "\"event\":\"ready\"");
+    let mut agent = Proc::start(Some(&socket));
+    agent.wait_for("\"event\":\"ready\"");
 
     let mut stream = UnixStream::connect(&socket).expect("the socket must accept a connection");
     stream
@@ -121,44 +156,32 @@ fn listens_accepts_and_closes_then_shuts_down_cleanly() {
     let mut buffer = [0_u8; 1];
     let read = stream.read(&mut buffer).expect("reading must not error");
     assert_eq!(read, 0, "agent must close the connection without speaking");
+    drop(stream);
 
-    terminate(&mut child);
-    let status = wait_for_exit(&mut child);
-    assert!(
-        status.success(),
-        "clean shutdown expected, {}",
-        describe(status)
-    );
+    agent.shutdown_cleanly();
 }
 
 #[test]
 fn refuses_to_start_without_a_socket() {
     // Fail closed: no guessed path, no silent fallback.
-    let mut child = spawn(None);
-    let status = wait_for_exit(&mut child);
+    let mut agent = Proc::start(None);
+    let status = agent.wait_exit();
     assert!(
         !status.success(),
         "starting with no socket configured must fail, {}",
         describe(status)
     );
-
-    let mut stderr = String::new();
-    child
-        .stderr
-        .take()
-        .expect("stderr was piped")
-        .read_to_string(&mut stderr)
-        .expect("stderr must be readable");
+    let lines = agent.lines();
     assert!(
-        stderr.contains("startup_failed"),
-        "the refusal must be logged: {stderr}"
+        lines.iter().any(|line| line.contains("startup_failed")),
+        "the refusal must be logged: {lines:#?}"
     );
 }
 
 #[test]
 fn refuses_a_relative_socket_path() {
-    let mut child = spawn(Some(Path::new("relative.sock")));
-    let status = wait_for_exit(&mut child);
+    let mut agent = Proc::start(Some(Path::new("relative.sock")));
+    let status = agent.wait_exit();
     assert!(
         !status.success(),
         "a relative socket path must be refused, {}",
@@ -172,8 +195,8 @@ fn refuses_to_bind_over_an_existing_path() {
     let socket = scratch.socket();
     std::fs::write(&socket, b"not ours").expect("the decoy file must be writable");
 
-    let mut child = spawn(Some(&socket));
-    let status = wait_for_exit(&mut child);
+    let mut agent = Proc::start(Some(&socket));
+    let status = agent.wait_exit();
     assert!(
         !status.success(),
         "agent must not unlink a path it did not create, {}",
@@ -188,20 +211,14 @@ fn holds_no_tcp_socket() {
     // and RestrictAddressFamilies=AF_UNIX; this checks the process itself does
     // not try, by intersecting its socket inodes with the kernel's TCP tables.
     let scratch = Scratch::new("tcp");
-    let mut child = spawn(Some(&scratch.socket()));
-    wait_for_line(&mut child, "\"event\":\"ready\"");
+    let mut agent = Proc::start(Some(&scratch.socket()));
+    agent.wait_for("\"event\":\"ready\"");
 
-    let held = socket_inodes(child.id());
+    let held = socket_inodes(agent.child.id());
     let tcp = tcp_inodes();
     let tcp_held: Vec<u64> = held.iter().copied().filter(|i| tcp.contains(i)).collect();
 
-    terminate(&mut child);
-    let status = wait_for_exit(&mut child);
-    assert!(
-        status.success(),
-        "clean shutdown expected, {}",
-        describe(status)
-    );
+    agent.shutdown_cleanly();
 
     assert!(
         tcp_held.is_empty(),
@@ -247,15 +264,4 @@ fn tcp_inodes() -> Vec<u64> {
         }
     }
     inodes
-}
-
-/// Exact description of how a process ended: an exit code and a signal are very
-/// different failures, and a bare `.success()` hides which one happened.
-fn describe(status: std::process::ExitStatus) -> String {
-    use std::os::unix::process::ExitStatusExt;
-    match (status.code(), status.signal()) {
-        (Some(code), _) => format!("exited with code {code}"),
-        (None, Some(signal)) => format!("killed by signal {signal}"),
-        (None, None) => format!("ended in an unknown way: {status:?}"),
-    }
 }
