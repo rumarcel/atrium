@@ -400,7 +400,7 @@ fn garbage_from_agent_is_a_protocol_error_not_a_crash() {
         ("path-for-a-socket", |stream| {
             send_json(
                 stream,
-                r#"{"runtime_probe":{"runtime":"docker","socket":"/var/run/x","reachable":true,"version":null,"version_reason":"runtime_version_probe_not_in_m1","also_present":[]}}"#,
+                r#"{"runtime_probe":{"runtime":"docker","socket":"/var/run/x","also_present":[],"liveness":null,"liveness_reason":"passive_probe_in_m1","version":null,"version_reason":"runtime_version_probe_not_in_m1"}}"#,
             );
         }),
     ] {

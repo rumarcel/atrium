@@ -414,14 +414,17 @@ mod tests {
         let probe = AgentFrame::RuntimeProbe(RuntimeProbe {
             runtime: Some(Runtime::Docker),
             socket: Some(RuntimeSocket::DockerVarRun),
-            reachable: true,
+            also_present: vec![RuntimeSocket::PodmanRun],
+            liveness: NotProbed,
+            liveness_reason: LivenessReason::PassiveProbeInM1,
             version: NotProbed,
             version_reason: VersionReason::RuntimeVersionProbeNotInM1,
-            also_present: vec![RuntimeSocket::PodmanRun],
         });
         let framed = encode(&probe).expect("encode");
         let text = std::str::from_utf8(&framed[4..]).expect("utf-8");
         assert!(text.contains("\"version\":null"), "{text}");
+        assert!(text.contains("\"liveness\":null"), "{text}");
+        assert!(!text.contains("reachable"), "presence only: {text}");
         assert!(
             text.contains("\"version_reason\":\"runtime_version_probe_not_in_m1\""),
             "{text}"
@@ -429,14 +432,25 @@ mod tests {
         assert!(!text.contains('/'), "no path crosses the boundary: {text}");
         assert_eq!(decode_agent_frame(&framed[4..]), Ok(probe));
 
-        let with_path = r#"{"runtime_probe":{"runtime":"docker","socket":"/tmp/any.sock","reachable":true,"version":null,"version_reason":"runtime_version_probe_not_in_m1","also_present":[]}}"#;
+        let with_path = r#"{"runtime_probe":{"runtime":"docker","socket":"/tmp/any.sock","also_present":[],"liveness":null,"liveness_reason":"passive_probe_in_m1","version":null,"version_reason":"runtime_version_probe_not_in_m1"}}"#;
         assert_eq!(
             decode_agent_frame(with_path.as_bytes()),
             Err(DecodeError::Malformed)
         );
-        let with_version = r#"{"runtime_probe":{"runtime":"docker","socket":"docker_run","reachable":true,"version":"27.0","version_reason":"runtime_version_probe_not_in_m1","also_present":[]}}"#;
+        let with_version = r#"{"runtime_probe":{"runtime":"docker","socket":"docker_run","also_present":[],"liveness":null,"liveness_reason":"passive_probe_in_m1","version":"27.0","version_reason":"runtime_version_probe_not_in_m1"}}"#;
         assert_eq!(
             decode_agent_frame(with_version.as_bytes()),
+            Err(DecodeError::Malformed)
+        );
+        // A claim of reachability is not a field this protocol has.
+        let with_reachable = r#"{"runtime_probe":{"runtime":"docker","socket":"docker_run","also_present":[],"liveness":null,"liveness_reason":"passive_probe_in_m1","version":null,"version_reason":"runtime_version_probe_not_in_m1","reachable":true}}"#;
+        assert_eq!(
+            decode_agent_frame(with_reachable.as_bytes()),
+            Err(DecodeError::Malformed)
+        );
+        let with_liveness = r#"{"runtime_probe":{"runtime":"docker","socket":"docker_run","also_present":[],"liveness":"up","liveness_reason":"passive_probe_in_m1","version":null,"version_reason":"runtime_version_probe_not_in_m1"}}"#;
+        assert_eq!(
+            decode_agent_frame(with_liveness.as_bytes()),
             Err(DecodeError::Malformed)
         );
     }

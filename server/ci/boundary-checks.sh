@@ -107,7 +107,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-section "Container-runtime sockets: one probe, in Agent, that sends nothing"
+section "Container-runtime sockets: one passive probe, in Agent"
 
 # M1C's RuntimeProbe (plan section 3.4) needs the candidate paths, as a
 # compiled-in constant in Agent. That one file is the only place in the
@@ -124,19 +124,20 @@ else
     pass "no container-runtime socket referenced outside atrium-agent/src/probe.rs"
 fi
 
-# The probe connects and closes. It must never write to, read from or speak
-# the API of a runtime: no write or send call, no read, no HTTP.
+# The probe is passive (M1D, §1A): it inspects metadata and never connects,
+# because a connection wakes a socket-activated runtime. No connect, no
+# stream, no write or send, no read, no HTTP.
 # Production code only: the module's own tests read from a fake runtime to
 # prove the probe sent nothing.
 probe_code="$(sed '/#\[cfg(test)\]/,$d' "${PROBE_FILE}")"
 probe_io_hits="$(printf '%s\n' "${probe_code}" |
-    grep -nE '\.write|write_all|\.send|\.read|AsyncWrite|AsyncRead|http|GET /' |
+    grep -nE 'connect|UnixStream|TcpStream|\.write|write_all|\.send|\.read|AsyncWrite|AsyncRead|http|GET /' |
     grep -vE '^[0-9]+:\s*//' || true)"
 if [ -n "${probe_io_hits}" ]; then
-    fail "the runtime probe reads, writes or speaks to a runtime:"
+    fail "the runtime probe connects to, reads from or writes to a runtime:"
     printf '%s\n' "${probe_io_hits}" >&2
 else
-    pass "the runtime probe sends and reads nothing (connect, close)"
+    pass "the runtime probe is passive: no connect, no read, no write"
 fi
 
 # ---------------------------------------------------------------------------

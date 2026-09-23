@@ -50,9 +50,10 @@ the three trust roots that the phrase "Agent's own key" had blurred together
 | [`CHECKPOINT-M1A.md`](CHECKPOINT-M1A.md) | **Read this first if you are resuming.** Where the work stopped and what comes next |
 | [`adr/`](adr/README.md) | The decisions that are frozen, and what they cost |
 
-Seventeen ADRs. [017](adr/0017-install-time-identity-and-root-owned-key-material.md)
+Eighteen ADRs. [017](adr/0017-install-time-identity-and-root-owned-key-material.md)
 supersedes the identity-ownership sentences of 003, 012 and 016 to match what
-M1B built and proved. The three added by the hardening review —
+M1B built and proved. [018](adr/0018-privileged-mutation-audit-retention.md)
+sets the audit-retention rule the first mutating Agent operation must meet. The three added by the hardening review —
 [013](adr/0013-container-runtime-ownership.md),
 [014](adr/0014-agent-enforced-container-specs.md) and
 [015](adr/0015-canary-coexistence-with-the-prototype.md) — are the ones to read

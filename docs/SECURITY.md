@@ -131,7 +131,7 @@ be tested rather than believed.
 | Open the container runtime socket | Core is not in the `docker` group; the socket is not readable by `atrium`; there is no proxy (ADR-013) |
 | Write arbitrary bytes to a privileged file | No operation carries an opaque payload; privileged configuration is rendered by Agent from validated structures (ADR-004) |
 | Install an arbitrary host package | No package operation exists in Alpha; later ones take a member of a compiled allowlist (ADR-004) |
-| Erase the evidence | Agent's journal and ownership registry are root-only and unreadable to `atrium`; a result is returned only after its journal line is on disk. Retention is by size, so a flood of calls could age old lines out; the rate limit bounds how fast, and M2 must decouple retention for mutating operations from what Core can generate (plan §17, M1C as built) |
+| Erase the evidence | Agent's journal and ownership registry are root-only and unreadable to `atrium`; a result is returned only after its journal line is on disk. Retention is by size, so a flood of calls could age old lines out; the rate limit bounds how fast. Before any mutating operation exists, ADR-018 requires a separate mutation lane with a 30-day floor, and refusal of new mutations rather than loss of their record |
 
 **Residual, and deliberately so:** the attacker has all of Core's data, and can
 run catalogue software. A container escape in the runtime, or a vulnerability in a

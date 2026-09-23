@@ -29,8 +29,9 @@ pub enum Reason {
     AgentProtocolError,
     /// No candidate runtime socket exists.
     NoContainerRuntime,
-    /// A runtime socket exists but did not accept Agent's connection.
-    ContainerRuntimeUnreachable,
+    /// M1 checks that a runtime socket is present and never connects, so
+    /// whether the runtime is running or healthy is not known.
+    RuntimeLivenessNotProbedInM1,
     /// M1 does not ask a runtime for its version.
     RuntimeVersionProbeNotInM1,
     /// Container inventory is not an M1 feature.
@@ -47,7 +48,7 @@ impl Reason {
             Self::AgentJournalUnavailable => "agent_journal_unavailable",
             Self::AgentProtocolError => "agent_protocol_error",
             Self::NoContainerRuntime => "no_container_runtime",
-            Self::ContainerRuntimeUnreachable => "container_runtime_unreachable",
+            Self::RuntimeLivenessNotProbedInM1 => "runtime_liveness_not_probed_in_m1",
             Self::RuntimeVersionProbeNotInM1 => "runtime_version_probe_not_in_m1",
             Self::NotEnabledInM1 => "not_enabled_in_m1",
         }
@@ -77,10 +78,12 @@ pub struct Privileged {
     pub missing: Vec<Missing>,
 }
 
-/// The `container` capability, always `via: agent`.
+/// The `container` capability, always `via: agent`. `available` means a
+/// known runtime socket is **present**; it is not a claim that the runtime
+/// is running (see the `liveness` entry in `missing`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Container {
-    /// A runtime socket exists and accepted Agent's connection.
+    /// A known runtime socket is present.
     pub available: bool,
     /// Which runtime, when one was found.
     pub provider: Option<Runtime>,
@@ -145,21 +148,23 @@ impl AgentCapabilities {
                 provider: None,
                 missing: whole(Reason::AgentProtocolError),
             },
-            (Ok(_), Some(Ok(probe))) => match (probe.runtime, probe.reachable) {
-                (None, _) => Container {
+            (Ok(_), Some(Ok(probe))) => match probe.runtime {
+                None => Container {
                     available: false,
                     provider: None,
                     missing: whole(Reason::NoContainerRuntime),
                 },
-                (Some(runtime), false) => Container {
-                    available: false,
-                    provider: Some(runtime),
-                    missing: whole(Reason::ContainerRuntimeUnreachable),
-                },
-                (Some(runtime), true) => Container {
+                // Present, seen through Agent, and nothing more: M1's probe
+                // is passive, so whether the runtime is running is unknown
+                // and said to be unknown.
+                Some(runtime) => Container {
                     available: true,
                     provider: Some(runtime),
                     missing: vec![
+                        Missing {
+                            feature: "liveness",
+                            reason: Reason::RuntimeLivenessNotProbedInM1,
+                        },
                         Missing {
                             feature: "version",
                             reason: Reason::RuntimeVersionProbeNotInM1,
@@ -197,7 +202,7 @@ impl AgentCapabilities {
 mod tests {
     use super::*;
     use atrium_protocol::messages::{
-        JournalInfo, NotProbed, RuntimeSocket, StateDirInfo, VersionReason,
+        JournalInfo, LivenessReason, NotProbed, RuntimeSocket, StateDirInfo, VersionReason,
     };
     use atrium_protocol::values::{ReportedPath, Timestamp};
 
@@ -224,14 +229,15 @@ mod tests {
         }
     }
 
-    fn probe(socket: Option<RuntimeSocket>, reachable: bool) -> RuntimeProbe {
+    fn probe(socket: Option<RuntimeSocket>) -> RuntimeProbe {
         RuntimeProbe {
             runtime: socket.map(RuntimeSocket::runtime),
             socket,
-            reachable,
+            also_present: Vec::new(),
+            liveness: NotProbed,
+            liveness_reason: LivenessReason::PassiveProbeInM1,
             version: NotProbed,
             version_reason: VersionReason::RuntimeVersionProbeNotInM1,
-            also_present: Vec::new(),
         }
     }
 
@@ -267,28 +273,34 @@ mod tests {
     fn docker_found_through_agent() {
         let caps = AgentCapabilities::derive(
             &Ok(info()),
-            Some(&Ok(probe(Some(RuntimeSocket::DockerVarRun), true))),
+            Some(&Ok(probe(Some(RuntimeSocket::DockerVarRun)))),
         );
         assert!(caps.privileged.available);
         assert!(caps.container.available);
         assert_eq!(caps.container.provider, Some(Runtime::Docker));
         assert_eq!(caps.container.via(), "agent");
+        let missing: Vec<(&str, &str)> = caps
+            .container
+            .missing
+            .iter()
+            .map(|m| (m.feature, m.reason.code()))
+            .collect();
         assert_eq!(
-            caps.container.missing[0].reason.code(),
-            "runtime_version_probe_not_in_m1"
+            missing,
+            [
+                ("liveness", "runtime_liveness_not_probed_in_m1"),
+                ("version", "runtime_version_probe_not_in_m1"),
+                ("inventory", "not_enabled_in_m1"),
+            ],
+            "presence is reported, and liveness is said to be unknown"
         );
     }
 
     #[test]
-    fn no_runtime_and_unreachable_runtime_differ() {
-        let none = AgentCapabilities::derive(&Ok(info()), Some(&Ok(probe(None, false))));
+    fn no_runtime_is_named() {
+        let none = AgentCapabilities::derive(&Ok(info()), Some(&Ok(probe(None))));
         assert_eq!(none.summary().1, Some(Reason::NoContainerRuntime));
-        let stale = AgentCapabilities::derive(
-            &Ok(info()),
-            Some(&Ok(probe(Some(RuntimeSocket::PodmanRun), false))),
-        );
-        assert_eq!(stale.summary().1, Some(Reason::ContainerRuntimeUnreachable));
-        assert!(stale.privileged.available);
+        assert!(none.privileged.available);
     }
 
     #[test]
@@ -299,7 +311,7 @@ mod tests {
             Reason::AgentJournalUnavailable,
             Reason::AgentProtocolError,
             Reason::NoContainerRuntime,
-            Reason::ContainerRuntimeUnreachable,
+            Reason::RuntimeLivenessNotProbedInM1,
             Reason::RuntimeVersionProbeNotInM1,
             Reason::NotEnabledInM1,
         ];

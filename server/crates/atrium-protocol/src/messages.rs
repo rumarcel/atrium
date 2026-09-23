@@ -300,32 +300,45 @@ pub enum VersionReason {
     RuntimeVersionProbeNotInM1,
 }
 
-/// A value that is always `null` on the wire: M1 does not know a runtime's
-/// version and does not pretend to.
+/// Why `liveness` is `null`. The M1 probe is passive: it never connects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LivenessReason {
+    /// The probe inspects filesystem metadata only. Connecting could wake a
+    /// socket-activated runtime, so M1 never does, and therefore cannot say
+    /// whether a runtime is running, healthy or able to answer.
+    PassiveProbeInM1,
+}
+
+/// A value that is always `null` on the wire: M1 does not know it and does
+/// not pretend to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotProbed;
 
-/// The answer to [`AgentOp::RuntimeProbe`].
+/// The answer to [`AgentOp::RuntimeProbe`]: which known runtime sockets
+/// **exist**. Presence only — never reachability, health or version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeProbe {
-    /// The runtime of the selected candidate; `null` when no candidate is a
-    /// socket.
+    /// The runtime of the selected candidate; `null` when no candidate
+    /// exists as a socket.
     pub runtime: Option<Runtime>,
-    /// The selected candidate: the first, in probe order, that accepted a
-    /// connection, or else the first that exists as a socket.
+    /// The selected candidate: the first, in probe order, that exists as a
+    /// socket.
     pub socket: Option<RuntimeSocket>,
-    /// Agent connected to the selected candidate and closed again, without
-    /// sending a byte.
-    pub reachable: bool,
-    /// Always `null` in M1.
-    pub version: NotProbed,
-    /// Why `version` is `null`.
-    pub version_reason: VersionReason,
     /// Other candidates that also exist as distinct sockets, in probe order.
     /// Two paths that name the same socket (such as `/var/run` linked to
     /// `/run`) count once.
     pub also_present: Vec<RuntimeSocket>,
+    /// Always `null` in M1: nothing is known about whether the runtime is
+    /// running or would answer.
+    pub liveness: NotProbed,
+    /// Why `liveness` is `null`.
+    pub liveness_reason: LivenessReason,
+    /// Always `null` in M1.
+    pub version: NotProbed,
+    /// Why `version` is `null`.
+    pub version_reason: VersionReason,
 }
 
 /// Everything Agent may send.

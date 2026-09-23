@@ -63,7 +63,8 @@ gates.
   touches state.
 
 **M1C** — the Core-to-Agent protocol. `atrium-agent` serves two parameterless,
-read-only operations, `AgentInfo` and `RuntimeProbe`, on
+read-only operations, `AgentInfo` and a passive `RuntimeProbe` (socket
+presence by metadata, never a connection), on
 `/run/atrium/agent.sock`, to Core's uid only (`SO_PEERCRED`). It journals
 every connection in its root-only state directory. `atrium-core` calls it in
 normal mode, audits every call as `agent.call`, and derives the `privileged`

@@ -163,7 +163,7 @@ site in `atrium-core`; this is enforced by a grep gate (criterion 47).
 | Allowed dependencies | tokio (net/io/rt/signal/time/fs), serde, serde_json, thiserror, tracing, `atrium-protocol` |
 | Forbidden dependencies | axum, hyper, rustls, rusqlite, clap, any HTTP or TLS crate, any container runtime client |
 | Owned state | `/var/lib/atrium-agent/` (`0700 root:root`) — `journal/*.jsonl` only in M1. `ownership.json` is created by M2, not M1 |
-| Boundaries | **North:** the typed protocol, Core's uid only. **South:** in M1, one `stat()`/`connect()` probe of the container runtime socket and reads of its own state |
+| Boundaries | **North:** the typed protocol, Core's uid only. **South:** in M1, a passive `lstat()` of the known container runtime sockets (never `connect()` — decided before M1D) and reads of its own state |
 
 **M1's Agent operation table contains no mutating operation of any kind.** That is
 a property worth stating in the code, in the tests and in the release notes.
@@ -305,6 +305,17 @@ not require a runtime version. M1's probe therefore checks only that the socket
 exists, is a socket, and accepts a connection from Agent — it sends no bytes and
 links no runtime client. `version` is `null` with an explicit reason. This
 satisfies criterion 39 exactly and adds no runtime client anywhere.
+
+> **Amended before M1D: the probe is passive.** Connecting, even without
+> sending a byte, wakes a socket-activated Docker or Podman, and Atrium must
+> not start a stopped runtime because someone looked at a status page. The
+> probe now `lstat`s the candidates and **never connects**. It reports
+> presence only: `reachable` is removed, `liveness` is always `null` with
+> `liveness_reason: "passive_probe_in_m1"`, and the socket is named by
+> candidate rather than by path (M1C *As built* 3). Criterion 39 is still met:
+> the capability is reported through Agent. Whether a runtime is running
+> becomes known only when a later milestone performs an explicit, authorized
+> container action. The example above is kept as it was planned.
 
 ### 3.5 What the protocol may never contain
 
@@ -1014,6 +1025,11 @@ and no code path that takes `addresses[0]` (criterion 23).
 `no_container_runtime`, `runtime_version_probe_not_in_m1`,
 `not_enabled_in_m1`, `not_enabled_in_alpha`, `mdns_bind_failed`.
 
+As built: M1C added `agent_journal_unavailable` and `agent_protocol_error`.
+The passive probe adds `runtime_liveness_not_probed_in_m1`, which the
+`container` capability lists as a missing `liveness` feature whenever a runtime
+socket is present.
+
 ### 9.6 Capabilities — `GET /api/v1/system/capabilities`
 
 ```jsonc
@@ -1026,7 +1042,8 @@ and no code path that takes `addresses[0]` (criterion 23).
                            {"feature":"block_devices","reason":"not_enabled_in_alpha"}]},
   "container":{"available": true,  "via": "agent", "provider": "docker", "version": null,
                "features": [],
-               "missing": [{"feature":"version","reason":"runtime_version_probe_not_in_m1"},
+               "missing": [{"feature":"liveness","reason":"runtime_liveness_not_probed_in_m1"},
+                           {"feature":"version","reason":"runtime_version_probe_not_in_m1"},
                            {"feature":"inventory","reason":"not_enabled_in_m1"}]},
   "services": {"available": false, "missing": [{"feature":"service_control","reason":"not_enabled_in_m1"}]},
   "packages": {"available": false, "missing": [{"feature":"install","reason":"not_enabled_in_alpha"}]},
@@ -1577,7 +1594,11 @@ recorded here rather than silently.
    without sending or reading a byte (a second gate). The response adds
    `also_present`: other distinct candidates that exist, by name. The
    selected one is the first reachable, else the first present. `version` is
-   always `null`.
+   always `null`. *Superseded before M1D by the passive probe (see the
+   amendment in §3.4): no connect, no `reachable`, `liveness: null`, the
+   selected candidate is the first present, and the gate now forbids any
+   connect or stream in the probe. A test against real `systemd-socket-activate`
+   proves that probing does not activate a socket-activated service.*
 4. **`AgentInfo`** reports `journal.last_seq` rather than §3.4's
    `journal.entries`: the last sequence number is exact and survives
    rotation, while a count of retained lines does not. `boot_id` is `null`
@@ -1623,7 +1644,10 @@ recorded here rather than silently.
    is logged once per change. Capability reasons extend §9.5 with
    `agent_journal_unavailable`, `agent_protocol_error` and
    `container_runtime_unreachable`, because a missing socket, a
-   non-answering one and a refusing Agent are different diagnoses. Core's
+   non-answering one and a refusing Agent are different diagnoses.
+   *With the passive probe, `container_runtime_unreachable` is removed and
+   `runtime_liveness_not_probed_in_m1` is added: a present runtime is
+   `available` via Agent, with `liveness` listed as missing.* Core's
    audit is useful history and **not** tamper-evident against a compromised
    Core. Agent's journal is the independent record. A refresh races the stop
    signal, so a stalled Agent cannot delay Core's shutdown. The security
@@ -1660,16 +1684,13 @@ recorded here rather than silently.
   flood itself is journaled. Before M2 adds a mutating operation, the retention of lines
   for mutating operations must stop depending on the volume Core can
   generate: separate retention, or a copy to journald under its own limits.
+  *Now a binding requirement: [ADR-018](adr/0018-privileged-mutation-audit-retention.md)
+  — a separate mutation lane, a 30-day floor that a size cap cannot break,
+  and refusal of new mutations when the record cannot be kept.*
 - **Core's audit grows** by two rows per refresh, about 576 a day, until the
   audit retention of SECURITY §12 is implemented (M1I).
-- **The probe can wake a socket-activated runtime.** If `docker.socket` or
-  `podman.socket` is socket-activated, the probe's `connect` makes systemd
-  start the daemon, although the probe sends nothing. That is the runtime's
-  configured on-demand behaviour, not an escalation, and the rate limit
-  bounds how often a compromised Core could trigger it. If it must never
-  happen, the probe has to stop connecting, and `reachable` would become
-  unknowable. That is a product decision, recorded here, and not taken in
-  M1C.
+- ~~**The probe can wake a socket-activated runtime.**~~ *Decided before
+  M1D: the probe is passive and never connects (§3.4 amendment).*
 - **Capability state can be five minutes old.** M1F's endpoint may refresh on
   demand, under a rate limit.
 - **`systemd-analyze verify`** passes on all three units in a local run, but

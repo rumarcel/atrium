@@ -117,7 +117,9 @@ systemd unit outside the platform's namespace, or a path outside a compiled
 allowlist.
 
 **As built in M1C:** the operation set is `AgentInfo` and `RuntimeProbe`, both
-parameterless and read-only. The journal is one line per connection, accepted
+parameterless and read-only. `RuntimeProbe` is passive: it inspects socket
+metadata and never connects, so it cannot wake a socket-activated runtime, and it
+reports presence, never liveness. The journal is one line per connection, accepted
 or not, and a result is returned only after its line is on disk. See the plan's
 M1C *As built* note.
 

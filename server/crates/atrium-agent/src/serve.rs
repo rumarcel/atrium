@@ -406,7 +406,7 @@ impl Server {
                     AgentOp::AgentInfo => {
                         AgentFrame::AgentInfo(info::collect(&self.startup, &self.journal))
                     }
-                    AgentOp::RuntimeProbe => AgentFrame::RuntimeProbe(probe::probe().await),
+                    AgentOp::RuntimeProbe => AgentFrame::RuntimeProbe(probe::probe()),
                 };
                 record.accepted = true;
                 record.op = Some(op);

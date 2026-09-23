@@ -294,7 +294,7 @@ fn agent_info_round_trip_is_journaled_with_the_kernel_peer() {
 }
 
 #[test]
-fn runtime_probe_names_no_path_and_no_version() {
+fn runtime_probe_names_no_path_no_version_and_no_liveness() {
     let agent = Agent::start("probe");
     let (result, text) = perform(&agent, "ab", "runtime_probe");
     let AgentFrame::RuntimeProbe(probe) = result else {
@@ -302,6 +302,12 @@ fn runtime_probe_names_no_path_and_no_version() {
     };
     assert!(!text.contains('/'), "no path crosses the boundary: {text}");
     assert!(text.contains("\"version\":null"), "{text}");
+    assert!(text.contains("\"liveness\":null"), "{text}");
+    assert!(
+        text.contains("\"liveness_reason\":\"passive_probe_in_m1\""),
+        "{text}"
+    );
+    assert!(!text.contains("reachable"), "presence only: {text}");
     assert_eq!(probe.runtime, probe.socket.map(|s| s.runtime()));
     assert_eq!(last(&agent.journal())["op"], "runtime_probe");
 }

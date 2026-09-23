@@ -71,3 +71,4 @@ otherwise unchanged.
 | [ADR-015](0015-canary-coexistence-with-the-prototype.md) | Alpha runs as a canary beside the prototype | accepted |
 | [ADR-016](0016-trust-roots-and-key-separation.md) | Three trust roots — device identity, release signing, catalogue publisher — kept separate | accepted; identity key location superseded by ADR-017 |
 | [ADR-017](0017-install-time-identity-and-root-owned-key-material.md) | Identity material is created at installation and owned by root (`root:atrium 0640` in `root:atrium 0750`); the running service never generates it | accepted |
+| [ADR-018](0018-privileged-mutation-audit-retention.md) | Privileged mutation history gets its own retention lane with a 30-day floor; if it cannot be kept, new mutations are refused | accepted; binds the first mutating Agent operation (M2) |
