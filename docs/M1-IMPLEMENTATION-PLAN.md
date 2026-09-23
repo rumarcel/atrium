@@ -472,7 +472,9 @@ would protect nothing and would hand an unauthenticated caller a CPU cost.
 
 - `PRAGMA user_version` holds the applied schema number. M1 ships version 1.
 - Before applying any migration, Core copies the database with `VACUUM INTO`
-  to `/var/lib/atrium/backups/atrium.db.pre-<n>-<timestamp>`. A copy that cannot
+  to `/var/lib/atrium/backups/atrium.db.pre-<n>-<timestamp>` (with `.<k>`,
+  1–99, appended when that name is already taken within the same second, as
+  when a restored older backup migrates again). A copy that cannot
   be made (no disk space) **aborts the migration** and enters recovery mode; it
   never migrates without a backup.
 - Each migration runs in one transaction. A failure rolls back, leaves the
