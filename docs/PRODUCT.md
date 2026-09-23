@@ -18,6 +18,46 @@ a reboot.
 The comparison points are UGREEN UGOS Pro and Synology DSM. The difference is
 that those ship with the hardware. Atrium does not care what the hardware is.
 
+## Positioning
+
+Recorded 2026-09-24. This section is the current product definition. It adds
+no implementation scope to any milestone.
+
+**Atrium brings a finished, appliance-like personal-server experience to
+hardware the user already owns.** It hides self-hosting complexity without
+taking control away from the user.
+
+Core product promises:
+
+- **easy to install**
+- **easy to manage**
+- **understandable when something goes wrong**
+
+Target hardware includes old laptops, mini PCs, desktops, and custom NAS or
+server builds.
+
+Atrium is **not merely a dashboard**, and **not merely a Docker frontend**.
+Atrium is a **personal-server platform**: it owns the lifecycle of what it
+installs, reports the machine honestly, and keeps working when no client is
+connected.
+
+UGREEN is a quality and experience reference, not a product to clone. The same
+goes for Synology. Atrium learns from their finished-appliance clarity and
+builds its own identity ([`UI-DESIGN-STRATEGY.md`](UI-DESIGN-STRATEGY.md)).
+
+Long-term differentiation should come from:
+
+- **hardware independence** — no vendor lock, no bundled box
+- **local-first operation** — principle 3, below
+- **understandable diagnostics** — every failure has a code, a diagnosis and
+  raw detail on demand
+- **safe application lifecycle** — install, update and remove without breaking
+  the machine or anything the user already runs
+- **cross-platform management** — clients on the platforms people actually use
+- **operation on supported existing server OS installations** — Atrium installs
+  onto a machine that already has an owner and an OS, and never needs a
+  reinstall
+
 ## What Atrium is
 
 A platform, in three parts:
@@ -168,6 +208,74 @@ constraint set or adding a flag.
 signing and Apple Developer enrolment plus notarisation are prerequisites for a
 *public Beta* on those platforms. Nothing needs to be purchased or implemented now,
 and Alpha builds are unsigned and say so — as the prototype's already do.
+
+## App Center direction
+
+Recorded 2026-09-24 as **direction only**. None of it is implemented, and none
+of it is an Alpha commitment beyond what [`ROADMAP.md`](ROADMAP.md) already
+says. The mechanism is ADR-005 (manifests), ADR-013 and ADR-014 (the runtime
+and container specs belong to Agent), and ADR-016 (catalogue signing).
+
+Atrium should eventually offer a curated library of applications and services
+that is as easy to use as a consumer NAS App Center.
+
+Initial direction:
+
+- **manifest-driven** application definitions ([`APP-SDK.md`](APP-SDK.md))
+- about **ten** well-maintained, curated first-party or verified applications
+  for early Beta, not hundreds of poorly integrated entries
+- **no public marketplace** at first
+- **explicit permissions and capabilities shown before installation**
+- Atrium-managed install, start, stop, restart, update and uninstall
+- health checks
+- backup integration where the application supports it
+- safe data-ownership rules — which data belongs to the app, which to the
+  user, and what uninstall does with each
+- update verification
+- eventually, rollback and recovery behaviour
+
+Examples of candidate catalogue content — **product-direction examples, not an
+Alpha implementation commitment**: Jellyfin, Immich, Home Assistant,
+qBittorrent, Crafty Controller, Vaultwarden, Navidrome, AdGuard Home, Syncthing
+and MeTube. Each one enters the catalogue only when its manifest can be
+expressed inside ADR-014's constraint set, and only through that ADR's review.
+
+**Existing user-created containers remain read-only until explicitly adopted.**
+This direction does not weaken ADR-013 or ADR-014 in any way. Agent enforces
+the rule, not Core and not the interface.
+
+The eventual experience should hide routine Docker and container details from
+normal users **without removing advanced visibility**. The expert affordances
+in [`UX-STATES.md`](UX-STATES.md) stay available.
+
+## Commercialization and licensing policy
+
+Recorded 2026-09-24. **Atrium's final licensing and business model is
+intentionally undecided.** No pricing, licensing or business-model decision is
+made here.
+
+Nothing in the project may assume that Atrium will be fully open source,
+proprietary, free, subscription-only, lifetime-licence-only, open-core or
+source-available. Future commercialization options are preserved on purpose.
+
+Forward-looking policy:
+
+- Commercialization remains an intentional option. A future paid product or
+  licence is allowed.
+- Optional paid cloud, remote-access or support services remain possible.
+- **Local-first behaviour must never become cloud-dependent for the sake of
+  monetization.** Principle 3 and ADR-006 outrank any business model.
+- The core App Center experience should not be designed around artificial
+  paywall friction.
+- No public-marketplace business model is assumed.
+
+What this policy does **not** do:
+
+- It does not change the repository's existing `LICENSE`, or the licence
+  declared in any manifest.
+- It does not, and cannot, take back rights already granted. Code published
+  under a licence keeps that licence for everyone who received it under it.
+  This policy is about future direction only.
 
 ## Non-goals
 

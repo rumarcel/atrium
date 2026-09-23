@@ -312,7 +312,7 @@ fn diagnostics_never_prints_key_material() {
 }
 
 #[test]
-fn diagnostics_changes_nothing() {
+fn diagnostics_makes_no_durable_or_semantic_change() {
     let tree = Tree::initialized("diagquiet");
     let before = tree.snapshot();
     let output = tree.ctl(&["diagnostics"], "");

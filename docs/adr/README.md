@@ -44,11 +44,19 @@ removed a proposed recovery authentication mirror in favour of console-only
 restore, and amended two M1 acceptance criteria to match — recorded in
 [`../ROADMAP.md`](../ROADMAP.md#criteria-amended-during-planning).
 
+**Supersession, 2026-09-24.** M1B built and proved the identity ownership
+that M1 planning had decided — keys created once at installation,
+`root:atrium 0640` in a `root:atrium 0750` directory — while ADR-003 §1,
+ADR-012 and ADR-016 still described first-boot generation and `0600` files
+owned by the service. [ADR-017](0017-install-time-identity-and-root-owned-key-material.md)
+supersedes exactly those sentences. The older ADRs carry a note and are
+otherwise unchanged.
+
 | ADR | Decision | Status |
 | --- | --- | --- |
 | [ADR-001](0001-core-and-agent-separation.md) | Core and Agent separation | accepted, revised |
 | [ADR-002](0002-provider-adapter-architecture.md) | Provider/adapter architecture with runtime capability negotiation | accepted, revised |
-| [ADR-003](0003-authentication-and-device-pairing.md) | Server identity, SPKI pinning, binding-profile pairing, SHA-256 device-token verifier | accepted, revised ×2 |
+| [ADR-003](0003-authentication-and-device-pairing.md) | Server identity, SPKI pinning, binding-profile pairing, SHA-256 device-token verifier | accepted, revised ×2; §1 in part superseded by ADR-017 |
 | [ADR-004](0004-privileged-operation-model.md) | Closed typed privileged operation set, no shell, no sudo, no byte payloads | accepted, revised |
 | [ADR-005](0005-application-platform.md) | Declarative app manifests as the application platform | accepted, revised |
 | [ADR-006](0006-local-first-and-remote-access.md) | Local-first with optional, tiered remote access | accepted |
@@ -57,8 +65,9 @@ restore, and amended two M1 acceptance criteria to match — recorded in
 | [ADR-009](0009-clients-are-api-clients.md) | Every client is an unprivileged API client | accepted |
 | [ADR-010](0010-prototype-disposition.md) | What the prototype contributes, keeps and retires | accepted |
 | [ADR-011](0011-identifier-migration.md) | `personal-hub` → `atrium` identifier migration; reverse-DNS stays provisional | accepted, revised |
-| [ADR-012](0012-state-store-and-migrations.md) | SQLite state store with forward-only migrations | accepted |
+| [ADR-012](0012-state-store-and-migrations.md) | SQLite state store with forward-only migrations | accepted; `secrets.key` mode superseded by ADR-017 |
 | [ADR-013](0013-container-runtime-ownership.md) | The container runtime belongs to the Agent | accepted |
 | [ADR-014](0014-agent-enforced-container-specs.md) | Agent derives and constrains every container specification | accepted |
 | [ADR-015](0015-canary-coexistence-with-the-prototype.md) | Alpha runs as a canary beside the prototype | accepted |
-| [ADR-016](0016-trust-roots-and-key-separation.md) | Three trust roots — device identity, release signing, catalogue publisher — kept separate | accepted |
+| [ADR-016](0016-trust-roots-and-key-separation.md) | Three trust roots — device identity, release signing, catalogue publisher — kept separate | accepted; identity key location superseded by ADR-017 |
+| [ADR-017](0017-install-time-identity-and-root-owned-key-material.md) | Identity material is created at installation and owned by root (`root:atrium 0640` in `root:atrium 0750`); the running service never generates it | accepted |

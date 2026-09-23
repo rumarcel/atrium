@@ -1,6 +1,6 @@
 # ADR-012 — SQLite state store with forward-only migrations
 
-**Status:** accepted
+**Status:** accepted; the `secrets.key` mode is superseded by [ADR-017](0017-install-time-identity-and-root-owned-key-material.md)
 **Date:** 2026-09-22
 **Related:** ADR-001, ADR-007
 **Assumptions:** A-26
@@ -28,7 +28,7 @@ databases, separated by lifetime and sensitivity:
 | Database | Contents | Notes |
 | --- | --- | --- |
 | `/var/lib/atrium/atrium.db` | devices, users, apps, settings, links, operations, audit, notifications | the product's state |
-| `/var/lib/atrium/secrets.db` | app secrets and third-party credentials | encrypted with a key at `/etc/atrium/secrets.key` (`0600`); separable, separately backed up, separately destroyable |
+| `/var/lib/atrium/secrets.db` | app secrets and third-party credentials | encrypted with a key at `/etc/atrium/secrets.key` (`0600`; superseded: `root:atrium 0640`, created at installation — ADR-017); separable, separately backed up, separately destroyable |
 | `/var/lib/atrium/metrics.db` | metric history | fixed-size ring, disposable, excluded from backups, never blocks a write to the others |
 
 Bootstrap configuration that cannot come from a database — listen address, data

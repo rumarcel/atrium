@@ -1,6 +1,7 @@
 # ADR-003 — Server identity, SPKI pinning and code-based pairing
 
-**Status:** accepted — revised in the hardening review of 2026-09-22
+**Status:** accepted — revised in the hardening review of 2026-09-22; §1's
+generation and file-mode sentences superseded by [ADR-017](0017-install-time-identity-and-root-owned-key-material.md)
 **Date:** 2026-09-22
 **Related:** ADR-006, ADR-009
 **Assumptions:** A-06, A-07, A-08, A-24, A-30, A-31
@@ -42,6 +43,13 @@ tomorrow — with no account, no cloud, and no certificate authority.
 ## Decision
 
 ### 1. Identity
+
+> **Superseded in part by [ADR-017](0017-install-time-identity-and-root-owned-key-material.md).**
+> Identity is created at installation by `atrium-core init-identity`, not by
+> Core at first start, and the files are `root:atrium 0640` in a
+> `root:atrium 0750` directory, not `0600`. The rest of this section — what
+> `server_id` is, reissue from the same key, SPKI pinning — stands. The text
+> below is kept as written.
 
 At first start Core generates `server_id`: 128 random bits, stored in
 `/etc/atrium/identity.json` (`0600`), stable for the life of the installation.

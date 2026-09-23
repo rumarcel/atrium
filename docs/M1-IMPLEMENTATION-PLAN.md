@@ -1391,7 +1391,7 @@ suites pass unchanged.
 | Agent protocol mismatch | `agent_protocol_mismatch`; connection closed by Agent; capability unavailable | Never negotiate down |
 | Corrupted database | Recovery mode (§4.6); exit code 0; systemd does not restart-loop | Never rebuild, repair or delete |
 | Migration failure | Roll back the transaction, keep the backup, recovery mode | Never leave a half-migrated schema |
-| Identity files missing entirely | First-boot generation | — |
+| Identity files missing entirely | Recovery mode, `identity.missing`; identity is created only at installation (§5.1, ADR-017) | **Never generate at runtime** |
 | Identity files partially present | Recovery mode, `identity.inconsistent` | **Never regenerate** — that silently changes identity |
 | Certificate generation failure | Fail to start with a clear error and exit non-zero; systemd retries with backoff | Never serve plaintext HTTP |
 | TLS listener bind failure | Fail to start, exit non-zero | Never fall back to another port or to HTTP |
@@ -1696,7 +1696,7 @@ versions.
 
 | Persistent change | Forward | Rollback expectation | Failure behaviour | Recovery mode |
 | --- | --- | --- | --- | --- |
-| Create identity (first boot) | Generate and write atomically, `identity.json` last | None — identity is never rolled back | Partial write → next start sees inconsistency → recovery, no regeneration | Reports `identity.inconsistent`, offers nothing automatic |
+| Create identity (installation, `init-identity`) | Generate and write atomically, `identity.json` last; the installer then hands the files to `root:atrium 0640` (ADR-017) | None — identity is never rolled back | Partial write → next start sees inconsistency → recovery, no regeneration | Reports `identity.inconsistent`, offers nothing automatic |
 | Certificate reissue | New `tls.crt`, same key, atomic replace, `identity-state.json` updated | Previous certificate is not kept; a failed reissue keeps serving the old one | Log + `warn`; keep the old certificate; retry next poll | Not applicable |
 | Schema migration 1 | `VACUUM INTO` backup, then migrate in one transaction, then `user_version = 1` | Restore the backup with `atriumctl restore` | Transaction rolls back; recovery mode | Lists backups; restore then exit for a clean restart |
 | Device create | Insert row in one transaction | Revoke | Transaction rollback; nothing written | No device state is reachable in recovery |

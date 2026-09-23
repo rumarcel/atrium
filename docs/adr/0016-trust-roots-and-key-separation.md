@@ -1,6 +1,6 @@
 # ADR-016 — Three trust roots, kept separate
 
-**Status:** accepted
+**Status:** accepted; the server device identity's *where it lives* cell is superseded by [ADR-017](0017-install-time-identity-and-root-owned-key-material.md)
 **Date:** 2026-09-22
 **Related:** ADR-003, ADR-005, ADR-013, ADR-014
 **Assumptions:** A-28
@@ -23,6 +23,12 @@ first-party; and if a publisher key were used for TLS, it would be handled onlin
 on every machine, in the component most exposed to the network.
 
 ## Decision
+
+> **Note.** The first row's *where it lives* cell is superseded by
+> [ADR-017](0017-install-time-identity-and-root-owned-key-material.md): the
+> server device identity is generated **at installation**, and `tls.key` is
+> `root:atrium 0640` in a `root:atrium 0750` directory. The separation of the
+> three keys is unchanged.
 
 **Three keys. Three domains. No overlap, in either direction.**
 

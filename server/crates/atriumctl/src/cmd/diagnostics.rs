@@ -1,6 +1,13 @@
 //! `atriumctl diagnostics` — what Core would find, from the console.
 //!
-//! Read-only, and run as the service user so it sees exactly what Core sees.
+//! It makes no durable or semantic change to state, and it runs as the
+//! service user so it sees exactly what Core sees. "No durable or semantic
+//! change" is the precise claim, not "writes nothing": opening the WAL-mode
+//! database, even read-only, lets SQLite create its companion files (`-shm`,
+//! and an empty `-wal` when none existed). Neither holds state. The database
+//! itself is unchanged, and nothing here can alter application state. The
+//! console test fails on any other change, including a `-wal` with content.
+//!
 //! It shows identifiers (the server id, the pin, the certificate serial),
 //! which are public; it never reads the private key's bytes into its output
 //! and never prints `secrets.key`. Unlike the recovery payload Core will serve

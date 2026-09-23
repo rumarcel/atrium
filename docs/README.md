@@ -34,13 +34,14 @@ the three trust roots that the phrase "Agent's own key" had blurred together
 
 | Document | Answers |
 | --- | --- |
-| [`PRODUCT.md`](PRODUCT.md) | What is being built, for whom, what is deliberately not being built |
+| [`PRODUCT.md`](PRODUCT.md) | What is being built, for whom, how it is positioned, the App Center direction, the commercialization policy, and what is deliberately not being built |
 | [`PROTOTYPE-ASSESSMENT.md`](PROTOTYPE-ASSESSMENT.md) | What is in the repository now and what it means for the plan |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Components, boundaries, flows, identity, persistence, failure handling |
 | [`SECURITY.md`](SECURITY.md) | Threat model, trust boundaries, and the rules that outrank features |
 | [`API.md`](API.md) | The contract every client speaks |
 | [`APP-SDK.md`](APP-SDK.md) | How applications are described and installed |
 | [`UX-STATES.md`](UX-STATES.md) | The states every surface must implement |
+| [`UI-DESIGN-STRATEGY.md`](UI-DESIGN-STRATEGY.md) | Development UI now, the final interface later, and who designs what once a screen is frozen |
 | [`PLATFORM-MATRIX.md`](PLATFORM-MATRIX.md) | What is supported, planned, experimental, unsupported |
 | [`ROADMAP.md`](ROADMAP.md) | Stages, and the acceptance criteria for the first milestone |
 | [`M1-IMPLEMENTATION-PLAN.md`](M1-IMPLEMENTATION-PLAN.md) | How M1 gets built: layout, protocol, state, pairing, providers, units, installer, passes |
@@ -49,7 +50,9 @@ the three trust roots that the phrase "Agent's own key" had blurred together
 | [`CHECKPOINT-M1A.md`](CHECKPOINT-M1A.md) | **Read this first if you are resuming.** Where the work stopped and what comes next |
 | [`adr/`](adr/README.md) | The decisions that are frozen, and what they cost |
 
-Sixteen ADRs. The three added by the hardening review —
+Seventeen ADRs. [017](adr/0017-install-time-identity-and-root-owned-key-material.md)
+supersedes the identity-ownership sentences of 003, 012 and 016 to match what
+M1B built and proved. The three added by the hardening review —
 [013](adr/0013-container-runtime-ownership.md),
 [014](adr/0014-agent-enforced-container-specs.md) and
 [015](adr/0015-canary-coexistence-with-the-prototype.md) — are the ones to read
