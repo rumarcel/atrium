@@ -39,26 +39,41 @@ pub fn run() -> ExitCode {
         Err(error) => println!("config:      error: {error}"),
     }
 
-    let identity = identity::load(layout, Protection::Required);
-    match &identity {
-        Ok(identity) => println!(
-            "identity:    ok (server_id = {}, spki_sha256 = {})",
-            identity.server_id(),
-            identity.pin()
-        ),
-        Err(fault) => println!(
-            "identity:    {}: {fault}",
-            RecoveryReason::from(fault).code()
-        ),
-    }
+    // Core refuses an identity whose files are not protected, and so does
+    // this report; but the identifiers are still worth showing next to the
+    // finding, so a key that loads without the protection check is described.
+    let identity = match identity::load(layout, Protection::Required) {
+        Ok(identity) => {
+            println!(
+                "identity:    ok (server_id = {}, spki_sha256 = {})",
+                identity.server_id(),
+                identity.pin()
+            );
+            Some(identity)
+        }
+        Err(fault) => {
+            println!(
+                "identity:    {}: {fault}",
+                RecoveryReason::from(&fault).code()
+            );
+            let unchecked = identity::load(layout, Protection::NotChecked).ok();
+            if let Some(identity) = &unchecked {
+                println!(
+                    "             found server_id = {}, spki_sha256 = {}",
+                    identity.server_id(),
+                    identity.pin()
+                );
+            }
+            unchecked
+        }
+    };
 
     match fsio::read_regular(&layout.state_file(CERTIFICATE_FILE), 64 * 1024) {
         Ok(pem) => match certificate::describe_pem(&pem) {
             Some(record) => {
                 let matches = identity
                     .as_ref()
-                    .map(|identity| identity.pin() == record.spki)
-                    .unwrap_or(false);
+                    .is_some_and(|identity| identity.pin() == record.spki);
                 println!(
                     "certificate: serial {}, valid until {}, {} names, {} addresses{}",
                     record.serial,

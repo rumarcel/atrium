@@ -317,11 +317,16 @@ fn diagnostics_changes_nothing() {
     let before = tree.snapshot();
     let output = tree.ctl(&["diagnostics"], "");
     assert!(output.status.success(), "{}", text(&output));
-    // A read-only open of a WAL database may create -shm; nothing else.
+    // SQLite opens a WAL database, even read-only, by creating its companion
+    // files: -shm, and an empty -wal when none existed. Neither holds state;
+    // anything else, or a -wal with content, is a write.
     let after: Vec<_> = tree
         .snapshot()
         .into_iter()
-        .filter(|(path, _)| !path.to_string_lossy().ends_with("-shm"))
+        .filter(|(path, bytes)| {
+            let path = path.to_string_lossy();
+            !(path.ends_with("-shm") || (path.ends_with("-wal") && bytes.is_empty()))
+        })
         .collect();
     assert_eq!(after, before);
 }
