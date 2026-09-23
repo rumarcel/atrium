@@ -63,12 +63,13 @@ impl Tree {
             .stderr(Stdio::piped())
             .spawn()
             .expect("atriumctl must be spawnable");
-        child
+        // A command that refuses before reading stdin may already have
+        // exited; the broken pipe is not the test's concern, the exit is.
+        let _ = child
             .stdin
             .take()
             .expect("stdin")
-            .write_all(stdin.as_bytes())
-            .expect("write stdin");
+            .write_all(stdin.as_bytes());
         child.wait_with_output().expect("wait")
     }
 
