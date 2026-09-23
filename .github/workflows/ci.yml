@@ -137,6 +137,22 @@ jobs:
           test "${status}" -ne 0
       - name: Run tests
         run: cargo test --manifest-path server/Cargo.toml --locked
+      - name: Privileged tests (root and the atrium user)
+        # docs/M1-TEST-PLAN.md section 5. Criterion 6 is proven against the
+        # kernel — as the real atrium user, the identity key can be read and
+        # cannot be written, truncated, unlinked, renamed over, chmodded or
+        # created beside — which needs real root and a real service account.
+        # The already-built test binary runs under sudo; cargo itself does not,
+        # so nothing root-owned lands in the build tree.
+        run: |
+          getent group atrium || sudo groupadd --system atrium
+          getent passwd atrium || sudo useradd --system --gid atrium --no-create-home \
+            --home-dir /nonexistent --shell /usr/sbin/nologin atrium
+          binary="$(cargo test --manifest-path server/Cargo.toml --locked -p atriumctl \
+            --test privileged --no-run --message-format=json \
+            | jq -r 'select(.reason == "compiler-artifact" and .target.name == "privileged" and .executable != null) | .executable')"
+          test -n "${binary}"
+          sudo "${binary}" --ignored --test-threads=1
       - name: Architecture and execution gates
         # Dependency direction, forbidden dependency families, no shell
         # execution, no container-runtime socket, unsafe confinement, and the

@@ -18,9 +18,10 @@ ExecStart=/usr/lib/atrium/atrium-core
 Restart=on-failure
 RestartSec=5s
 
-# Core writes nothing here in M1A. The directory is declared now because
-# systemd creates it with the right owner and mode, and the state store that
-# uses it arrives in M1B.
+# The state directory: atrium.db, its backups, and the public certificate.
+# Core holds an exclusive lock on it while running, so `atriumctl restore`
+# refuses until Core is stopped. Core refuses to start on it if it is not
+# atrium-owned and closed to everyone else.
 StateDirectory=atrium
 StateDirectoryMode=0700
 # Identity material is root-owned and group-readable by atrium; the unit makes

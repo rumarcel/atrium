@@ -410,6 +410,20 @@ systemd, or `sudo` plus a user fixture):
 - systemd-analyze verify server/packaging/systemd/*.{service,socket}
 ```
 
+**As built (M1B).** The privileged tests run as a step of the `server` job, not
+a separate job: the step creates the `atrium` user and group, asks cargo for the
+already-built `privileged` test binary of `atriumctl`, and runs it with `sudo`
+and `--ignored --test-threads=1`. Cargo itself never runs as root, so nothing
+root-owned lands in the build tree. The suite builds a root-owned installation
+under `/tmp` exactly as `install.sh` step 8 will, runs `init-identity` and Core
+as the real `atrium` user, and makes every write attempt of criterion 6 from a
+separate process running as `atrium`, asserting each errno. `systemd-analyze`
+stays in its existing informational step. Test names match section 5 where the
+test exists there; the recovery tests of section 4.5 that need an HTTP router
+(`recovery_has_no_state_changing_route`, `recovery_has_no_pairing_route`,
+`recovery_router_is_a_strict_subset`) arrive with the router in M1D, and the
+diagnostics field allowlist is already tested against the payload type.
+
 ### 11.3 New workflow: `m1-acceptance` (manual dispatch)
 
 Builds the tarball, boots the distro VM matrix, runs §7. Not on every push —

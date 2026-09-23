@@ -30,6 +30,21 @@ pub fn ready() -> io::Result<bool> {
     notify("READY=1\n")
 }
 
+/// Signals that startup is complete, with a human-readable status line that
+/// `systemctl status` shows. Newlines in `status` are replaced, since the
+/// protocol is line-based.
+pub fn ready_with_status(status: &str) -> io::Result<bool> {
+    let status: String = status
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    notify(&format!(
+        "READY=1
+STATUS={status}
+"
+    ))
+}
+
 /// Signals that shutdown has begun.
 pub fn stopping() -> io::Result<bool> {
     notify("STOPPING=1\n")

@@ -1,0 +1,19 @@
+# /etc/atrium/core.toml — bootstrap configuration for Atrium Core.
+#
+# Installed root:atrium 0640. Core reads it and cannot change it. Only what
+# cannot come from the state database lives here; everything else is state.
+# Unknown keys and invalid values stop Core from starting rather than being
+# silently ignored or corrected.
+
+# What you call this server. atriumctl asks you to type it before a
+# destructive console action (restore, rotate-identity).
+server_name = "atrium"
+
+# Where the API will listen (from M1D). Must be a port above 1024.
+# listen = "[::]:7443"
+
+# The state directory. Fixed; stated here for reference only.
+# data_dir = "/var/lib/atrium"
+
+# error | warn | info | debug | trace. ATRIUM_CORE_LOG overrides it.
+# log_level = "info"

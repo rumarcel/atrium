@@ -239,10 +239,10 @@ Rules:
 
 | Secret | Where | Protection |
 | --- | --- | --- |
-| TLS private key | `/etc/atrium/tls.key` | `0600 atrium:atrium`, never leaves the machine, never in a backup export |
+| TLS private key | `/etc/atrium/tls.key` | `root:atrium 0640` in a `root:atrium 0750` directory (section 9): readable by Core, not replaceable by it; never leaves the machine, never in a backup export, never in a log, error or diagnostics payload |
 | Device token digests | Core state DB | `SHA-256(token)`, constant-time comparison, no plaintext ever stored, deleted transactionally on revocation |
 | Pairing secret | memory only, with a hashed record for attempt counting | never persisted in plaintext, never logged |
-| App secrets (generated passwords, API keys) | secrets DB, encrypted with a key file at `/etc/atrium/secrets.key` (`0600`) | decrypted only when composing an install request; never returned by the API |
+| App secrets (generated passwords, API keys) | secrets DB, encrypted with a key file at `/etc/atrium/secrets.key` (`root:atrium 0640`, generated at installation) | decrypted only when composing an install request; never returned by the API |
 | Third-party credentials the owner stores | same | API returns `{ kind, exists }` only — the prototype's rule, kept |
 | **Container owner tokens** | `/var/lib/atrium-agent/ownership.json` | `0600 root:root`; **never returned to Core**, never in any API response, never in diagnostics |
 | Client-side device token | OS keychain | Windows Credential Manager / macOS Keychain / Secret Service |
@@ -462,7 +462,7 @@ including the Alpha mechanism and the rotation story, is
 
 | Key | Where it lives | Proves | Must never |
 | --- | --- | --- | --- |
-| **Server device identity** | generated per server at first boot, `0600 atrium:atrium`, never leaves the machine | *which machine this is* — TLS, and the SPKI clients pin at pairing | sign a release, a catalogue or a manifest |
+| **Server device identity** | generated per server at installation, `root:atrium 0640` (section 9), never leaves the machine | *which machine this is* — TLS, and the SPKI clients pin at pairing | sign a release, a catalogue or a manifest |
 | **Release signing** | offline, publisher side; public half ships with the installer and the package repository | *that this binary is ours* — including the Agent binary itself | verify catalogue content, or take part in TLS |
 | **Catalogue publisher** | offline, publisher side; public half **compiled into the Agent binary** | *that this application manifest is ours* | take any TLS or pairing role |
 

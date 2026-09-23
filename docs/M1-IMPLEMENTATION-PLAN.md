@@ -593,8 +593,9 @@ that can mint an identity is a running Core that can destroy one.
 
 Core polls the interface set every 30 seconds (adequate for M1; netlink
 monitoring is a later optimisation and is not needed to satisfy any criterion).
-If the address set differs from the set recorded in `identity.json`, or the
-certificate is within 30 days of expiry:
+If the address set differs from the set the current certificate names
+(recorded in `/var/lib/atrium/identity-state.json`), or the certificate is
+within 30 days of expiry:
 
 1. Issue a new certificate **with the existing key pair**, which Core reads but
    cannot modify.
@@ -1460,6 +1461,71 @@ sketch above, none of them a change of decision:
   widen authority.
 - **Non-goals:** no network listener yet.
 
+**As built.** The decisions above stand. These are the places the
+implementation is more specific than the sketch, or where two paragraphs of
+this plan disagreed with each other and the security-reviewed one was followed:
+
+1. **Where the reissue record lives.** Sections 5.3 and 19 said the address set
+   is "recorded in `identity.json`" and that reissue updates it; sections 4.2
+   and 5.2 say `identity.json` is immutable and read-only to Core. Core cannot
+   write `/etc/atrium`, so 4.2/5.2 win: the SAN set, serial and validity live in
+   `/var/lib/atrium/identity-state.json`, the certificate itself is the
+   authority, and a record that disagrees with it causes a reissue. Both
+   sentences are corrected in place.
+2. **`init-identity` also creates the state database.** Order: `tls.key`,
+   `secrets.key`, `atrium.db` at schema 1, the certificate, `identity.json`
+   last. Core never creates a database: a missing one after installation is
+   `state.missing`, so a lost database can never be silently replaced by an
+   empty one. A tree with a database but no identity is refused by
+   `init-identity` (an old installation's state would strand every device it
+   lists). A second run on a finished installation changes nothing and exits
+   `3`; a partial or inconsistent tree is refused and left as found. If a step
+   fails, the files that run created are removed again; a crash instead leaves a
+   partial tree, which the next run refuses.
+3. **Recovery reasons.** The closed set is `identity.missing`,
+   `identity.inconsistent`, `identity.unprotected` (ownership or mode breaks
+   section 4.2 — e.g. a key the service user could rewrite, or a world-readable
+   one), `identity.unreadable`, `state.missing`, `state.unprotected`,
+   `state.database_unreadable`, `state.schema_newer`, `state.backup_failed`,
+   `state.migration_failed`, `certificate.unavailable`. Core verifies ownership
+   and modes itself and refuses to run on a tree where the DAC guarantee does
+   not visibly hold; the guarantee still rests on DAC, not on this check.
+4. **Recovery in M1B is log-and-status only.** There is no listener until M1D,
+   so recovery reports through the log and systemd's `STATUS=`. The `/healthz`
+   and diagnostics payloads are already defined (`recovery.rs`) with their
+   field allowlist tested, so M1D serves a reviewed shape.
+5. **Revocation on rotation is bound to the key, not to the command.** The
+   database records the pin its devices were paired against
+   (`settings.identity.spki_sha256`); whenever the identity's pin differs, the
+   next opener revokes every device and disarms pairing in one audited
+   transaction. `atriumctl rotate-identity` writes the key as root, then drops
+   to `atrium` for good and only then opens the database. The security review
+   of M1B found that revoking first — under a temporary euid switch while the
+   saved uid was still 0 — meant parsing service-writable data in a process
+   that could regain root; the binding removes that, and also covers an
+   interrupted rotation and the restore of a backup taken before a rotation.
+   Arming a fresh pairing secret waits for M1E.
+6. **One writer.** Core holds an exclusive `flock` on `/var/lib/atrium` for its
+   whole life, in both modes. `atriumctl restore` and `rotate-identity` refuse
+   while it is held, so Core must be stopped first. `atriumctl` cannot restart
+   Core itself — it executes no programs — so it prints the `systemctl` command.
+7. **Paths are fixed, with one test override.** `ATRIUM_ROOT` relocates the
+   whole tree under a prefix for the test suites; it cannot split identity from
+   state and changes no check. As root, `atriumctl` accepts it only for a
+   root-owned prefix. `data_dir` in `core.toml` must equal the state directory;
+   anything else is refused rather than honoured.
+8. **Dependencies.** As section 18 lists, plus `zeroize` for the `Redacted<T>`
+   wrapper (secret bytes are zeroed on drop; hygiene, not a boundary). `rcgen`
+   uses the `ring` backend, which M1D's rustls will share. `time` required
+   raising the workspace `rust-version` to 1.88; CI builds with stable. No
+   `clap`: `atriumctl`'s four commands are matched directly.
+9. **Tests.** Unit tests sit beside the code; process tests in
+   `atrium-core/tests/{lifecycle,recovery}.rs` and
+   `atriumctl/tests/console.rs` run unprivileged against a relocated tree; the
+   root-and-`atrium`-user suite of test plan section 5 is
+   `atriumctl/tests/privileged.rs`, run by a step in the server CI job rather
+   than a separate job, so it reuses that job's build.
+
 ### M1C — Core ↔ Agent protocol
 - **Files:** `atrium-protocol/*`, `atrium-agent/*`, `atrium-core/src/agentclient.rs`.
 - **Content:** framing, handshake, the two operations, peer-credential check,
@@ -1629,7 +1695,7 @@ versions.
 | Persistent change | Forward | Rollback expectation | Failure behaviour | Recovery mode |
 | --- | --- | --- | --- | --- |
 | Create identity (first boot) | Generate and write atomically, `identity.json` last | None — identity is never rolled back | Partial write → next start sees inconsistency → recovery, no regeneration | Reports `identity.inconsistent`, offers nothing automatic |
-| Certificate reissue | New `tls.crt`, same key, atomic replace, `identity.json` updated | Previous certificate is not kept; a failed reissue keeps serving the old one | Log + `warn`; keep the old certificate; retry next poll | Not applicable |
+| Certificate reissue | New `tls.crt`, same key, atomic replace, `identity-state.json` updated | Previous certificate is not kept; a failed reissue keeps serving the old one | Log + `warn`; keep the old certificate; retry next poll | Not applicable |
 | Schema migration 1 | `VACUUM INTO` backup, then migrate in one transaction, then `user_version = 1` | Restore the backup with `atriumctl restore` | Transaction rolls back; recovery mode | Lists backups; restore then exit for a clean restart |
 | Device create | Insert row in one transaction | Revoke | Transaction rollback; nothing written | No device state is reachable in recovery |
 | Device revoke | Delete row in one transaction | Re-pair | Rollback leaves the row present, which fails safe: the token keeps working until the revocation actually commits | No device state is reachable in recovery |

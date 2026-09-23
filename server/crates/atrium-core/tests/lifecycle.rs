@@ -6,121 +6,26 @@
 //! failure: a lifecycle bug is almost always explained by the last thing the
 //! process said, and discarding that turns a five-minute diagnosis into a
 //! guessing game.
+//!
+//! From M1B, Core needs an installation tree. These tests give it one with a
+//! configuration and no identity, so it comes up in recovery mode — which is
+//! still a started, ready, signal-handling process, and the lifecycle
+//! properties are the same in either mode. Normal mode is exercised by the
+//! privileged suite, where the identity can be owned by root as it must be.
 
 #![cfg(unix)]
 
-use std::io::{BufRead, BufReader};
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+mod common;
 
-const READY_TIMEOUT: Duration = Duration::from_secs(20);
-const EXIT_TIMEOUT: Duration = Duration::from_secs(20);
-const POLL: Duration = Duration::from_millis(25);
-/// Time for the reader thread to drain whatever the child wrote on its way out.
-const SETTLE: Duration = Duration::from_millis(200);
-
-type Capture = Arc<Mutex<Vec<String>>>;
-
-/// A running `atrium-core`, with everything it has written to stderr.
-struct Proc {
-    child: Child,
-    capture: Capture,
-}
-
-impl Proc {
-    fn start() -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_atrium-core"))
-            .env("ATRIUM_CORE_LOG", "info")
-            .env_remove("NOTIFY_SOCKET")
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("atrium-core must be spawnable");
-
-        let stderr = child.stderr.take().expect("stderr was piped");
-        let capture: Capture = Arc::new(Mutex::new(Vec::new()));
-        let sink = Arc::clone(&capture);
-        std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                sink.lock().expect("capture lock").push(line);
-            }
-        });
-
-        Self { child, capture }
-    }
-
-    fn lines(&self) -> Vec<String> {
-        self.capture.lock().expect("capture lock").clone()
-    }
-
-    /// Waits for a line containing `needle`, or fails with everything seen.
-    fn wait_for(&self, needle: &str) -> Vec<String> {
-        let deadline = Instant::now() + READY_TIMEOUT;
-        loop {
-            let lines = self.lines();
-            if lines.iter().any(|line| line.contains(needle)) {
-                return lines;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "timed out waiting for {needle:?}; child said: {lines:#?}"
-            );
-            std::thread::sleep(POLL);
-        }
-    }
-
-    fn terminate(&self) {
-        let pid = nix::unistd::Pid::from_raw(i32::try_from(self.child.id()).expect("pid fits"));
-        nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM)
-            .expect("SIGTERM must be sendable");
-    }
-
-    fn wait_exit(&mut self) -> ExitStatus {
-        let deadline = Instant::now() + EXIT_TIMEOUT;
-        loop {
-            if let Some(status) = self.child.try_wait().expect("wait must succeed") {
-                std::thread::sleep(SETTLE);
-                return status;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "the process did not exit within {EXIT_TIMEOUT:?}; child said: {:#?}",
-                self.lines()
-            );
-            std::thread::sleep(POLL);
-        }
-    }
-
-    /// Terminates and requires a clean exit.
-    fn shutdown_cleanly(&mut self) {
-        self.terminate();
-        let status = self.wait_exit();
-        assert!(
-            status.success(),
-            "clean shutdown expected, {}; child said: {:#?}",
-            describe(status),
-            self.lines()
-        );
-    }
-}
-
-/// An exit code and a signal are very different failures, and a bare
-/// `.success()` hides which one happened.
-fn describe(status: ExitStatus) -> String {
-    use std::os::unix::process::ExitStatusExt;
-    match (status.code(), status.signal()) {
-        (Some(code), _) => format!("exited with code {code}"),
-        (None, Some(signal)) => format!("killed by signal {signal}"),
-        (None, None) => format!("ended in an unknown way: {status:?}"),
-    }
-}
+use common::{Proc, Tree};
 
 #[test]
 fn starts_reports_its_identity_and_signals_readiness() {
-    let mut core = Proc::start();
-    let lines = core.wait_for("\"event\":\"ready\"");
+    let tree = Tree::new("identity");
+    let mut core = Proc::start(&tree.root);
+    core.ready();
 
+    let lines = core.lines();
     let startup = lines
         .iter()
         .find(|line| line.contains("\"event\":\"starting\""))
@@ -146,8 +51,9 @@ fn starts_reports_its_identity_and_signals_readiness() {
 
 #[test]
 fn sigterm_shuts_down_cleanly() {
-    let mut core = Proc::start();
-    core.wait_for("\"event\":\"ready\"");
+    let tree = Tree::new("sigterm");
+    let mut core = Proc::start(&tree.root);
+    core.ready();
     core.shutdown_cleanly();
 
     let lines = core.lines();
@@ -161,11 +67,12 @@ fn sigterm_shuts_down_cleanly() {
 
 #[test]
 fn logs_are_json_on_stderr() {
-    let mut core = Proc::start();
-    let lines = core.wait_for("\"event\":\"ready\"");
+    let tree = Tree::new("json");
+    let mut core = Proc::start(&tree.root);
+    core.ready();
     core.shutdown_cleanly();
 
-    for line in &lines {
+    for line in &core.lines() {
         assert!(
             line.starts_with('{') && line.ends_with('}'),
             "every log line must be a JSON object: {line}"
@@ -175,14 +82,15 @@ fn logs_are_json_on_stderr() {
 
 #[test]
 fn opens_no_tcp_socket() {
-    // M1A has no HTTP API. Rather than trust that nobody added one, this
+    // M1B has no HTTP API. Rather than trust that nobody added one, this
     // intersects the process's own socket inodes with the kernel's TCP tables.
     // An accidental listener would be an unauthenticated management surface.
     //
     // Unix socket pairs are expected - tokio's signal driver uses one - so the
     // test asks about TCP specifically rather than counting sockets.
-    let mut core = Proc::start();
-    core.wait_for("\"event\":\"ready\"");
+    let tree = Tree::new("tcp");
+    let mut core = Proc::start(&tree.root);
+    core.ready();
 
     let held = socket_inodes(core.child.id());
     let tcp = tcp_inodes();
@@ -192,7 +100,7 @@ fn opens_no_tcp_socket() {
 
     assert!(
         tcp_held.is_empty(),
-        "atrium-core must hold no TCP socket in M1A, found inodes {tcp_held:?}"
+        "atrium-core must hold no TCP socket in M1B, found inodes {tcp_held:?}"
     );
 }
 

@@ -10,7 +10,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/rumarcel/atrium"
 
@@ -27,6 +27,20 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
     "env-filter",
 ] }
 nix = { version = "0.29", default-features = false }
+
+# M1B: identity, certificates and the state store. Section 18 of the plan
+# names each of these and says where it may be used.
+getrandom = { version = "0.3", default-features = false }
+hex = { version = "0.4", default-features = false, features = ["std"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
+rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
+serde = { version = "1", default-features = false, features = ["std", "derive"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+sha2 = { version = "0.10", default-features = false, features = ["std"] }
+time = { version = "0.3", default-features = false, features = ["std", "formatting", "parsing"] }
+toml = { version = "1", default-features = false, features = ["std", "parse", "serde"] }
+x509-parser = { version = "0.18", default-features = false }
+zeroize = { version = "1", default-features = false, features = ["std"] }
 
 atrium-api-types = { path = "crates/atrium-api-types" }
 atrium-pairing = { path = "crates/atrium-pairing" }

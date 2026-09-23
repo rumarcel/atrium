@@ -7,7 +7,18 @@ license.workspace = true
 repository.workspace = true
 description = "Atrium: console tool for operations that must not be reachable over the network"
 
-# No dependencies yet, and no argument-parsing crate until there are arguments
-# worth parsing. This crate is also the home of the workspace's static
-# deployment-policy tests, which is why it must stay platform-neutral.
-[dependencies]
+# The console commands operate on the Linux server's files and link the Core
+# library for the mechanisms (identity, state, restore). They are Linux-only,
+# so the dependency is too: on any other platform this crate still builds —
+# with --version and --help only — which keeps the workspace's static
+# deployment-policy tests (tests/deployment_policy.rs, std only) running on the
+# maintainer's Windows workstation as well as in CI.
+[target.'cfg(unix)'.dependencies]
+atrium-core = { path = "../atrium-core" }
+nix = { workspace = true, features = ["user", "fs"] }
+serde_json.workspace = true
+time.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { workspace = true, features = ["user", "signal", "process"] }
+rusqlite.workspace = true
