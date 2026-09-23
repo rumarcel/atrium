@@ -13,8 +13,15 @@
 //! - **recovery** ([`recovery`]) — when any of that cannot be trusted: stay
 //!   up, report, change nothing.
 //!
+//! - **agent** ([`agentclient`], [`agentmonitor`], [`capability`]) — in
+//!   normal mode only, Core asks Agent `AgentInfo` and `RuntimeProbe` over
+//!   the typed Unix-socket protocol, audits every call, and derives the
+//!   `privileged` and `container` capabilities from the answers. When Agent
+//!   is unreachable they are unavailable, with a reason, and nothing else is
+//!   tried.
+//!
 //! What it deliberately does **not** do yet: it opens no TCP port, serves no
-//! HTTP, speaks to no agent, pairs no device and reports no system metrics.
+//! HTTP, pairs no device and reports no system metrics.
 //! Each of those arrives in its own pass with its own tests — see
 //! `docs/M1-IMPLEMENTATION-PLAN.md` section 17. There is no placeholder
 //! endpoint and no invented data anywhere in this crate.
@@ -23,6 +30,9 @@
 #![deny(missing_docs)]
 #![deny(clippy::all)]
 
+pub mod agentclient;
+pub mod agentmonitor;
+pub mod capability;
 pub mod certificate;
 pub mod config;
 pub mod db;
@@ -203,7 +213,7 @@ pub async fn run(
                 service_manager_notified = notified,
                 "atrium-core is ready"
             );
-            watch_addresses(&layout, &mut normal, &mut shutdown).await
+            run_normal(&layout, &mut normal, &mut shutdown).await
         }
         Mode::Recovery(recovery) => {
             let health = recovery.health();
@@ -247,8 +257,9 @@ pub async fn run(
 }
 
 /// Normal mode until shutdown: re-checks the certificate against the current
-/// addresses every [`ADDRESS_POLL`].
-async fn watch_addresses(
+/// addresses every [`ADDRESS_POLL`], and refreshes the Agent-derived
+/// capabilities right away and then every [`agentmonitor::AGENT_REFRESH`].
+async fn run_normal(
     layout: &Layout,
     normal: &mut startup::Normal,
     shutdown: &mut signals::ShutdownListener,
@@ -257,9 +268,38 @@ async fn watch_addresses(
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // The first tick completes immediately; startup has just checked.
     ticker.tick().await;
+    // The first agent tick also completes immediately: that is the check
+    // right after startup.
+    let mut agent_ticker = tokio::time::interval(agentmonitor::AGENT_REFRESH);
+    agent_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut monitor = match agentmonitor::Monitor::new(layout) {
+        Ok(monitor) => Some(monitor),
+        Err(error) => {
+            tracing::error!(
+                event = "agent_client_unavailable",
+                component = "atrium-core",
+                reason = %error,
+                "no Agent client could be built; privileged and container capabilities                  stay unavailable"
+            );
+            None
+        }
+    };
     loop {
         tokio::select! {
             signal = shutdown.recv() => return signal,
+            _ = agent_ticker.tick(), if monitor.is_some() => {
+                if let Some(monitor) = monitor.as_mut() {
+                    // A stalled Agent can hold a call for its full timeout;
+                    // a stop request must not wait behind it. A call cut
+                    // short here may be in Agent's journal without a
+                    // matching audit row, which is the honest record of a
+                    // call whose result Core never received.
+                    tokio::select! {
+                        signal = shutdown.recv() => return signal,
+                        _ = monitor.refresh(&normal.database) => {}
+                    }
+                }
+            }
             _ = ticker.tick() => {
                 let now = OffsetDateTime::now_utc();
                 let addresses = current_addresses();

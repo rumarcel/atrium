@@ -143,10 +143,10 @@ fn an_identity_the_service_user_could_rewrite_is_refused() {
 
 #[test]
 fn recovery_never_contacts_the_agent() {
-    // A listener where the agent socket lives in production, relative to the
-    // tree. Recovery holds no agent client, so nothing may connect. (M1B Core
-    // has no agent client at all; this test is here so it keeps holding when
-    // M1C adds one.)
+    // A listener exactly where Core's layout puts the agent socket
+    // (`Layout::agent_socket`, relocated under the tree). Normal mode calls
+    // Agent there as soon as it is ready; recovery holds no agent client and
+    // must never connect.
     let tree = Tree::new("agent");
     let run = tree.root.join("run/atrium");
     std::fs::create_dir_all(&run).expect("run dir");

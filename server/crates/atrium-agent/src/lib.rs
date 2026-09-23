@@ -1,41 +1,67 @@
-//! Atrium Agent — M1A lifecycle skeleton.
+//! Atrium Agent — the privileged half of the Core/Agent split.
 //!
-//! Agent is the privileged half of the Core/Agent split. In M1A it has no
-//! privileged work to do, so it does none: it acquires its socket, accepts a
-//! connection, closes it, and shuts down cleanly on `SIGTERM`.
+//! As of M1C, Agent serves the typed Core-to-Agent protocol
+//! (`atrium-protocol`) on `/run/atrium/agent.sock`:
+//!
+//! - **who** ([`peer`]) — exactly one uid, Core's, taken from the kernel
+//!   with `SO_PEERCRED` and compared with the `atrium` user resolved at
+//!   startup; nothing a peer sends can change it;
+//! - **what** ([`serve`]) — one handshake and one of exactly two
+//!   parameterless, read-only operations, [`info`] and [`probe`];
+//! - **evidence** ([`journal`]) — one line per connection, accepted or not,
+//!   in a root-only directory the `atrium` user cannot read or change.
 //!
 //! Where its socket comes from is decided by [`listener::resolve`], which
 //! refuses an environment-chosen path when running as root: a privileged agent
 //! takes its socket from `atrium-agent.socket` and nowhere else.
 //!
-//! What it deliberately does **not** do: there is no operation table, no
-//! request parsing, no peer-credential decision, no journal, no container
-//! runtime client and no probe of one. Those arrive in **M1C**, which is also
-//! where the peer-uid check belongs — a check written before the thing it
-//! guards is a check nobody can test.
+//! **M1's operation table contains no mutating operation of any kind.** Agent
+//! executes nothing, writes nothing but its own journal, and sends no byte to
+//! a container runtime.
 //!
-//! The one thing worth noticing about this crate today is what is absent from
-//! its manifest: no HTTP crate, no TLS crate, no SQL crate. That is enforced
-//! by `server/ci/boundary-checks.sh` against cargo's metadata.
+//! What is absent from its manifest matters as much: no HTTP crate, no TLS
+//! crate, no SQL crate, no container-runtime client. That is enforced by
+//! `server/ci/boundary-checks.sh` against cargo's metadata.
 
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 #![deny(clippy::all)]
 
+pub mod clock;
+pub mod info;
+pub mod journal;
 pub mod listener;
 pub mod notify;
+pub mod peer;
+pub mod probe;
+pub mod serve;
 pub mod signals;
 
 use std::error::Error;
-use std::time::Duration;
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
+use atrium_protocol::values::Version;
 use tokio::net::UnixListener;
+
+use crate::info::Startup;
+use crate::journal::Journal;
+use crate::serve::Server;
 
 /// Build version, reported at startup.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Environment variable selecting the log filter, in `tracing` syntax.
 pub const LOG_FILTER_ENV: &str = "ATRIUM_AGENT_LOG";
+
+/// Environment variable relocating Agent's state directory, for tests.
+///
+/// Honoured in every mode, because what it can select is narrow: the
+/// directory must already exist, be a real directory owned by Agent's uid and
+/// have no group or other access, or the journal is unavailable and Agent
+/// performs nothing. Only root could create such a directory for a root
+/// Agent, and Core cannot set Agent's environment at all.
+pub const STATE_DIR_ENV: &str = "ATRIUM_AGENT_STATE_DIR";
 
 /// Pause after a failed `accept` so a persistent error cannot become a hot loop.
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(200);
@@ -73,11 +99,24 @@ pub async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         "atrium-agent is starting"
     );
 
+    let started = SystemTime::now();
+    let policy = peer::resolve(uid, peer::system_lookup)?;
+    let state_dir = state_dir()?;
     let source = listener::resolve(&listener::Environment::current())?;
     let socket = bind(&source)?;
 
     // Before readiness, never after - see atrium_agent::signals.
     let mut shutdown = signals::listen()?;
+
+    let mut server = Server::new(
+        policy,
+        Journal::new(state_dir.clone(), uid),
+        Startup {
+            started_at: clock::timestamp(started),
+            version: Version::parse(VERSION)?,
+        },
+    );
+    server.open_journal();
 
     let notified = notify::ready()?;
 
@@ -85,15 +124,21 @@ pub async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         event = "ready",
         component = "atrium-agent",
         version = VERSION,
+        protocol = atrium_protocol::AGENT_PROTOCOL_VERSION,
         source = source_label(&source),
+        core_uid = policy.core_uid(),
+        peer_policy = policy.source().as_str(),
+        state_dir = %state_dir.display(),
         service_manager_notified = notified,
         "atrium-agent is ready"
     );
 
     let signal = tokio::select! {
         signal = shutdown.recv() => signal,
-        () = accept_until_shutdown(&socket) => unreachable!("the accept loop does not return"),
+        () = serve_until_shutdown(&socket, &mut server) => unreachable!("the accept loop does not return"),
     };
+
+    server.flush_suppressed();
 
     tracing::info!(
         event = "stopping",
@@ -113,24 +158,25 @@ pub async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     Ok(())
 }
 
-/// Accepts connections and closes them immediately.
-///
-/// M1A defines no protocol, so there is nothing to read and nothing to answer.
-/// Closing at once is the honest behaviour: a caller learns that Agent is
-/// listening and learns nothing else, and no half-implemented parser exists for
-/// anyone to reach.
-async fn accept_until_shutdown(socket: &UnixListener) {
+/// The state directory: [`STATE_DIR_ENV`] if set and well-formed, else the
+/// production constant.
+fn state_dir() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
+    match std::env::var(STATE_DIR_ENV) {
+        Ok(path) => listener::validate_path(&path).map_err(|error| match error {
+            listener::ListenerError::PathRejected(why) => {
+                format!("{STATE_DIR_ENV} is unusable: {why}").into()
+            }
+            other => other.to_string().into(),
+        }),
+        Err(_) => Ok(PathBuf::from(atrium_protocol::AGENT_STATE_DIR)),
+    }
+}
+
+/// Accepts connections and serves each one to completion.
+async fn serve_until_shutdown(socket: &UnixListener, server: &mut Server) {
     loop {
         match socket.accept().await {
-            Ok((stream, _address)) => {
-                tracing::debug!(
-                    event = "connection_closed",
-                    component = "atrium-agent",
-                    reason = "no_protocol_in_m1a",
-                    "accepted a connection and closed it; the protocol arrives in M1C"
-                );
-                drop(stream);
-            }
+            Ok((stream, _address)) => server.handle(stream).await,
             Err(error) => {
                 tracing::warn!(
                     event = "accept_failed",

@@ -107,15 +107,58 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-section "No container-runtime socket anywhere"
+section "Container-runtime sockets: one probe, in Agent, that sends nothing"
 
-runtime_socket_hits="$(grep -rnE 'docker\.sock|podman\.sock|/var/run/docker|/run/docker' \
-    "${CRATES}" "${PACKAGING}" 2>/dev/null || true)"
+# M1C's RuntimeProbe (plan section 3.4) needs the candidate paths, as a
+# compiled-in constant in Agent. That one file is the only place in the
+# workspace or the service assets allowed to name a runtime socket. Core, the
+# shared crates, atriumctl and the units must not, so no code path outside the
+# probe can even spell one (ADR-013, criteria 35, 36).
+PROBE_FILE="${CRATES}/atrium-agent/src/probe.rs"
+runtime_socket_hits="$(grep -rnE 'docker\.sock|podman\.sock|/var/run/docker|/run/docker|/run/podman' \
+    "${CRATES}" "${PACKAGING}" 2>/dev/null | grep -v "^${PROBE_FILE}:" || true)"
 if [ -n "${runtime_socket_hits}" ]; then
-    fail "reference to a container-runtime socket (ADR-013):"
+    fail "reference to a container-runtime socket outside Agent's probe (ADR-013):"
     printf '%s\n' "${runtime_socket_hits}" >&2
 else
-    pass "no container-runtime socket referenced in code or service assets"
+    pass "no container-runtime socket referenced outside atrium-agent/src/probe.rs"
+fi
+
+# The probe connects and closes. It must never write to, read from or speak
+# the API of a runtime: no write or send call, no read, no HTTP.
+# Production code only: the module's own tests read from a fake runtime to
+# prove the probe sent nothing.
+probe_code="$(sed '/#\[cfg(test)\]/,$d' "${PROBE_FILE}")"
+probe_io_hits="$(printf '%s\n' "${probe_code}" |
+    grep -nE '\.write|write_all|\.send|\.read|AsyncWrite|AsyncRead|http|GET /' |
+    grep -vE '^[0-9]+:\s*//' || true)"
+if [ -n "${probe_io_hits}" ]; then
+    fail "the runtime probe reads, writes or speaks to a runtime:"
+    printf '%s\n' "${probe_io_hits}" >&2
+else
+    pass "the runtime probe sends and reads nothing (connect, close)"
+fi
+
+# ---------------------------------------------------------------------------
+section "The Agent operation table (criteria 38, 46)"
+
+# Plan section 18.3, gate 3. The enum is extracted from source and checked
+# for parameter types that could carry a path, a command, bytes, a key or a
+# trust flag. M1's table is two unit variants, so any parameter at all is a
+# change that must come with a review and an update to this gate.
+MESSAGES="${CRATES}/atrium-protocol/src/messages.rs"
+agent_op="$(awk '/^pub enum AgentOp \{/,/^\}/' "${MESSAGES}" | grep -vE '^\s*///')"
+if [ -z "${agent_op}" ]; then
+    fail "could not find 'pub enum AgentOp' in ${MESSAGES}"
+elif printf '%s\n' "${agent_op}" |
+    grep -qE 'String|PathBuf|Path|OsString|str|Vec<|\[u8|Box<|Value|Key|Cert|Trust|Token|Secret|Command|Argv|Unit|Package|Container|bool'; then
+    fail "AgentOp carries a forbidden parameter type:"
+    printf '%s\n' "${agent_op}" >&2
+elif printf '%s\n' "${agent_op}" | sed '1d;$d' | grep -qE '[({]'; then
+    fail "AgentOp has a parameterised variant; M1 has none (plan section 3.4):"
+    printf '%s\n' "${agent_op}" >&2
+else
+    pass "AgentOp is $(printf '%s\n' "${agent_op}" | sed '1d;$d' | grep -cE '^\s*[A-Z][A-Za-z]*,') parameterless variants"
 fi
 
 # ---------------------------------------------------------------------------

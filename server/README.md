@@ -33,12 +33,14 @@ cargo test --manifest-path server/Cargo.toml
 bash server/ci/boundary-checks.sh
 ```
 
-The privileged suite (`docs/M1-TEST-PLAN.md` section 5) needs root and an
-`atrium` system user, and runs its already-built test binary under `sudo`:
+The privileged suites (`docs/M1-TEST-PLAN.md` section 5) need root, an
+`atrium` system user and `/usr/bin/systemd-socket-activate`, and run their
+already-built test binaries under `sudo`:
 
 ```sh
 cargo test --manifest-path server/Cargo.toml -p atriumctl --test privileged --no-run
-sudo <path printed above> --ignored --test-threads=1
+cargo test --manifest-path server/Cargo.toml -p atrium-agent --test privilege_boundary --no-run
+sudo <each path printed above> --ignored --test-threads=1
 ```
 
 ## State of the implementation
@@ -60,8 +62,16 @@ gates.
   `rotate-identity` — console only; each drops to `atrium` for good before it
   touches state.
 
-Still absent, each in its own pass: HTTP and TLS serving, the Core-to-Agent
-protocol, pairing, discovery and system providers. The order and the acceptance
+**M1C** — the Core-to-Agent protocol. `atrium-agent` serves two parameterless,
+read-only operations, `AgentInfo` and `RuntimeProbe`, on
+`/run/atrium/agent.sock`, to Core's uid only (`SO_PEERCRED`). It journals
+every connection in its root-only state directory. `atrium-core` calls it in
+normal mode, audits every call as `agent.call`, and derives the `privileged`
+and `container` capabilities, or reports `agent_unreachable` and tries nothing
+else.
+
+Still absent, each in its own pass: HTTP and TLS serving, pairing, discovery
+and system providers. The order and the acceptance
 criteria are in [`../docs/M1-IMPLEMENTATION-PLAN.md`](../docs/M1-IMPLEMENTATION-PLAN.md).
 
 `ATRIUM_ROOT=<dir>` relocates the whole file tree (`<dir>/etc/atrium`,

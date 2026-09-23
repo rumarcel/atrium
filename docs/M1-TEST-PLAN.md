@@ -424,6 +424,22 @@ test exists there; the recovery tests of section 4.5 that need an HTTP router
 `recovery_router_is_a_strict_subset`) arrive with the router in M1D, and the
 diagnostics field allowlist is already tested against the payload type.
 
+**As built (M1C).** The same step now runs two privileged binaries in turn:
+`atriumctl`'s `privileged` and `atrium-agent`'s `privilege_boundary`. It also
+requires `/usr/bin/systemd-socket-activate`, which hands the root Agent its
+socket exactly as `atrium-agent.socket` does. The M1C tests of section 5
+exist under the names given there: `agent_rejects_non_core_uid`,
+`agent_accepts_core_uid`, `agent_state_dir_is_root_only` and
+`agent_journal_and_core_audit_correlate`. The last one is in `atriumctl`'s
+suite, because it needs a real installation and Core running as `atrium`.
+The additions are `a_claimed_uid_in_the_request_changes_nothing`,
+`hostile_frames_from_the_core_uid_are_refused`,
+`core_cannot_read_forge_or_erase_the_journal` and
+`core_without_agent_reports_unreachable_and_keeps_running`. Section 2.5's
+codec tests are in `atrium-protocol` under the names listed there.
+`core_cannot_open_runtime_socket` (criterion 35) stays with M1I, which owns
+it in the plan.
+
 ### 11.3 New workflow: `m1-acceptance` (manual dispatch)
 
 Builds the tarball, boots the distro VM matrix, runs §7. Not on every push —

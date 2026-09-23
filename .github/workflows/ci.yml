@@ -142,20 +142,31 @@ jobs:
         # kernel — as the real atrium user, the identity key can be read and
         # cannot be written, truncated, unlinked, renamed over, chmodded or
         # created beside — which needs real root and a real service account.
-        # The already-built test binary runs under sudo; cargo itself does not,
-        # so nothing root-owned lands in the build tree.
+        # M1C adds the Agent boundary: a root Agent on a socket-activated
+        # 0660 root:atrium socket admits only the atrium uid (criterion 8),
+        # keeps its state root-only (41), and journals what Core's audit
+        # records (33). The already-built test binaries run under sudo; cargo
+        # itself does not, so nothing root-owned lands in the build tree.
         run: |
           getent group atrium || sudo groupadd --system atrium
           getent passwd atrium || sudo useradd --system --gid atrium --no-create-home \
             --home-dir /nonexistent --shell /usr/sbin/nologin atrium
-          binary="$(cargo test --manifest-path server/Cargo.toml --locked -p atriumctl \
-            --test privileged --no-run --message-format=json \
-            | jq -r 'select(.reason == "compiler-artifact" and .target.name == "privileged" and .executable != null) | .executable')"
-          test -n "${binary}"
-          sudo "${binary}" --ignored --test-threads=1
+          test -x /usr/bin/systemd-socket-activate
+          for suite in atriumctl:privileged atrium-agent:privilege_boundary; do
+            package="${suite%%:*}"
+            target="${suite##*:}"
+            binary="$(cargo test --manifest-path server/Cargo.toml --locked -p "${package}" \
+              --test "${target}" --no-run --message-format=json \
+              | jq -r --arg target "${target}" 'select(.reason == "compiler-artifact" and .target.name == $target and .executable != null) | .executable')"
+            test -n "${binary}"
+            echo "::group::${package} ${target}"
+            sudo "${binary}" --ignored --test-threads=1
+            echo "::endgroup::"
+          done
       - name: Architecture and execution gates
         # Dependency direction, forbidden dependency families, no shell
-        # execution, no container-runtime socket, unsafe confinement, and the
+        # execution, runtime socket paths only in Agent's send-nothing probe,
+        # the parameterless operation table, unsafe confinement, and the
         # ADR-015 prototype-identifier reservations.
         run: bash server/ci/boundary-checks.sh
       - name: Validate systemd units

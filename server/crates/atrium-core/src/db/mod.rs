@@ -147,7 +147,7 @@ pub enum Reconciled {
     Revoked(usize),
 }
 
-/// Audit actions M1B writes. A closed set: the column is not free text.
+/// Audit actions Core writes. A closed set: the column is not free text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuditAction {
     /// The schema was migrated forward.
@@ -161,6 +161,8 @@ pub enum AuditAction {
     DevicesRevoked,
     /// The identity key was replaced from the console.
     KeyRotated,
+    /// Core called Agent (M1C), whatever the outcome.
+    AgentCall,
 }
 
 impl AuditAction {
@@ -173,6 +175,31 @@ impl AuditAction {
             Self::CertificateReissued => "identity.certificate_reissued",
             Self::DevicesRevoked => "identity.devices_revoked",
             Self::KeyRotated => "identity.key_rotated",
+            Self::AgentCall => "agent.call",
+        }
+    }
+}
+
+/// How a call to Agent ended, as `audit.outcome` records it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentCallOutcome {
+    /// Agent answered with a result.
+    Ok,
+    /// Agent answered with a refusal.
+    Refused,
+    /// Agent did not answer: unreachable, timed out, or not speaking the
+    /// protocol.
+    Failed,
+}
+
+impl AgentCallOutcome {
+    /// The value stored in `audit.outcome`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Refused => "refused",
+            Self::Failed => "failed",
         }
     }
 }
@@ -241,6 +268,41 @@ impl Database {
                 actor.as_str(),
                 action.as_str(),
                 detail.to_string(),
+            ),
+        )?;
+        Ok(())
+    }
+
+    /// Records one call to Agent: the correlation id Agent journals too,
+    /// the operation, and how it ended. `error_code` is a stable cause from
+    /// the closed set in `agentclient::Failure`, never free text.
+    ///
+    /// This row is Core's record. It is useful history and it is **not**
+    /// tamper-evident: a compromised Core can rewrite its own database. The
+    /// independent record of what Agent was asked is Agent's journal.
+    ///
+    /// # Errors
+    ///
+    /// SQLite's error.
+    pub fn audit_agent_call(
+        &self,
+        request_id: &atrium_protocol::values::RequestId,
+        op: atrium_protocol::messages::AgentOp,
+        outcome: AgentCallOutcome,
+        error_code: Option<&'static str>,
+        now: OffsetDateTime,
+    ) -> rusqlite::Result<()> {
+        self.connection.execute(
+            "INSERT INTO audit (ts, request_id, actor_role, action, target, outcome, error_code) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (
+                format_time(now),
+                request_id.as_str(),
+                Actor::System.as_str(),
+                AuditAction::AgentCall.as_str(),
+                op.as_str(),
+                outcome.as_str(),
+                error_code,
             ),
         )?;
         Ok(())

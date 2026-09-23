@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 description = "Atrium: pure shared types and constants (no I/O)"
 
-# No dependencies, on purpose. This crate is I/O-free by policy and
-# server/ci/boundary-checks.sh fails the build if that changes.
+# Types and a codec, nothing else. serde and serde_json describe and parse
+# data; neither performs I/O. server/ci/boundary-checks.sh fails the build if
+# an I/O, HTTP, TLS or SQL crate ever reaches this crate's dependency graph.
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true

@@ -23,6 +23,9 @@ pub const ROOT_ENV: &str = "ATRIUM_ROOT";
 const ETC: &str = "etc/atrium";
 /// State directory, relative to the root.
 const STATE: &str = "var/lib/atrium";
+/// Agent's socket, relative to the root: `atrium_protocol::AGENT_SOCKET_PATH`
+/// without its leading slash, so the two can never disagree (tested below).
+const AGENT_SOCKET: &str = "run/atrium/agent.sock";
 
 /// Bootstrap configuration.
 pub const CONFIG_FILE: &str = "core.toml";
@@ -56,6 +59,7 @@ pub struct Layout {
     root: Option<PathBuf>,
     etc: PathBuf,
     state: PathBuf,
+    agent_socket: PathBuf,
 }
 
 /// Why [`ROOT_ENV`] was refused.
@@ -131,6 +135,7 @@ impl Layout {
         Self {
             etc: base.join(ETC),
             state: base.join(STATE),
+            agent_socket: base.join(AGENT_SOCKET),
             root,
         }
     }
@@ -182,6 +187,15 @@ impl Layout {
     pub fn backups_dir(&self) -> PathBuf {
         self.state_file(BACKUPS_DIR)
     }
+
+    /// `/run/atrium/agent.sock`, the only privileged endpoint Core knows.
+    /// Relocated with everything else under [`ROOT_ENV`], which changes
+    /// where Core *connects*, never who Agent admits: that is Agent's
+    /// `SO_PEERCRED` check.
+    #[must_use]
+    pub fn agent_socket(&self) -> &Path {
+        &self.agent_socket
+    }
 }
 
 /// True for a file name Atrium uses as a temporary.
@@ -211,6 +225,10 @@ mod tests {
         );
         assert_eq!(layout.database(), Path::new("/var/lib/atrium/atrium.db"));
         assert_eq!(layout.backups_dir(), Path::new("/var/lib/atrium/backups"));
+        assert_eq!(
+            layout.agent_socket(),
+            Path::new(atrium_protocol::AGENT_SOCKET_PATH)
+        );
         assert!(layout.root().is_none());
     }
 
@@ -219,6 +237,10 @@ mod tests {
         let layout = Layout::under(Path::new("/tmp/fixture")).expect("valid prefix");
         assert_eq!(layout.etc_dir(), Path::new("/tmp/fixture/etc/atrium"));
         assert_eq!(layout.state_dir(), Path::new("/tmp/fixture/var/lib/atrium"));
+        assert_eq!(
+            layout.agent_socket(),
+            Path::new("/tmp/fixture/run/atrium/agent.sock")
+        );
     }
 
     #[test]

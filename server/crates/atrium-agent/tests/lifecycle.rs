@@ -57,6 +57,10 @@ impl Proc {
             .env_remove("LISTEN_FDS")
             .env_remove("LISTEN_PID")
             .env_remove("ATRIUM_AGENT_SOCKET")
+            .env(
+                "ATRIUM_AGENT_STATE_DIR",
+                std::env::temp_dir().join("atrium-agent-no-state"),
+            )
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         if let Some(path) = socket {
@@ -139,7 +143,7 @@ fn describe(status: ExitStatus) -> String {
 }
 
 #[test]
-fn listens_accepts_and_closes_then_shuts_down_cleanly() {
+fn listens_and_shuts_down_cleanly() {
     let scratch = Scratch::new("accept");
     let socket = scratch.socket();
     let mut agent = Proc::start(Some(&socket));
@@ -150,9 +154,12 @@ fn listens_accepts_and_closes_then_shuts_down_cleanly() {
         .set_read_timeout(Some(Duration::from_secs(5)))
         .expect("read timeout must be settable");
 
-    // M1A defines no protocol, so Agent closes immediately and the read sees
-    // end-of-file. Anything else would mean a parser exists that nobody
-    // reviewed.
+    // A peer that says nothing and closes its side gets nothing back: no
+    // banner, no greeting, no information. The protocol itself is exercised
+    // in tests/protocol.rs.
+    stream
+        .shutdown(std::net::Shutdown::Write)
+        .expect("shutdown must succeed");
     let mut buffer = [0_u8; 1];
     let read = stream.read(&mut buffer).expect("reading must not error");
     assert_eq!(read, 0, "agent must close the connection without speaking");

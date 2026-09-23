@@ -12,11 +12,14 @@ description = "Atrium Agent: the privileged server component"
 # else. server/ci/boundary-checks.sh enforces this against cargo metadata.
 [dependencies]
 atrium-protocol.workspace = true
-nix = { workspace = true, features = ["user"] }
+nix = { workspace = true, features = ["user", "fs"] }
+serde.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = [
     "rt",
     "macros",
     "net",
+    "io-util",
     "signal",
     "time",
 ] }

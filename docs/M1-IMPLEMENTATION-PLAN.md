@@ -1542,6 +1542,144 @@ this plan disagreed with each other and the security-reviewed one was followed:
   on top of it.
 - **Non-goals:** no mutating operation, ever, in M1.
 
+**As built.** The decisions above stand, and the operation table is exactly
+§3.4's: two parameterless, read-only variants. Where the implementation is
+more specific than the sketch, or differs from an example in §3, it is
+recorded here rather than silently.
+
+1. **The exchange.** One connection, two round trips, then close:
+   `{"hello":{"protocol":1,"core_version":…,"request_id":…}}` →
+   `{"hello_ok":{"protocol":1,"agent_version":…}}` →
+   `{"call":{"op":"agent_info"|"runtime_probe"}}` → the result frame. Agent
+   answers anything else with `{"error":{"code":…,"agent_protocol":1}}` and
+   closes. The codes are a closed set: `protocol_version_mismatch`,
+   `malformed_frame`, `empty_frame`, `frame_too_large`, `invalid_request_id`,
+   `invalid_core_version`, `unexpected_frame`, `unknown_operation`,
+   `journal_unavailable`. A peer that is not Core gets nothing at all. It is
+   closed before a byte is read, and the kernel resets the connection if it
+   sent something.
+2. **Strict parsing, one spelling.** Every type denies unknown fields. Every
+   string is a validated newtype (`RequestId` `[0-9a-f]{1,64}`, `Version`,
+   `Timestamp`, `BootId`, `ReportedPath`) whose only constructor validates.
+   `AgentOp` has a hand-written deserializer that accepts only the bare name,
+   because serde's derived form would also accept `{"agent_info":null}`. When
+   strict decoding fails, a read-only second look at the bytes picks the
+   journal reason (mismatch, invalid id, unknown operation, malformed). It
+   classifies; it never produces a frame. The length prefix is checked before
+   allocation on both sides.
+3. **`RuntimeProbe` names candidates, not paths.** `socket` is one of
+   `docker_var_run`, `docker_run` and `podman_run`, not
+   `"/var/run/docker.sock"` as in §3.4's example. The paths exist only in
+   `atrium-agent/src/probe.rs`, and a boundary gate fails the build if one
+   appears anywhere else, Core included. The probe `lstat`s each candidate,
+   takes only real sockets (never a symlink), counts `/var/run` and `/run`
+   aliases of one socket once, connects with a one-second timeout, and closes
+   without sending or reading a byte (a second gate). The response adds
+   `also_present`: other distinct candidates that exist, by name. The
+   selected one is the first reachable, else the first present. `version` is
+   always `null`.
+4. **`AgentInfo`** reports `journal.last_seq` rather than §3.4's
+   `journal.entries`: the last sequence number is exact and survives
+   rotation, while a count of retained lines does not. `boot_id` is `null`
+   under the production unit, whose `ProcSubset=pid` hides `/proc/sys`. The
+   unit was not widened for it; Core reads the boot id itself in M1F.
+   `capability_bounding_set_empty` and `no_new_privileges` come from
+   `/proc/self/status`, and are `null` if unreadable. Nothing is invented.
+5. **Peer policy.** As root, Agent resolves the `atrium` user once at
+   startup and admits only that uid. It refuses to start if the user is
+   missing or has uid 0. An unprivileged Agent, used by tests and
+   development, admits only its own uid. The kernel's `SO_PEERCRED` is the
+   only input. A frame that tries to claim a uid is malformed. A member of
+   the `atrium` group with another uid can connect, and is closed unread.
+6. **The journal.** `<state>/journal/<YYYY-MM-DD>-<first seq, 20
+   digits>.jsonl`, rather than §3.6's `<date>.jsonl`, because a file also
+   rolls at 8 MiB. Five files are kept. Directories are `0700` and files
+   `0600`, all owned by Agent's uid. Files are opened `O_NOFOLLOW`. Both
+   directories are re-checked on every append, and a file unlinked under an
+   open handle is replaced. One `write` and one `fdatasync` per line. `seq`
+   is recovered at startup from the newest file. A number spent on a failed or
+   torn write is never reused, and a torn tail is closed with a newline before
+   the next line. Lines are serialized from typed values only: kernel
+   integers, closed enums and validated newtypes. An invalid `request_id` is
+   not written; the line's `seq` is the correlation. **A result is sent only
+   after its line is on disk**, and if the journal cannot be written, Agent
+   answers `journal_unavailable` and nothing else. `ATRIUM_AGENT_STATE_DIR`
+   relocates the state directory for tests. It can select only a directory
+   that already passes the ownership check, and Core cannot set Agent's
+   environment.
+7. **Rate limit.** A token bucket over all connections: a burst of 32, then
+   8 per second. A connection over the limit is closed unread and counted.
+   The count is journaled as one `rate_limited` line with `suppressed: N`
+   before the next admitted line, so every attempt is accounted for.
+8. **Deadlines.** Agent gives each exchange five seconds end to end and
+   serves connections one at a time. Core gives a call eight seconds, so
+   Agent's own refusal arrives first.
+9. **Core.** `agentclient` is as strict as Agent. `agentmonitor` calls
+   `AgentInfo` and, only if that succeeds, `RuntimeProbe`, right after
+   readiness in normal mode and then every five minutes. It never runs in
+   recovery. Every call writes an `agent.call` audit row with the
+   `request_id`, the operation as `target`, an outcome (`ok`, `refused` or
+   `failed`) and a closed-set cause as `error_code`. The capability state
+   is logged once per change. Capability reasons extend §9.5 with
+   `agent_journal_unavailable`, `agent_protocol_error` and
+   `container_runtime_unreachable`, because a missing socket, a
+   non-answering one and a refusing Agent are different diagnoses. Core's
+   audit is useful history and **not** tamper-evident against a compromised
+   Core. Agent's journal is the independent record. A refresh races the stop
+   signal, so a stalled Agent cannot delay Core's shutdown. The security
+   review found that it could, by up to about 16 seconds, and a privileged
+   test now holds the stop under three.
+10. **Dependencies.** `atrium-protocol` gains `serde` and `serde_json`. Both are
+    pure, and the gate that forbids I/O crates in it still runs. `atrium-agent`
+    gains `serde`, `serde_json` and the `fs` feature of `nix`. tokio's
+    `io-util` feature on both sides brings `bytes` into the lockfile. No
+    `time` crate in Agent: its RFC 3339 formatter is thirty lines and tested.
+    No `proptest`: the robustness property is a fixed-seed randomized test
+    over arbitrary and mutated frames, with no new dependency.
+11. **Tests.** `atrium-protocol` holds the §2.5 codec tests and the
+    enumeration tests. `atrium-agent/tests/protocol.rs` runs hostile raw
+    clients against a real unprivileged Agent. `atrium-core/tests/agent.rs`
+    drives Core's client and monitor, with a real database, against a real
+    Agent and against fake agents that are hostile, mismatched or refusing.
+    Two privileged suites run as root in CI:
+    `atrium-agent/tests/privilege_boundary.rs` (root Agent through
+    `systemd-socket-activate`, a `0660 root:atrium` socket; other uids,
+    group members and root are rejected; the state directory and journal
+    cannot be read, forged or erased as `atrium`) and two tests added to
+    `atriumctl/tests/privileged.rs` (Core as `atrium` against a root Agent:
+    audit and journal correlate; no Agent means `agent_unreachable` and Core
+    keeps running).
+
+**Known limitations, carried forward:**
+
+- **Journal retention is by size.** A compromised Core can make Agent write
+  lines, up to the rate limit, and so age old lines out through rotation.
+  At 8 lines a second of about 200 bytes, the 40 MiB the journal keeps
+  (5 × 8 MiB) fills in about seven hours. At M1's normal volume that space
+  holds roughly a year of history. It cannot edit or delete a line, and the
+  flood itself is journaled. Before M2 adds a mutating operation, the retention of lines
+  for mutating operations must stop depending on the volume Core can
+  generate: separate retention, or a copy to journald under its own limits.
+- **Core's audit grows** by two rows per refresh, about 576 a day, until the
+  audit retention of SECURITY §12 is implemented (M1I).
+- **The probe can wake a socket-activated runtime.** If `docker.socket` or
+  `podman.socket` is socket-activated, the probe's `connect` makes systemd
+  start the daemon, although the probe sends nothing. That is the runtime's
+  configured on-demand behaviour, not an escalation, and the rate limit
+  bounds how often a compromised Core could trigger it. If it must never
+  happen, the probe has to stop connecting, and `reachable` would become
+  unknowable. That is a product decision, recorded here, and not taken in
+  M1C.
+- **Capability state can be five minutes old.** M1F's endpoint may refresh on
+  demand, under a rate limit.
+- **`systemd-analyze verify`** passes on all three units in a local run, but
+  CI still runs it as informational (`continue-on-error`), so it guarantees
+  nothing. Making it blocking, in a job that installs the binaries at their
+  unit paths, belongs to M1H with the installer.
+- Criteria 29, 39 and 40 are proven here at the process level, as capability
+  state and audit. The `GET /api/v1/system/capabilities` rendering and the
+  VM runs with Docker installed belong to M1F and M1H.
+
 ### M1D — TLS listener and the API skeleton
 - **Files:** `atrium-core/src/{tls,http/*,auth}.rs`, `atrium-api-types/*`.
 - **Content:** rustls acceptor with exporter capture per connection, axum router

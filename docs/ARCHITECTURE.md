@@ -116,6 +116,11 @@ fragment, a raw byte payload written to a privileged file, a container id, a
 systemd unit outside the platform's namespace, or a path outside a compiled
 allowlist.
 
+**As built in M1C:** the operation set is `AgentInfo` and `RuntimeProbe`, both
+parameterless and read-only. The journal is one line per connection, accepted
+or not, and a result is returned only after its line is on disk. See the plan's
+M1C *As built* note.
+
 The prototype's Python power agent is the ancestor of this component and its
 safety patterns are carried forward wholesale — fixed argv, no shell, durable
 intent before dispatch, dry-run first, boot-identity binding **(ADR-010)**.
@@ -471,7 +476,10 @@ exception that reaches the user as a stack trace or a generic banner.
 The Core-to-Agent protocol is versioned separately and independently. A Core newer
 than its Agent loses the operations that Agent does not implement, reported as
 unavailable capabilities; it never falls back to another route, because there is
-no other route.
+no other route. As built in M1C, the rule is at its strictest: the versions must
+be equal, so any mismatch makes *every* privileged operation unavailable
+(`agent_protocol_mismatch`), and there is no negotiation (plan §3.3). Finer skew
+handling, per operation, would be an addition with its own review.
 
 Client/server skew is expected and supported: an older client against a newer Core
 loses features, never correctness. A newer client against an older Core is told to

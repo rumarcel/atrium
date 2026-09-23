@@ -179,12 +179,13 @@ impl Installation {
             .stderr(Stdio::piped())
             .spawn()
             .expect("spawn");
-        child
+        // A command that refuses before reading stdin may already have
+        // exited; the broken pipe is not the test's concern, the exit is.
+        let _ = child
             .stdin
             .take()
             .expect("stdin")
-            .write_all(stdin.as_bytes())
-            .expect("stdin");
+            .write_all(stdin.as_bytes());
         child.wait_with_output().expect("wait")
     }
 
@@ -258,6 +259,117 @@ impl Installation {
     }
 }
 
+/// A root Agent for an installation, started the way systemd starts it: by
+/// socket activation on `<root>/run/atrium/agent.sock`, `0660 root:atrium`,
+/// with a `0700 root:root` state directory.
+struct RootAgent {
+    child: Child,
+    state: PathBuf,
+}
+
+impl RootAgent {
+    fn journal(&self) -> Vec<serde_json::Value> {
+        let dir = self.state.join("journal");
+        let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+            .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
+            .unwrap_or_default();
+        files.sort();
+        files
+            .iter()
+            .flat_map(|path| {
+                std::fs::read_to_string(path)
+                    .expect("journal")
+                    .lines()
+                    .map(|line| serde_json::from_str(line).expect("json"))
+                    .collect::<Vec<serde_json::Value>>()
+            })
+            .collect()
+    }
+}
+
+impl Drop for RootAgent {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Installation {
+    fn start_agent(&self) -> RootAgent {
+        const SOCKET_ACTIVATE: &str = "/usr/bin/systemd-socket-activate";
+        assert!(
+            Path::new(SOCKET_ACTIVATE).exists(),
+            "{SOCKET_ACTIVATE} is required to hand Agent a socket the way systemd does"
+        );
+        let source = PathBuf::from(env!("CARGO_BIN_EXE_atriumctl")).with_file_name("atrium-agent");
+        assert!(
+            source.exists(),
+            "{} must be built first (cargo build --workspace)",
+            source.display()
+        );
+        let agent = self.root.join("bin/atrium-agent");
+        std::fs::copy(&source, &agent).expect("copy atrium-agent");
+        chmod(&agent, 0o755);
+        for dir in ["run", "run/atrium"] {
+            std::fs::create_dir_all(self.root.join(dir)).expect("run");
+            chmod(&self.root.join(dir), 0o755);
+        }
+        let state = self.root.join("var/lib/atrium-agent");
+        std::fs::create_dir_all(&state).expect("agent state");
+        chmod(&state, 0o700);
+        let socket = self.root.join("run/atrium/agent.sock");
+        let child = Command::new(SOCKET_ACTIVATE)
+            .arg("--listen")
+            .arg(&socket)
+            .arg(format!(
+                "--setenv=ATRIUM_AGENT_STATE_DIR={}",
+                state.display()
+            ))
+            .arg("--setenv=ATRIUM_AGENT_LOG=info")
+            .arg(&agent)
+            .env_clear()
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn systemd-socket-activate");
+        let deadline = Instant::now() + READY_TIMEOUT;
+        while !socket.exists() {
+            assert!(Instant::now() < deadline, "the agent socket never appeared");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        chown(&socket, 0, self.atrium.gid);
+        chmod(&socket, 0o660);
+        RootAgent { child, state }
+    }
+
+    /// `(request_id, target, outcome, error_code)` of every `agent.call` row,
+    /// read without writing anything next to the database.
+    fn agent_calls(&self) -> Vec<(String, String, String, Option<String>)> {
+        let uri = format!(
+            "file:{}?immutable=1",
+            self.state().join("atrium.db").display()
+        );
+        let connection = Connection::open_with_flags(
+            uri,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+        )
+        .expect("open read-only");
+        let mut statement = connection
+            .prepare(
+                "SELECT request_id, target, outcome, error_code FROM audit \
+                 WHERE action = 'agent.call' ORDER BY id",
+            )
+            .expect("prepare");
+        statement
+            .query_map((), |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .expect("query")
+            .collect::<Result<_, _>>()
+            .expect("rows")
+    }
+}
+
 impl Drop for Installation {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
@@ -272,6 +384,21 @@ struct Core {
 impl Core {
     fn lines(&self) -> Vec<String> {
         self.capture.lock().expect("lock").clone()
+    }
+
+    fn wait_for(&self, needle: &str) -> String {
+        let deadline = Instant::now() + READY_TIMEOUT;
+        loop {
+            let lines = self.lines();
+            if let Some(line) = lines.iter().find(|l| l.contains(needle)) {
+                return line.clone();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no line with {needle}; child said: {lines:#?}"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
     }
 
     fn ready(&self) -> String {
@@ -1019,4 +1146,118 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
         }
     }
     found
+}
+
+// ---------------------------------------------------------------------------
+// M1C: Core and Agent, both real, both with their production identities.
+
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn agent_journal_and_core_audit_correlate() {
+    // Criterion 33: every call appears in Core's audit log and, independently,
+    // in Agent's journal, and the two agree on the request id.
+    let installation = Installation::new("correlate");
+    let agent = installation.start_agent();
+    let mut core = installation.start_core();
+    let ready = core.ready();
+    assert_eq!(field(&ready, "mode").as_deref(), Some("normal"), "{ready}");
+    let status = core.wait_for("\"event\":\"agent_status\"");
+    assert!(status.contains("\"privileged_available\":true"), "{status}");
+    assert!(status.contains("\"container_via\":\"agent\""), "{status}");
+    core.stop();
+
+    let calls = installation.agent_calls();
+    assert_eq!(calls.len(), 2, "AgentInfo and RuntimeProbe: {calls:?}");
+    let journal = agent.journal();
+    assert_eq!(journal.len(), calls.len(), "{journal:#?}");
+    for (request_id, target, outcome, code) in &calls {
+        assert_eq!(outcome, "ok");
+        assert_eq!(code, &None);
+        let line = journal
+            .iter()
+            .find(|line| line["request_id"] == request_id.as_str())
+            .unwrap_or_else(|| panic!("{request_id} missing from the journal: {journal:#?}"));
+        assert_eq!(line["op"], target.as_str());
+        assert_eq!(line["accepted"], true);
+        assert_eq!(
+            line["peer"]["uid"], installation.atrium.uid,
+            "the kernel's word"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn core_without_agent_reports_unreachable_and_keeps_running() {
+    // Criteria 29 and 40, Core's half: no Agent, so both capabilities are
+    // unavailable with agent_unreachable; Core stays up in normal mode and
+    // tries nothing else.
+    let installation = Installation::new("noagent");
+    let mut core = installation.start_core();
+    let ready = core.ready();
+    assert_eq!(field(&ready, "mode").as_deref(), Some("normal"), "{ready}");
+    let status = core.wait_for("\"event\":\"agent_status\"");
+    assert!(
+        status.contains("\"privileged_available\":false"),
+        "{status}"
+    );
+    assert_eq!(
+        field(&status, "privileged_reason").as_deref(),
+        Some("agent_unreachable")
+    );
+    assert_eq!(
+        field(&status, "container_reason").as_deref(),
+        Some("agent_unreachable")
+    );
+    std::thread::sleep(Duration::from_millis(1000));
+    core.assert_running();
+    core.stop();
+
+    let calls = installation.agent_calls();
+    assert_eq!(calls.len(), 1, "one attempt, no retry loop: {calls:?}");
+    assert_eq!(calls[0].1, "agent_info");
+    assert_eq!(calls[0].2, "failed");
+    assert_eq!(calls[0].3.as_deref(), Some("socket_missing"));
+}
+
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn core_stops_promptly_while_agent_stalls() {
+    // An Agent socket that accepts and never answers holds Core's call for
+    // its full timeout. A stop request must not wait behind it.
+    let installation = Installation::new("stall");
+    for dir in ["run", "run/atrium"] {
+        std::fs::create_dir_all(installation.root.join(dir)).expect("run");
+        chmod(&installation.root.join(dir), 0o755);
+    }
+    let socket = installation.root.join("run/atrium/agent.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind");
+    chown(&socket, 0, installation.atrium.gid);
+    chmod(&socket, 0o660);
+    let held = Arc::new(Mutex::new(Vec::new()));
+    let keep = Arc::clone(&held);
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            keep.lock().expect("lock").push(stream);
+        }
+    });
+
+    let mut core = installation.start_core();
+    let ready = core.ready();
+    assert_eq!(field(&ready, "mode").as_deref(), Some("normal"), "{ready}");
+    let deadline = Instant::now() + READY_TIMEOUT;
+    while held.lock().expect("lock").is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "Core never called the stalled Agent"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let started = Instant::now();
+    core.stop();
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "Core took {:?} to stop behind a stalled Agent call",
+        started.elapsed()
+    );
 }
