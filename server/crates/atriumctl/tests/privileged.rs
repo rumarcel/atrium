@@ -480,10 +480,13 @@ fn probe(installation: &Installation) -> Vec<(String, String, String)> {
     let output = command.output().expect("run probe");
     assert!(output.status.success(), "probe failed: {}", text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
+    // With --nocapture libtest writes `test probe_helper ... ` without a line
+    // break, so the first report shares its line; find the marker anywhere.
     let results: Vec<(String, String, String)> = stdout
         .lines()
         .filter_map(|line| {
-            let mut parts = line.strip_prefix("PROBE ")?.splitn(3, ' ');
+            let (_, report) = line.split_once("PROBE ")?;
+            let mut parts = report.splitn(3, ' ');
             Some((
                 parts.next()?.to_owned(),
                 parts.next()?.to_owned(),
