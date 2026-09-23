@@ -95,10 +95,15 @@ impl Layout {
     /// Refuses a relative path or one containing `.` or `..`, so the tree
     /// cannot be steered anywhere by path arithmetic.
     pub fn under(root: &Path) -> Result<Self, LayoutError> {
-        if root.to_str().is_none() {
+        let Some(text) = root.to_str() else {
             return Err(LayoutError::NotUtf8);
-        }
+        };
+        // Checked on the text, not on `components()`, which silently drops an
+        // interior `.` and would let `/tmp/./x` through as if it were `/tmp/x`.
         let normal = root.is_absolute()
+            && text
+                .split('/')
+                .all(|segment| segment != "." && segment != "..")
             && root
                 .components()
                 .all(|part| matches!(part, Component::RootDir | Component::Normal(_)));
