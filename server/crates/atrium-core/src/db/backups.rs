@@ -1,7 +1,8 @@
 //! Pre-migration copies of the state database.
 //!
-//! `/var/lib/atrium/backups/atrium.db.pre-<n>-<UTC timestamp>`, one per
-//! migration run, `0600` in a `0700` directory, made with `VACUUM INTO` —
+//! `/var/lib/atrium/backups/atrium.db.pre-<n>-<UTC timestamp>[.<k>]`, one
+//! per migration run — `.<k>` only when an earlier backup already holds that
+//! name within the same second, as after a restore that migrates again — `0600` in a `0700` directory, made with `VACUUM INTO` —
 //! never a file copy of a live database (ADR-012) — and verified before the
 //! migration is allowed to start. The newest five are kept.
 //!
@@ -22,6 +23,9 @@ use crate::protect::{self, Expect};
 /// How many backups survive pruning.
 pub const KEEP: usize = 5;
 
+/// The highest `.<k>` suffix tried before giving up on a second.
+const MAX_SEQUENCE: u32 = 99;
+
 /// One backup on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Backup {
@@ -35,6 +39,8 @@ pub struct Backup {
     pub before_version: u32,
     /// When it was taken, `YYYYMMDDTHHMMSSZ`.
     pub taken_at: String,
+    /// Order within `taken_at`: 0 for the plain name, `k` for `.<k>`.
+    pub sequence: u32,
 }
 
 fn prefix() -> String {
@@ -54,11 +60,34 @@ fn stamp(now: OffsetDateTime) -> String {
     )
 }
 
-/// Parses `atrium.db.pre-<n>-<stamp>`; `None` for anything else.
-fn parse_name(name: &str) -> Option<(u32, String)> {
+/// The name of the backup taken at `stamp` towards schema `to`.
+fn name_for(to: u32, stamp: &str, sequence: u32) -> String {
+    if sequence == 0 {
+        format!("{}{to}-{stamp}", prefix())
+    } else {
+        format!("{}{to}-{stamp}.{sequence}", prefix())
+    }
+}
+
+/// Parses `atrium.db.pre-<n>-<stamp>[.<k>]`, `k` in `1..=99` without leading
+/// zeros; `None` for anything else.
+fn parse_name(name: &str) -> Option<(u32, String, u32)> {
     let rest = name.strip_prefix(&prefix())?;
-    let (version, taken_at) = rest.split_once('-')?;
+    let (version, rest) = rest.split_once('-')?;
     let version = version.parse().ok()?;
+    let (taken_at, sequence) = match rest.split_once('.') {
+        None => (rest, 0),
+        Some((taken_at, k)) => {
+            let canonical = !k.is_empty()
+                && !k.starts_with('0')
+                && k.len() <= 2
+                && k.bytes().all(|b| b.is_ascii_digit());
+            if !canonical {
+                return None;
+            }
+            (taken_at, k.parse().ok()?)
+        }
+    };
     let valid = taken_at.len() == 16
         && taken_at.as_bytes()[8] == b'T'
         && taken_at.ends_with('Z')
@@ -66,7 +95,7 @@ fn parse_name(name: &str) -> Option<(u32, String)> {
             .bytes()
             .enumerate()
             .all(|(i, b)| i == 8 || i == 15 || b.is_ascii_digit());
-    valid.then(|| (version, taken_at.to_owned()))
+    valid.then(|| (version, taken_at.to_owned(), sequence))
 }
 
 /// True when `name` is a backup file name. The console tool accepts nothing
@@ -96,7 +125,7 @@ pub fn list(layout: &Layout) -> std::io::Result<Vec<Backup>> {
         let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
             continue;
         };
-        let Some((before_version, taken_at)) = parse_name(&name) else {
+        let Some((before_version, taken_at, sequence)) = parse_name(&name) else {
             continue;
         };
         let metadata = entry.metadata()?;
@@ -109,10 +138,16 @@ pub fn list(layout: &Layout) -> std::io::Result<Vec<Backup>> {
             name,
             before_version,
             taken_at,
+            sequence,
         });
     }
     found.sort_by(|a, b| {
-        (&b.taken_at, b.before_version, &b.name).cmp(&(&a.taken_at, a.before_version, &a.name))
+        (&b.taken_at, b.sequence, b.before_version, &b.name).cmp(&(
+            &a.taken_at,
+            a.sequence,
+            a.before_version,
+            &a.name,
+        ))
     });
     Ok(found)
 }
@@ -142,10 +177,7 @@ pub(super) fn take(
 ) -> Result<PathBuf, StateFault> {
     let failed = |message: String| StateFault::BackupFailed(message);
     let dir = prepare_dir(layout)?;
-    let path = dir.join(format!("{}{to}-{}", prefix(), stamp(now)));
-    if fsio::lstat(&path).map_err(|e| failed(clip(e)))?.is_some() {
-        return Err(failed(format!("{} already exists", path.display())));
-    }
+    let path = free_name(&dir, to, &stamp(now))?;
     let target = path
         .to_str()
         .ok_or_else(|| failed("backup path is not UTF-8".to_owned()))?;
@@ -163,6 +195,23 @@ pub(super) fn take(
     }
     fsio::sync_dir(&dir).map_err(|error| failed(clip(error)))?;
     Ok(path)
+}
+
+/// The first name for this second that nothing occupies. An existing file is
+/// never reused or overwritten: a second migration within the same second
+/// gets `.1`, `.2` and so on, and past [`MAX_SEQUENCE`] the backup fails.
+fn free_name(dir: &Path, to: u32, stamp: &str) -> Result<PathBuf, StateFault> {
+    let failed = |message: String| StateFault::BackupFailed(message);
+    for sequence in 0..=MAX_SEQUENCE {
+        let path = dir.join(name_for(to, stamp, sequence));
+        if fsio::lstat(&path).map_err(|e| failed(clip(e)))?.is_none() {
+            return Ok(path);
+        }
+    }
+    Err(failed(format!(
+        "{} already exists",
+        dir.join(name_for(to, stamp, MAX_SEQUENCE)).display()
+    )))
 }
 
 /// Mode `0600` and flushed, whatever the umask was.
@@ -219,10 +268,21 @@ mod tests {
     fn names_are_parsed_strictly() {
         assert_eq!(
             parse_name("atrium.db.pre-1-20260924T101500Z"),
-            Some((1, "20260924T101500Z".to_owned()))
+            Some((1, "20260924T101500Z".to_owned(), 0))
+        );
+        assert_eq!(
+            parse_name("atrium.db.pre-1-20260924T101500Z.12"),
+            Some((1, "20260924T101500Z".to_owned(), 12))
         );
         for bad in [
             "atrium.db.pre-1-20260924T101500",
+            "atrium.db.pre-1-20260924T101500Z.",
+            "atrium.db.pre-1-20260924T101500Z.0",
+            "atrium.db.pre-1-20260924T101500Z.01",
+            "atrium.db.pre-1-20260924T101500Z.100",
+            "atrium.db.pre-1-20260924T101500Z.1.2",
+            "atrium.db.pre-1-20260924T101500Z.-1",
+            "atrium.db.pre-1-20260924T101500Z./x",
             "atrium.db.pre-x-20260924T101500Z",
             "atrium.db.pre-1-2026092AT101500Z",
             "../atrium.db.pre-1-20260924T101500Z",
@@ -239,6 +299,38 @@ mod tests {
         let later = earlier + time::Duration::seconds(1);
         assert!(stamp(earlier) < stamp(later));
         assert_eq!(stamp(earlier).len(), 16);
+    }
+
+    #[test]
+    fn a_second_backup_in_the_same_second_gets_the_next_free_name() {
+        let fixture = Fixture::new("same-second");
+        let dir = fixture.layout.backups_dir();
+        std::fs::create_dir(&dir).expect("dir");
+        let at = stamp(OffsetDateTime::from_unix_timestamp(1_790_000_000).expect("time"));
+        assert_eq!(
+            free_name(&dir, 1, &at).expect("free"),
+            dir.join(name_for(1, &at, 0))
+        );
+        std::fs::write(dir.join(name_for(1, &at, 0)), b"x").expect("seed");
+        std::fs::write(dir.join(name_for(1, &at, 1)), b"x").expect("seed");
+        let next = free_name(&dir, 1, &at).expect("free");
+        assert_eq!(next, dir.join(name_for(1, &at, 2)));
+        std::fs::write(&next, b"x").expect("seed");
+
+        let listed: Vec<u32> = list(&fixture.layout)
+            .expect("list")
+            .into_iter()
+            .map(|b| b.sequence)
+            .collect();
+        assert_eq!(listed, vec![2, 1, 0], "newest first within one second");
+
+        for k in 3..=MAX_SEQUENCE {
+            std::fs::write(dir.join(name_for(1, &at, k)), b"x").expect("seed");
+        }
+        assert!(matches!(
+            free_name(&dir, 1, &at),
+            Err(StateFault::BackupFailed(_))
+        ));
     }
 
     #[test]
