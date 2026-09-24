@@ -1,7 +1,8 @@
 # ADR-003 — Server identity, SPKI pinning and code-based pairing
 
 **Status:** accepted — revised in the hardening review of 2026-09-22; §1's
-generation and file-mode sentences superseded by [ADR-017](0017-install-time-identity-and-root-owned-key-material.md)
+generation and file-mode sentences superseded by [ADR-017](0017-install-time-identity-and-root-owned-key-material.md);
+§3's "only a hash" storage sentence superseded by [ADR-019](0019-sealed-pairing-secret.md)
 **Date:** 2026-09-22
 **Related:** ADR-006, ADR-009
 **Assumptions:** A-06, A-07, A-08, A-24, A-30, A-31
@@ -119,6 +120,14 @@ bytes. There is no second format and no URI scheme to get wrong.
 **Handling:** displayed by the installer on the server's console, and re-issuable
 **only** by running `atriumctl pair` on the server. Core never transmits it, never
 logs it, and never persists it in plaintext — only a hash, for attempt counting.
+
+> **Superseded in part by [ADR-019](0019-sealed-pairing-secret.md) (M1E,
+> 2026-09-24).** A hash cannot produce `K` in §4, so the armed secret is
+> stored as XChaCha20-Poly1305 ciphertext under `secrets.key`, bound to the
+> server, the arming, the profile and the validity window, and deleted in the
+> transaction that consumes, expires, locks or replaces it. It is still never
+> stored in plaintext, never logged and never returned. Nothing else in this
+> section changes.
 Single use, default 15-minute lifetime, consumed atomically on first successful
 verification.
 

@@ -52,11 +52,17 @@ owned by the service. [ADR-017](0017-install-time-identity-and-root-owned-key-ma
 supersedes exactly those sentences. The older ADRs carry a note and are
 otherwise unchanged.
 
+**Supersession, 2026-09-24 (M1E).** ADR-003 §3 said the armed pairing secret
+is kept "only [as] a hash", but §4 derives the proof key from the secret, so
+a hash cannot verify a proof. [ADR-019](0019-sealed-pairing-secret.md)
+replaces that one storage rule with sealed storage under `secrets.key`; the
+rest of ADR-003 stands.
+
 | ADR | Decision | Status |
 | --- | --- | --- |
 | [ADR-001](0001-core-and-agent-separation.md) | Core and Agent separation | accepted, revised |
 | [ADR-002](0002-provider-adapter-architecture.md) | Provider/adapter architecture with runtime capability negotiation | accepted, revised |
-| [ADR-003](0003-authentication-and-device-pairing.md) | Server identity, SPKI pinning, binding-profile pairing, SHA-256 device-token verifier | accepted, revised ×2; §1 in part superseded by ADR-017 |
+| [ADR-003](0003-authentication-and-device-pairing.md) | Server identity, SPKI pinning, binding-profile pairing, SHA-256 device-token verifier | accepted, revised ×2; §1 in part superseded by ADR-017, §3's secret storage by ADR-019 |
 | [ADR-004](0004-privileged-operation-model.md) | Closed typed privileged operation set, no shell, no sudo, no byte payloads | accepted, revised |
 | [ADR-005](0005-application-platform.md) | Declarative app manifests as the application platform | accepted, revised |
 | [ADR-006](0006-local-first-and-remote-access.md) | Local-first with optional, tiered remote access | accepted |
@@ -72,3 +78,4 @@ otherwise unchanged.
 | [ADR-016](0016-trust-roots-and-key-separation.md) | Three trust roots — device identity, release signing, catalogue publisher — kept separate | accepted; identity key location superseded by ADR-017 |
 | [ADR-017](0017-install-time-identity-and-root-owned-key-material.md) | Identity material is created at installation and owned by root (`root:atrium 0640` in `root:atrium 0750`); the running service never generates it | accepted |
 | [ADR-018](0018-privileged-mutation-audit-retention.md) | Privileged mutation history gets its own retention lane with a 30-day floor; if it cannot be kept, new mutations are refused | accepted; binds the first mutating Agent operation (M2) |
+| [ADR-019](0019-sealed-pairing-secret.md) | The armed pairing secret is stored as XChaCha20-Poly1305 ciphertext under `secrets.key`, bound to its arming, never as plaintext or a bare digest | accepted (M1E) |

@@ -48,6 +48,10 @@ built.
 | `/etc/atrium/secrets.key` | `root:atrium` | `0640` | the key for the M3 secrets database, created now and first used in M3 |
 | `/etc/atrium/core.toml` | `root:atrium` | `0640` | bootstrap configuration |
 
+> **Note (M1E, 2026-09-24).** `secrets.key` is first used in M1E, not M3:
+> [ADR-019](0019-sealed-pairing-secret.md) derives from it the key that seals
+> the armed pairing secret. Its ownership, mode and creation are unchanged.
+
 The group bits allow read, and there is no group write bit anywhere in the
 directory. The guarantee rests on **discretionary access control**, which the
 kernel enforces whatever the unit file says. `ReadOnlyPaths=/etc/atrium` in
