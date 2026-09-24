@@ -479,6 +479,13 @@ second hash and no password-hashing step. See §7.3 for why. The same applies to
 `secret_digest`: the pairing secret is 128 bits from the CSPRNG, so a slow hash
 would protect nothing and would hand an unauthenticated caller a CPU cost.
 
+**Migration 2 (M1E).** `pairing_state` is rebuilt: `secret_digest` is
+replaced by `arming_id`, `profile`, `secret_nonce` and `secret_ciphertext`
+([ADR-019](adr/0019-sealed-pairing-secret.md)), with a `CHECK` that allows
+only a fully armed or a fully disarmed row. `devices` is rebuilt with
+`CHECK`s on the id, name, platform, role and verifier size. See
+`atrium-core/src/db/migrations/0002_pairing.sql`.
+
 ### 4.4 Migrations
 
 - `PRAGMA user_version` holds the applied schema number. M1 ships version 1.
@@ -710,8 +717,10 @@ oldest-first.
 - QR payload = the canonical 26 symbols, no hyphens. M1 defines the payload and
   tests that it decodes identically; it does not render a QR image and adds no QR
   dependency.
-- Stored only as `SHA-256` of the decoded bytes in `pairing_state.secret_digest`,
-  compared in constant time. Never logged,
+- ~~Stored only as `SHA-256` of the decoded bytes in `pairing_state.secret_digest`,
+  compared in constant time.~~ *Superseded by [ADR-019](adr/0019-sealed-pairing-secret.md):
+  a digest cannot compute `K`. Stored as XChaCha20-Poly1305 ciphertext under
+  `secrets.key` (migration 2); see M1E "As built" in §17.* Never logged,
   never in an audit `detail`, never returned.
 - Lifetime 15 minutes; `begin`→`complete` window 2 minutes; single use, consumed
   in the same transaction that inserts the device.
@@ -1828,6 +1837,7 @@ recorded here.
   every ten seconds, each slot lasts up to the 300 s lifetime. The global cap
   is the plan's (§8.2). Per-address limits arrive with the pairing surface
   in M1E and should cover connections as well as pairing attempts.
+  *Closed in M1E: 8 connections per source.*
 - Criteria 26, 27 and 28 are proven for the routes that exist. 28's per-DTO
   tests arrive with the first POST routes in M1E; the mechanism (declared
   length, capped read, `deny_unknown_fields` mapped to
@@ -1848,6 +1858,157 @@ recorded here.
 - **Security exercised:** channel binding, constant-time comparison, no oracle in
   error responses, atomic single use.
 - **Non-goals:** no client yet — the tests drive it with a harness client.
+
+**As built.** `atrium-pairing` (pure: codec, transcript, proofs, token, wire
+types, the client state machine), `atrium-core/src/pairing/` (the service
+and `seal.rs`), `atrium-core/src/devices.rs`, `atrium-core/src/db/pairing.rs`,
+migration 2, `atrium-core/src/http/limits.rs`, and `atriumctl pair`. Where
+the implementation is more specific than this plan, or departs from it:
+
+1. **The armed secret is sealed, not digested — [ADR-019](adr/0019-sealed-pairing-secret.md).**
+   §6.3's "stored only as `SHA-256` … in `secret_digest`" cannot verify a
+   proof, because `K` is derived from the secret. By the owner's decision the
+   secret is XChaCha20-Poly1305 ciphertext under a key derived from
+   `secrets.key`, with the server, arming id, profile and validity window as
+   associated data. Migration 2 replaces `secret_digest` with `arming_id`,
+   `profile`, `secret_nonce` and `secret_ciphertext`, and a `CHECK` allows
+   only a fully armed or a fully disarmed row. `devices` gains `CHECK`s for
+   id shape, name bounds, the platform set, `role = 'owner'` and a 32-byte
+   verifier. Both go through the M1B migration path, behind a backup.
+2. **Transcript byte order.** `T = SHA-256(profile id) ‖ serverId ‖ spki ‖ cb
+   ‖ clientNonce ‖ serverNonce ‖ SHA-256(name ‖ 0x00 ‖ platform)`, 208 bytes
+   — ADR-003's order with the profile hash first; §6.4's listing predates the
+   profile. ADR-003 leaves `H(deviceName ‖ platform)` unencoded; the as-built
+   encoding is UTF-8 name, one zero byte, the lowercase platform word (the
+   name cannot contain a control character, so the separator is
+   unambiguous). Frozen vectors are committed in `transcript.rs`, computed
+   independently.
+3. **Attempts.** In memory, at most 4, **one per source**: a second `begin`
+   from the same source replaces that source's attempt, and when 4 sources
+   hold one each a fifth is refused. §6.2's "evicted oldest-first" is not
+   implemented, because evicting would let anyone knock the owner's attempt
+   out; refusing keeps an attempt in progress safe for its 2 minutes. An
+   attempt records its connection id, the arming id, both nonces and the
+   device metadata; the exporter is read again from the connection at
+   `complete`, and the attempt is removed before anything is checked, so it
+   is single use. Successful consumption and the failure lock forget every
+   attempt.
+4. **What counts as a failure.** A `complete` that names a live attempt for
+   the current arming and does not succeed — wrong proof, other connection,
+   window passed — counts; the fifth destroys the secret and locks. §6.5's
+   "count a `begin` failure if the secret is expired or absent" is not
+   implemented: there is no arming to count against, and a `begin` carries
+   nothing derived from the secret, so counting it would let anyone lock
+   pairing without guessing. A `complete` naming no live attempt is refused
+   and not counted. An unsealable secret is refused, logged
+   (`pairing_secret_unsealable`) and not counted. Every refusal is
+   `403 pairing.rejected` with an identical body.
+5. **Expiry.** Checked on every read, so an expired secret is never usable;
+   the ciphertext is deleted by the next pairing request or by Core's
+   30-second tick, whichever is first (`pairing.expired` audit row).
+6. **Routes.** `GET /api/v1/pair/info`, `POST /api/v1/pair/begin` (1 KiB),
+   `POST /api/v1/pair/complete` (256 B): `Auth::Pairing` — unauthenticated,
+   TLS 1.3 only, no browser, rate limited, absent in recovery. `GET
+   /api/v1/me`, `GET /api/v1/devices`, `DELETE /api/v1/devices/{deviceId}`:
+   device routes. `{deviceId}` is the table's one parameter and matches
+   exactly 32 lowercase hex. `POST /api/v1/devices/actions/revoke-all` is
+   **not** implemented: it needs the confirmation mechanism (§8,
+   `POST /api/v1/confirmations`), which no M1 pass has built; the identity
+   rotation still revokes everything. `GET /api/v1/devices` returns every
+   device with `nextCursor: null`: a device exists only by consuming a
+   console-armed, single-use secret, so the table grows by at most one row
+   per console action. `pair/info`'s `spki` is the full lowercase hex pin.
+7. **Authentication.** One function, called at the `Auth::Device` point in
+   dispatch and nowhere else: exactly one `Authorization` header, `Bearer`
+   (scheme case-insensitive) and 43 characters of canonical base64url;
+   `SHA-256` of the decoded 32 bytes; lookup by the unique index; the stored
+   digest compared again with `subtle`. No cache. Missing, malformed, unknown
+   and revoked are one identical `401`. A database failure is `500`, never
+   `401`, so a client never discards a valid token because the server
+   failed. The same check decides the absent-path and wrong-method answers
+   under `/api/v1`: `401` without a device, `404` or `405` with one. An
+   authenticated device calling the normal-mode diagnostics route gets `404`
+   until M1F adds its handler.
+8. **Devices.** Every device is `owner`. `last_seen_at` is written by the
+   authentication itself, conditionally, at most once a minute; §7.3a's
+   "off the request path" is approximated by that bound. Revocation deletes
+   the row and writes `device.revoked` in one transaction; a device may
+   revoke itself; an unknown id is `404 request.not_found`.
+9. **Bodies.** Every POST declares `application/json` (optionally
+   `charset=utf-8`) or gets `415 validation.unsupported_media_type` before
+   the body is read. DTOs deny unknown and duplicate fields; binary fields
+   are canonical unpadded base64url of a fixed length; `deviceName` is 1–64
+   characters and at most 128 bytes, no leading or trailing space, and no
+   control, bidi, zero-width, separator, private-use, tag or noncharacter
+   code point; it is stored as given (no normalization), never logged and
+   never audited.
+10. **Rate and connection limits** (`http/limits.rs`). A source is the
+    accepted socket's address — IPv4, with IPv4-mapped IPv6 folded to IPv4,
+    and IPv6 per address — and never a header. IPv6 is deliberately not
+    grouped by /64: on a home LAN every host shares the /64, so grouping
+    would make the whole network one source (the security review's one
+    finding, fixed before commit). At most 8 concurrent connections per
+    source inside the global 32. Pairing routes: 10 requests at once per
+    source, then 10 a minute; 30 at once for everyone, then 60 a minute; at
+    most 1024 tracked sources. A limited request is `403 pairing.rejected`
+    with `Retry-After`, refused before its body is read. This closes M1D's
+    "one client holds all 32 slots" limitation.
+11. **Console.** `atriumctl pair` drops to the service user, verifies the
+    identity, attaches to the current-schema database without migrating,
+    arms in one transaction (replacing any armed secret and clearing a
+    lock), and prints the code once with its expiry. `atriumctl
+    rotate-identity` now arms and prints a fresh code after revoking (§5.5
+    step 3). Arming is audited `pairing.armed`; the audit and the log carry
+    no secret, proof, token, digest, nonce or exporter.
+12. **Errors.** Two codes added to the closed set: `pairing.rejected` (403)
+    and `validation.unsupported_media_type` (415). §8.1's
+    `pairing.not_open` and `pairing.profile_not_permitted` are deliberately
+    not used: they would be the oracle ADR-003 forbids.
+13. **Gates.** `src/http` still names no database; it reaches state only
+    through the two services, which may not name Agent, a process, rotation,
+    restore or a file write. The secret, token and digest types have no
+    `==`. No cache structure in the authentication path. Only the native
+    profile is armed and the request's profile is only compared. No
+    forwarding header is read. No log field names a secret. The pure pairing
+    crate has no randomness source.
+14. **Dependencies.** `hkdf`, `hmac`, `subtle`, `base64` (RustCrypto and
+    the de-facto standard), and `chacha20poly1305` for ADR-019.
+
+**Known limitations, carried forward:**
+
+- A LAN client can still spend the global pairing budget or complete five
+  bogus proofs against its own attempts, which locks pairing until the owner
+  re-arms at the console. That is ADR-003's design (lock rather than allow
+  guessing); the owner re-arms.
+- The token is returned in a response body that hyper buffers; that buffer
+  is not zeroed. The raw token is not stored or logged anywhere by Core.
+- Comparison of proofs, digests and secrets is constant-time; the network
+  timing of the refusal paths is comparable (the proof is always computed)
+  but not claimed constant.
+
+**Security review (attacker-first, M1E).**
+
+| Question | Answer, and the evidence |
+| --- | --- |
+| Pair without console arming? | No. `begin` needs an armed, unexpired, unlocked row, which only `atriumctl pair` (and `rotate-identity`) writes. `first_pairing_claims_…`, `expired_secret_…` |
+| One secret, two devices? | No. The attempt is removed before checking; consumption, device insert and claim are one `IMMEDIATE` transaction that re-reads the arming. `one_secret_never_makes_two_devices_even_concurrently` |
+| Brute force through an oracle? | No. One body for every refusal, no remaining count, five failures destroy the secret; 128 bits make offline guessing moot. `wrong_secret_returns_generic_rejection_identical_to_every_other_refusal` |
+| Unbounded memory or storage from failures? | No. ≤4 attempts, ≤1024 rate entries, ≤32 connection entries; ≤5 failure audit rows per arming. `attempts_are_bounded_and_expire`, `source_state_is_bounded` |
+| Relay through a MITM? | No, even with the correct secret: SPKI and exporter differ. `a_relaying_mitm_with_its_own_key_cannot_complete_pairing` |
+| Move `complete` to another TLS connection? | No. The attempt records the connection id and the exporter is read from the arriving connection. `complete_on_a_different_connection_is_refused` |
+| Profile downgrade? | No. The profile is armed, not negotiated; the web profile does not parse; the schema admits only the native one. Profile tests and gate |
+| TLS 1.2 to pairing? | No. `403 request.tls_version_required` before the body. `pairing_routes_require_tls13_…` |
+| Attacker metadata in logs? | No. The device name is validated, never logged or audited; platform is a closed set; `Host` is never reflected. Secrecy tests and the log gate |
+| Token recoverable from the database? | No. Only `SHA-256(token)`. `database_contains_no_raw_token_and_no_secret` |
+| Revoked token surviving a cache? | No cache exists. 100 requests after revoking all fail; source gate |
+| Verifier material in the device list? | No. Field set is fixed; scanned for token and digest in every encoding |
+| Unauthenticated client reaching a device handler? | No. One `Auth::Device` check before any handler; absent paths and wrong methods answer 401 without a device |
+| One source exhausting all connection slots? | No. 8 per source of 32. **Finding fixed:** IPv6 was first keyed by /64, which on a LAN makes every host one source; now per address |
+| `X-Forwarded-For` bypass? | No header is read; the source is the socket. Test and gate |
+| Recovery pairing? | No. The routes do not exist in recovery (503), and recovery has no services. `recovery_has_no_pairing_route_on_any_method` |
+| Pairing contacting Agent? / New Agent operation? | No and no. Service gate; `AgentOp` is still two parameterless variants |
+| Secret in diagnostics or logs? | No. Privileged end-to-end scan at debug level, of logs, audit, `atriumctl diagnostics`, every response and every state file |
+| Crash breaking single use or claim atomicity? | No. Crash before commit leaves the secret armed and no device; a failed insert rolls the disarm back; the schema forbids half-armed rows |
 
 ### M1F — native providers
 - **Files:** `atrium-core/src/providers/{cpu,memory,load,os,thermal,net,fs}.rs`,

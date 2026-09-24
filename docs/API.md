@@ -103,6 +103,24 @@ endpoint without reading it is a security bug.
 Failure returns a single generic `pairing_rejected` code regardless of which part
 was wrong, with a `retryAfter` when rate limited.
 
+**As built (M1E).** The three pairing routes require TLS 1.3 (`403
+request.tls_version_required` otherwise) and refuse browsers. `spki` in
+`pair/info` is the full `SHA-256(SPKI)` as 64 lowercase hex characters, for
+display only — the client takes the pin from its own handshake. Every binary
+field is canonical base64url **without padding** of exactly its length
+(`clientNonce`, `serverNonce`, `proofC`, `proofS`: 32 bytes, 43 characters;
+`deviceToken`: 32 bytes, 43 characters); `pairingId`, `deviceId` and
+`serverId` are 32 lowercase hex. `deviceName` is 1–64 characters (at most 128
+bytes UTF-8) with no control, bidi-control, zero-width or private-use
+characters and no surrounding space; `platform` is one of `windows`, `macos`,
+`linux`, `web`, `other`. Unknown and duplicate fields are refused. POST bodies
+must be `Content-Type: application/json` (`415
+validation.unsupported_media_type` otherwise) and at most 1 KiB (`begin`) or
+256 bytes (`complete`). Every refusal is `403` with `code: "pairing.rejected"`
+and an identical body; when the source's or the global budget is spent, the
+same answer carries a `Retry-After` header in seconds. Nothing tells the client
+which part was wrong or how many attempts remain.
+
 Authenticated identity:
 
 ```http
@@ -111,6 +129,31 @@ GET    /api/v1/devices
 DELETE /api/v1/devices/{deviceId}      # revoke; immediate
 POST   /api/v1/devices/actions/revoke-all
 ```
+
+**As built (M1E).** Device routes take `Authorization: Bearer <deviceToken>`.
+A missing, malformed, unknown or revoked token gets the same `401
+auth.unauthorized` with `WWW-Authenticate: Bearer`; revocation takes effect on
+the very next request. Under `/api/v1`, a path or method that does not exist
+answers `401` without a valid token and `404`/`405` with one.
+
+```jsonc
+// GET /api/v1/me
+{ "deviceId": "…", "name": "Study laptop", "platform": "windows", "role": "owner",
+  "serverId": "…" }
+
+// GET /api/v1/devices — never a token, a digest or any pairing material
+{ "items": [ { "deviceId": "…", "name": "…", "platform": "…", "role": "owner",
+               "createdAt": "2026-09-24T10:00:00Z", "lastSeenAt": "…" | null,
+               "current": true } ],
+  "nextCursor": null }
+
+// DELETE /api/v1/devices/{deviceId} → 204; unknown id → 404 request.not_found.
+// A device may revoke itself.
+```
+
+M1 has one role, `owner`; `me` has no user yet. `revoke-all` needs the
+destructive-confirmation mechanism (§7) and is not implemented in M1E; a
+deliberate identity-key rotation at the console revokes every device.
 
 ## 4. Error model
 
@@ -152,7 +195,8 @@ Reserved code families: `auth.*`, `pairing.*`, `capability.*`, `provider.*`,
 request itself before any domain logic runs (`request.host_rejected`,
 `request.origin_rejected`, `request.not_found`,
 `request.unsupported_api_version`, `request.method_not_allowed`,
-`request.tls_version_required`, `request.timeout`). `network.*` stays
+`request.tls_version_required`, `request.timeout`). M1E adds
+`pairing.rejected` and `validation.unsupported_media_type`. `network.*` stays
 reserved for the network *domain*: interfaces and addresses.
 
 Three codes exist specifically for the container boundary and are never merged

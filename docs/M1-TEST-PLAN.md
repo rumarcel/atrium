@@ -450,7 +450,7 @@ issued by M1B's code, and a client that pins the SPKI:
 | `every_response_carries_version_headers` | `assert_common_headers`, applied to every success and error in `http/tests.rs` |
 | `unauthenticated_routes_return_401_problem` | `routing_is_exact_and_fails_closed` |
 | `error_response_leaks_nothing` | `http/tests.rs` |
-| `unknown_body_field_rejected`, `body_over_limit_rejected_before_parse` | `bodies_are_refused_or_bounded_before_parsing` (test-only route until M1E's DTOs) |
+| `unknown_body_field_rejected`, `body_over_limit_rejected_before_parse` | `bodies_are_refused_or_bounded_before_parsing` (test-only route; M1E's DTOs below) |
 | `host_header_allowlist` | `http/tests.rs`, plus the parser tests in `http/host.rs` |
 | `origin_header_on_token_request_refused` | `cross_origin_browser_requests_are_refused_and_nothing_advertises_cors` |
 | `recovery_has_no_state_changing_route`, `recovery_has_no_pairing_route`, `recovery_router_is_a_strict_subset` | `http/routes.rs` and `recovery_serves_only_health_and_redacted_diagnostics` |
@@ -482,6 +482,54 @@ through the new path dependency, which is why that crate is kept
 platform-neutral and dependency-light.
 
 ---
+
+**As built (M1E).** The pairing and device tests run the real listener with a
+real database in a private temporary tree, arm pairing the way `atriumctl
+pair` does (through a separate database connection), move a test clock, and
+pair over real TLS 1.3 with a harness client built on `atrium-pairing` that
+takes the exporter and the certificate from its own handshake.
+
+| Plan name | Where |
+| --- | --- |
+| §2.1 codec tests (all eleven) and the 2 000-value round trip | `atrium-pairing/src/secret.rs` |
+| `uppercasing_is_ascii_only_under_turkish_locale` | `atrium-pairing/tests/turkish_locale.rs` — re-runs itself under `LC_ALL=tr_TR.UTF-8`; fails instead of skipping under CI |
+| §2.2 transcript and proofs, `profile_is_in_the_transcript`, `transcript_length_is_208_bytes` | `atrium-pairing/src/transcript.rs` (frozen vectors computed independently) |
+| `token_digest_known_vector`, `verifier_comparison_is_constant_time` | `atrium-pairing/src/token.rs`; the no-`==` source gate |
+| `happy_path_pairs_and_returns_token` | `http/pairing_tests.rs` |
+| `proof_s_is_verifiable_by_the_client` | `proof_s_is_verifiable_by_the_client_and_a_wrong_one_is_refused`, and `atrium-pairing/src/client.rs` |
+| `wrong_secret_returns_generic_rejection` | `wrong_secret_returns_generic_rejection_identical_to_every_other_refusal` (byte-identical to unknown attempt, web profile, unknown profile and expired secret) |
+| `five_failures_lock_pairing` | `five_failures_lock_pairing_until_the_console_re_arms` |
+| `used_secret_cannot_be_reused` | `used_secret_and_replayed_complete_are_refused` |
+| `expired_secret_rejected`, `begin_complete_window_expires` | `expired_secret_is_refused_and_its_ciphertext_deleted`, `begin_complete_window_expires_after_two_minutes` |
+| `complete_on_a_different_connection_is_refused` | `http/pairing_tests.rs` |
+| `first_pairing_claims_the_server`, `second_pairing_without_a_fresh_secret_refused` | `first_pairing_claims_the_server_and_a_second_needs_a_fresh_secret` |
+| `revocation_takes_effect_on_the_next_request`, `no_authentication_cache_exists` | `devices_authenticate_list_safely_and_revoke_immediately` (100 requests after revoking) and the no-cache source gate |
+| `revoked_and_unknown_tokens_are_indistinguishable` | `revoked_unknown_and_malformed_tokens_are_indistinguishable` (status, body and header set; timing is not asserted) |
+| `database_contains_no_raw_token` | `database_contains_no_raw_token_and_no_secret` |
+| §4.2a `armed_secret_permits_only_the_native_profile`, `web_profile_is_not_implemented_in_m1`, `profile_cannot_be_negotiated` | the refusal-identity test above, `pairing::tests::the_armed_profile_comes_from_the_state_not_the_request`, the profile source gate |
+| §4.3 MITM | `a_relaying_mitm_with_its_own_key_cannot_complete_pairing` — a real TLS-terminating relay with its own key and the correct secret, plus an attacker substituting only the SPKI or only the exporter |
+| §4.4 hostile server | `a_hostile_server_with_a_wrong_proof_s_leaves_the_client_with_nothing` — the client's store stays empty; the same harness against the real server stores exactly a pin and a token |
+| `unknown_body_field_rejected` (per DTO), `body_over_limit_rejected_before_parse` | `pairing_bodies_are_strict_bounded_and_json_only` |
+| `recovery_has_no_pairing_route` | `recovery_has_no_pairing_route_on_any_method` |
+| `local_restore_succeeds_and_normal_service_resumes` (the paired device) | `atriumctl` privileged `a_device_paired_before_corruption_authenticates_after_restore` |
+| `rotation_changes_spki_and_revokes_all_devices` | `db::pairing::tests::an_identity_key_change_revokes_every_device_and_the_armed_secret`; `console` and `privileged` rotation tests (which also assert a fresh code is armed) |
+| `atriumctl_leaves_no_root_owned_wal` | `atriumctl` privileged `pairing_end_to_end_…` |
+| §9 log scan and bundle scan | `atriumctl` privileged `pairing_end_to_end_leaves_no_secret_in_logs_audit_diagnostics_or_responses` (Core at debug level, the audit table, `atriumctl diagnostics`, every response body, every state file) and `http/pairing_tests.rs::nothing_secret_reaches_the_audit_or_any_response` |
+
+Added for ADR-019 (`pairing/seal.rs`, `pairing/tests.rs`, `db/pairing.rs`):
+a frozen sealing vector computed independently; no plaintext in the database
+or in a backup; another `secrets.key` cannot open; tampered ciphertext, nonce,
+expiry or armed time refused and not counted; nothing recoverable after
+consumption, expiry, lock or replacement; a Core restart inside the window
+still pairs and an attempt begun before it does not; two valid attempts or one
+attempt completed twice concurrently make exactly one device; a crash before
+commit, or a failed device insert, leaves the secret armed and the server
+unclaimed. Added for limits (`http/limits.rs`, `http/tests.rs`,
+`http/pairing_tests.rs`): equivalent address forms are one source, one
+source cannot hold every connection slot while another still gets in, four
+sources fill the global cap exactly, the per-source and global buckets and
+the bounded source table, attempts bounded to four with one per source, and
+forwarding headers change nothing.
 
 ## 12. Coverage map — every criterion has a test
 

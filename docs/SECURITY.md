@@ -179,9 +179,12 @@ provides:
 1. **Knowledge of the pairing secret proves access to the machine.** It is printed
    on the server's console by the installer and re-issuable only by running
    `atriumctl pair` on the server. Core never transmits it.
-2. **Channel binding.** Both proofs cover the server's SPKI hash, so a
-   machine-in-the-middle presenting its own TLS key cannot relay a proof to the
-   real server.
+2. **Channel binding.** Both proofs cover the server's SPKI hash and the TLS
+   1.3 exporter of the connection they travel on, and `begin` and `complete`
+   must arrive on that same connection, so a machine-in-the-middle presenting
+   its own TLS key cannot relay a proof to the real server. M1E tests this with
+   a real TLS-terminating relay given the correct secret, and with an attacker
+   who substitutes only the SPKI or only the exporter.
 3. **Mutual confirmation.** The server proves knowledge of the same secret back to
    the client before the client stores anything, so a fake server is detected
    rather than trusted.
@@ -195,7 +198,10 @@ provides:
    **not a human PIN**: short typed codes are not offered until a reviewed PAKE is
    adopted, which ADR-003 states as a prerequisite rather than an aspiration.
 5. **One-shot, expiring, rate-limited.** Single use; default 15-minute lifetime;
-   five global failures disable pairing until re-armed on the server.
+   two minutes from `begin` to `complete`; five global failures destroy the
+   armed secret and lock pairing until re-armed on the server. Every refusal is
+   the same `403 pairing.rejected`. The armed secret is stored only as
+   ciphertext under `secrets.key` ([ADR-019](adr/0019-sealed-pairing-secret.md)).
 6. **Claim-on-first-pair with a bounded window**, so a LAN attacker cannot win a
    race against a freshly installed server without reading its console.
 7. **The binding is explicit, and the browser is not a dead end.** The transcript
@@ -241,8 +247,8 @@ Rules:
 | --- | --- | --- |
 | TLS private key | `/etc/atrium/tls.key` | `root:atrium 0640` in a `root:atrium 0750` directory (section 9): readable by Core, not replaceable by it; never leaves the machine, never in a backup export, never in a log, error or diagnostics payload |
 | Device token digests | Core state DB | `SHA-256(token)`, constant-time comparison, no plaintext ever stored, deleted transactionally on revocation |
-| Pairing secret | memory only, with a hashed record for attempt counting | never persisted in plaintext, never logged |
-| App secrets (generated passwords, API keys) | secrets DB, encrypted with a key file at `/etc/atrium/secrets.key` (`root:atrium 0640`, generated at installation) | decrypted only when composing an install request; never returned by the API |
+| Pairing secret | Core state DB, while armed: XChaCha20-Poly1305 ciphertext under a key derived from `/etc/atrium/secrets.key`, bound to server, arming, profile and validity window ([ADR-019](adr/0019-sealed-pairing-secret.md)) | never persisted in plaintext, never logged, never in a backup in the clear; opened only in Core's memory to verify a proof; deleted in the transaction that consumes, expires, locks or replaces it |
+| App secrets (generated passwords, API keys) | secrets DB (M3), encrypted with a key file at `/etc/atrium/secrets.key` (`root:atrium 0640`, generated at installation; first used in M1E for the pairing secret) | decrypted only when composing an install request; never returned by the API |
 | Third-party credentials the owner stores | same | API returns `{ kind, exists }` only — the prototype's rule, kept |
 | **Container owner tokens** | `/var/lib/atrium-agent/ownership.json` | `0600 root:root`; **never returned to Core**, never in any API response, never in diagnostics |
 | Client-side device token | OS keychain | Windows Credential Manager / macOS Keychain / Secret Service |
@@ -369,7 +375,12 @@ destructive confirmation produces an audit record:
 
 - Unauthenticated endpoints: strict per-IP token bucket, plus a global cap on
   concurrent unauthenticated connections. Pairing has its own global failure
-  counter that disables the flow rather than merely slowing it.
+  counter that disables the flow rather than merely slowing it. As built in
+  M1E: a source is the socket's peer address (IPv4-mapped IPv6 folded to IPv4,
+  IPv6 per address, since a LAN shares one /64), never a forwarding header; 8 connections per source inside
+  the global 32; pairing requests 10 at once and 10 a minute per source, 30
+  at once and 60 a minute overall; at most 4 pairing attempts in progress, one
+  per source; every piece of limiter state bounded.
 - Authenticated endpoints: per-device limits; expensive operations (log tailing,
   diagnostics bundles, image pulls) are serialized per resource with a queue depth
   of one and a clear `busy` state.
