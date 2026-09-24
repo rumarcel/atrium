@@ -24,9 +24,9 @@
 //! time, and can never hold up shutdown.
 //!
 //! Nothing here reaches Agent, the database, or the identity files. The
-//! pairing and device handlers call [`Services`] — `crate::pairing` and
-//! `crate::devices` — which own every database access; this module has no
-//! database handle of its own.
+//! pairing, device and system handlers call [`Services`] —
+//! `crate::pairing`, `crate::devices` and `crate::system` — which own every
+//! database access and every host read; this module has neither.
 
 pub mod connection;
 mod dispatch;
@@ -38,6 +38,8 @@ pub mod tls;
 
 #[cfg(test)]
 mod pairing_tests;
+#[cfg(test)]
+mod system_tests;
 #[cfg(test)]
 mod tests;
 
@@ -101,6 +103,8 @@ pub struct Services {
     pub pairing: crate::pairing::Pairing,
     /// Device authentication and management.
     pub devices: crate::devices::Devices,
+    /// The system domain: native providers, capabilities, diagnostics.
+    pub system: crate::system::System,
 }
 
 /// The per-source limits an [`App`] enforces.

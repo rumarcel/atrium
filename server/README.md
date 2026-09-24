@@ -91,7 +91,17 @@ authenticate at one point in dispatch, with no cache. Per-source limits: 8
 connections, and a token bucket on the pairing routes. `rotate-identity` now
 arms a fresh code.
 
-Still absent, each in its own pass: discovery and system providers. The order and the acceptance
+**M1F** — the system domain, native. `/api/v1/system`, `/system/metrics`,
+`/system/capabilities`, `/system/diagnostics`, `/network/interfaces` and
+`/storage/filesystems`, device-only, read from `/proc`, `/sys`,
+`/etc/os-release`, `getifaddrs` and `statvfs` — no Glances, Homarr,
+Cockpit, runtime API or monitoring library. A value that cannot be read is
+`null` with a closed reason, never `0`; CPU usage comes from a background
+sampler and is `first_sample_pending` until it has two samples. Before
+M1F, [ADR-020](../docs/adr/0020-no-failed-proof-lock.md) removed the
+five-failure pairing lock.
+
+Still absent: discovery (M1G). The order and the acceptance
 criteria are in [`../docs/M1-IMPLEMENTATION-PLAN.md`](../docs/M1-IMPLEMENTATION-PLAN.md).
 
 `ATRIUM_ROOT=<dir>` relocates the whole file tree (`<dir>/etc/atrium`,

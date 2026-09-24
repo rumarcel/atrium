@@ -22,7 +22,7 @@ time.workspace = true
 [target.'cfg(unix)'.dev-dependencies]
 atrium-pairing = { path = "../atrium-pairing" }
 base64.workspace = true
-nix = { workspace = true, features = ["user", "signal", "process"] }
+nix = { workspace = true, features = ["user", "signal", "process", "fs"] }
 rusqlite.workspace = true
 rustls.workspace = true
 x509-parser.workspace = true

@@ -1,8 +1,6 @@
 //! The two capabilities that come through Agent: `privileged` and
-//! `container`.
-//!
-//! This is the plumbing M1F's `GET /api/v1/system/capabilities` will serve
-//! (plan section 9.6). Both are derived **only** from what Agent answered, or
+//! `container`, and the [`AgentStatus`] through which the Agent monitor
+//! publishes them to `GET /api/v1/system/capabilities` (plan section 9.6). Both are derived **only** from what Agent answered, or
 //! from why it did not. There is no second source: when Agent cannot be
 //! reached, both are unavailable, with a reason, and Core tries nothing
 //! else (criteria 29, 40).
@@ -36,6 +34,12 @@ pub enum Reason {
     RuntimeVersionProbeNotInM1,
     /// Container inventory is not an M1 feature.
     NotEnabledInM1,
+    /// Not an Alpha feature (SMART, block devices, packages).
+    NotEnabledInAlpha,
+    /// Core has not heard from Agent yet since it started.
+    AgentCheckPending,
+    /// Part of M1, built in a later pass (discovery, in M1G).
+    NotYetImplemented,
 }
 
 impl Reason {
@@ -51,6 +55,9 @@ impl Reason {
             Self::RuntimeLivenessNotProbedInM1 => "runtime_liveness_not_probed_in_m1",
             Self::RuntimeVersionProbeNotInM1 => "runtime_version_probe_not_in_m1",
             Self::NotEnabledInM1 => "not_enabled_in_m1",
+            Self::NotEnabledInAlpha => "not_enabled_in_alpha",
+            Self::AgentCheckPending => "agent_check_pending",
+            Self::NotYetImplemented => "not_yet_implemented",
         }
     }
 }
@@ -96,6 +103,33 @@ impl Container {
     #[must_use]
     pub fn via(&self) -> &'static str {
         "agent"
+    }
+}
+
+/// The latest Agent-derived capabilities and when they were derived:
+/// written by the Agent monitor, read by the capability and diagnostics
+/// handlers. Holds nothing but the derived values.
+#[derive(Debug, Default)]
+pub struct AgentStatus(std::sync::RwLock<Option<(AgentCapabilities, time::OffsetDateTime)>>);
+
+impl AgentStatus {
+    /// A status that has not been checked yet.
+    #[must_use]
+    pub fn new() -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self::default())
+    }
+
+    /// Publishes a refresh.
+    pub fn publish(&self, capabilities: &AgentCapabilities, at: time::OffsetDateTime) {
+        if let Ok(mut current) = self.0.write() {
+            *current = Some((capabilities.clone(), at));
+        }
+    }
+
+    /// The latest refresh, if any.
+    #[must_use]
+    pub fn latest(&self) -> Option<(AgentCapabilities, time::OffsetDateTime)> {
+        self.0.read().ok().and_then(|current| current.clone())
     }
 }
 
@@ -199,14 +233,14 @@ impl AgentCapabilities {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use atrium_protocol::messages::{
         JournalInfo, LivenessReason, NotProbed, RuntimeSocket, StateDirInfo, VersionReason,
     };
     use atrium_protocol::values::{ReportedPath, Timestamp};
 
-    fn info() -> AgentInfo {
+    pub(crate) fn info() -> AgentInfo {
         AgentInfo {
             agent_version: Version::parse("0.1.0").expect("v"),
             protocol: 1,
@@ -229,7 +263,7 @@ mod tests {
         }
     }
 
-    fn probe(socket: Option<RuntimeSocket>) -> RuntimeProbe {
+    pub(crate) fn probe(socket: Option<RuntimeSocket>) -> RuntimeProbe {
         RuntimeProbe {
             runtime: socket.map(RuntimeSocket::runtime),
             socket,

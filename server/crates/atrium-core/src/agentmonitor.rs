@@ -21,7 +21,7 @@ use atrium_protocol::values::RequestId;
 use time::OffsetDateTime;
 
 use crate::agentclient::{self, AgentClient, Failure};
-use crate::capability::AgentCapabilities;
+use crate::capability::{AgentCapabilities, AgentStatus};
 use crate::db::{AgentCallOutcome, Database};
 use crate::layout::Layout;
 
@@ -36,6 +36,8 @@ pub const AGENT_REFRESH: Duration = Duration::from_secs(300);
 pub struct Monitor {
     client: AgentClient,
     last: Option<AgentCapabilities>,
+    status: Option<std::sync::Arc<AgentStatus>>,
+    issues: Option<std::sync::Arc<crate::system::Issues>>,
 }
 
 impl Monitor {
@@ -48,7 +50,22 @@ impl Monitor {
         Ok(Self {
             client: AgentClient::new(layout.agent_socket(), crate::VERSION)?,
             last: None,
+            status: None,
+            issues: None,
         })
+    }
+
+    /// Publishes every refresh to `status`, for the capability routes, and
+    /// records an unavailable Agent in `issues`, for diagnostics.
+    #[must_use]
+    pub fn publishing_to(
+        mut self,
+        status: std::sync::Arc<AgentStatus>,
+        issues: std::sync::Arc<crate::system::Issues>,
+    ) -> Self {
+        self.status = Some(status);
+        self.issues = Some(issues);
+        self
     }
 
     /// The capabilities as of the last refresh.
@@ -75,6 +92,13 @@ impl Monitor {
             Err(_) => None,
         };
         let capabilities = AgentCapabilities::derive(&info, probe.as_ref());
+        let now = OffsetDateTime::now_utc();
+        if let Some(status) = &self.status {
+            status.publish(&capabilities, now);
+        }
+        if let (Some(issues), (Some(reason), _)) = (&self.issues, capabilities.summary()) {
+            issues.record(reason.code(), "agent", now);
+        }
 
         if self.last.as_ref() != Some(&capabilities) {
             let (privileged_reason, container_reason) = capabilities.summary();

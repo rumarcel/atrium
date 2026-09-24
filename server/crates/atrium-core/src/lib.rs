@@ -31,8 +31,12 @@
 //!   connection's exporter and the server's key; devices authenticate with a
 //!   256-bit bearer token of which Core keeps only `SHA-256`.
 //!
-//! What it deliberately does **not** do yet: report system metrics.
-//! Each of those arrives in its own pass with its own tests — see
+//! - **system** ([`providers`], [`system`]) — from M1F, what the machine is
+//!   and how it is doing, read natively from `/proc`, `/sys`, `/etc`,
+//!   `getifaddrs` and `statvfs`: never a third-party monitor, and never an
+//!   invented value — what cannot be read is `null` with a reason.
+//!
+//! Discovery arrives in M1G, in its own pass with its own tests — see
 //! `docs/M1-IMPLEMENTATION-PLAN.md` section 17. There is no placeholder
 //! endpoint and no invented data anywhere in this crate.
 
@@ -57,11 +61,13 @@ pub mod lock;
 pub mod notify;
 pub mod pairing;
 pub mod protect;
+pub mod providers;
 pub mod recovery;
 pub mod redact;
 pub mod rotate;
 pub mod signals;
 pub mod startup;
+pub mod system;
 
 #[cfg(test)]
 mod testutil;
@@ -227,7 +233,8 @@ pub async fn run(
             let address = listener.local_addr()?;
             // The network services get their own connection to the database
             // startup has just verified and migrated.
-            let services = services(&layout, &normal, &config.server_name)?;
+            let observed = Observed::new();
+            let services = services(&layout, &normal, &config.server_name, &observed)?;
             let app = http::App::normal(&served, address.port(), services)?;
             let listening = Listening::start(listener, Arc::clone(&app), address);
             let notified = notify::ready_with_status("running")?;
@@ -246,7 +253,7 @@ pub async fn run(
                 service_manager_notified = notified,
                 "atrium-core is ready"
             );
-            let signal = run_normal(&layout, &mut normal, &mut shutdown, &app).await;
+            let signal = run_normal(&layout, &mut normal, &mut shutdown, &app, &observed).await;
             listening.close().await;
             signal
         }
@@ -297,12 +304,44 @@ pub async fn run(
     Ok(())
 }
 
-/// The pairing and device services, over a second connection to the state
-/// database.
+/// What normal mode observes in the background and the system routes read:
+/// the CPU sampler, the Agent status and the recent-issue record.
+struct Observed {
+    sampler: Arc<providers::cpu::Sampler>,
+    agent: Arc<capability::AgentStatus>,
+    issues: Arc<system::Issues>,
+}
+
+impl Observed {
+    fn new() -> Self {
+        Self {
+            sampler: providers::cpu::Sampler::new(providers::HostRoot::system()),
+            agent: capability::AgentStatus::new(),
+            issues: Arc::new(system::Issues::default()),
+        }
+    }
+}
+
+/// The Linux adapters of ADR-002's Core-side providers.
+fn linux_providers(
+    root: &providers::HostRoot,
+    sampler: &Arc<providers::cpu::Sampler>,
+) -> system::Providers {
+    let (hardware, network, storage) = providers::linux::adapters(root, Arc::clone(sampler));
+    system::Providers {
+        hardware,
+        network,
+        storage,
+    }
+}
+
+/// The pairing, device and system services, over a second connection to the
+/// state database.
 fn services(
     layout: &Layout,
     normal: &startup::Normal,
     server_name: &str,
+    observed: &Observed,
 ) -> Result<Arc<http::Services>, Box<dyn Error + Send + Sync>> {
     let database = db::attach(layout)
         .map_err(|fault| format!("could not attach to the state database: {fault}"))?;
@@ -320,6 +359,19 @@ fn services(
             Arc::clone(&clock),
         ),
         devices: devices::Devices::new(database, normal.identity.server_id(), clock),
+        system: system::System::new(
+            linux_providers(&providers::HostRoot::system(), &observed.sampler),
+            Arc::clone(&observed.agent),
+            Arc::clone(&observed.issues),
+            normal.identity.server_id(),
+            system::StateFacts {
+                layout: layout.clone(),
+                schema_version: normal
+                    .database
+                    .schema_version()
+                    .unwrap_or(db::SCHEMA_VERSION),
+            },
+        ),
     }))
 }
 
@@ -396,14 +448,23 @@ async fn recovery_listener(
 
 /// Normal mode until shutdown: re-checks the certificate against the current
 /// addresses every [`ADDRESS_POLL`], deletes an expired pairing secret on the
-/// same tick, and refreshes the Agent-derived capabilities right away and
-/// then every [`agentmonitor::AGENT_REFRESH`].
+/// same tick, refreshes the Agent-derived capabilities right away and then
+/// every [`agentmonitor::AGENT_REFRESH`], and samples CPU usage every
+/// [`providers::cpu::SAMPLE_INTERVAL`] in a task that ends with this
+/// function.
 async fn run_normal(
     layout: &Layout,
     normal: &mut startup::Normal,
     shutdown: &mut signals::ShutdownListener,
     app: &http::App,
+    observed: &Observed,
 ) -> signals::Shutdown {
+    // Dropping `_sampling` when this returns stops the sampler.
+    let (_sampling, stop_sampling) = watch::channel(false);
+    tokio::spawn(providers::cpu::run(
+        Arc::clone(&observed.sampler),
+        stop_sampling,
+    ));
     let mut ticker = tokio::time::interval(ADDRESS_POLL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // The first tick completes immediately; startup has just checked.
@@ -413,7 +474,9 @@ async fn run_normal(
     let mut agent_ticker = tokio::time::interval(agentmonitor::AGENT_REFRESH);
     agent_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut monitor = match agentmonitor::Monitor::new(layout) {
-        Ok(monitor) => Some(monitor),
+        Ok(monitor) => {
+            Some(monitor.publishing_to(Arc::clone(&observed.agent), Arc::clone(&observed.issues)))
+        }
         Err(error) => {
             tracing::error!(
                 event = "agent_client_unavailable",

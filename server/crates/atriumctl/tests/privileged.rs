@@ -1777,6 +1777,15 @@ fn pairing_end_to_end_leaves_no_secret_in_logs_audit_diagnostics_or_responses() 
     assert_eq!(status, 200, "{list}");
     let (status, unauthorized) = https::get(&mut stream, port, "/api/v1/devices");
     assert_eq!(status, 401);
+    // Criterion 32: the device-only diagnostics carries no secret either.
+    let (status, normal_diagnostics) = https::authorized(
+        &mut stream,
+        port,
+        "GET",
+        "/api/v1/system/diagnostics",
+        &token,
+    );
+    assert_eq!(status, 200, "{normal_diagnostics}");
     drop(stream);
     std::thread::sleep(Duration::from_millis(300));
     core.stop();
@@ -1840,6 +1849,7 @@ fn pairing_end_to_end_leaves_no_secret_in_logs_audit_diagnostics_or_responses() 
         ("device list", list.into_bytes()),
         ("me", me.into_bytes()),
         ("401 body", unauthorized.into_bytes()),
+        ("normal diagnostics", normal_diagnostics.into_bytes()),
     ];
     for body in failed.bodies.iter().chain(&succeeded.bodies) {
         places.push(("pairing response", body.clone().into_bytes()));
@@ -1959,4 +1969,366 @@ fn a_device_paired_before_corruption_authenticates_after_restore() {
     assert!(me.contains("00112233445566778899aabbccddeeff"), "{me}");
     drop(stream);
     core.stop();
+}
+
+// ---------------------------------------------------------------------------
+// System domain (M1F), against the real kernel
+
+impl Installation {
+    /// A paired device, inserted before Core starts: its bearer token.
+    fn device_token(&self) -> String {
+        let mut raw = [0_u8; 32];
+        getrandom_fill(&mut raw);
+        let token = atrium_pairing::token::DeviceToken::from_bytes(raw);
+        let mut id = [0_u8; 16];
+        getrandom_fill(&mut id);
+        self.with_database(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO devices (device_id, name, platform, role, token_digest, \
+                     created_at) VALUES (?1, 'Probe', 'linux', 'owner', ?2, \
+                     '2026-09-24T00:00:00Z')",
+                    (hex(&id), token.digest().as_bytes().as_slice()),
+                )
+                .expect("device");
+        });
+        token.encode().to_string()
+    }
+}
+
+fn api_json(stream: &mut https::Stream, port: u16, path: &str, token: &str) -> serde_json::Value {
+    let (status, body) = https::authorized(stream, port, "GET", path, token);
+    assert_eq!(status, 200, "{path}: {body}");
+    serde_json::from_str(&body).expect("json")
+}
+
+fn ip(args: &[&str]) {
+    let output = Command::new("ip")
+        .args(args)
+        .output()
+        .expect("iproute2's `ip` is required for the multi-NIC test (it is on every CI runner)");
+    assert!(output.status.success(), "ip {args:?}: {}", text(&output));
+}
+
+/// Removes the test's veth pair whatever happens.
+struct Veth(String);
+
+impl Drop for Veth {
+    fn drop(&mut self) {
+        let _ = Command::new("ip").args(["link", "del", &self.0]).output();
+    }
+}
+
+/// Criterion 23 on a real kernel: two NICs — a veth pair, both ends up —
+/// each with its own IPv4 and IPv6 addresses, listed with every address and
+/// no notion of a primary one.
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn two_nics_every_interface_and_every_address_reach_the_api() {
+    let installation = Installation::new("nics");
+    let port = installation.port;
+    let tag = std::process::id() % 100_000;
+    let (a, b) = (format!("atp{tag}a"), format!("atp{tag}b"));
+    ip(&["link", "add", &a, "type", "veth", "peer", "name", &b]);
+    let _cleanup = Veth(a.clone());
+    ip(&["addr", "add", "10.211.1.1/24", "dev", &a]);
+    ip(&["addr", "add", "10.211.1.2/24", "dev", &a]);
+    // IPv6 is part of the criterion wherever the kernel has it. The CI
+    // runner does, so there its absence fails; a sandbox kernel built
+    // without IPv6 checks the IPv4 half and says so.
+    let ipv6 = Path::new("/proc/net/if_inet6").exists();
+    assert!(
+        ipv6 || std::env::var_os("CI").is_none(),
+        "the CI runner must have IPv6"
+    );
+    if ipv6 {
+        ip(&["addr", "add", "fd00:211::1/64", "dev", &a, "nodad"]);
+    } else {
+        eprintln!("\n*** IPv6 is not available in this kernel: checking IPv4 only ***\n");
+    }
+    ip(&["addr", "add", "10.212.0.1/16", "dev", &b]);
+    ip(&["link", "set", &a, "up"]);
+    ip(&["link", "set", &b, "up"]);
+
+    let token = installation.device_token();
+    let mut core = installation.start_core();
+    let pin = field(&core.ready(), "spki_sha256").expect("pin");
+    let mut stream = https::connect(port, &pin);
+    let view = api_json(&mut stream, port, "/api/v1/network/interfaces", &token);
+    drop(stream);
+    core.stop();
+
+    let interfaces = view["interfaces"].as_array().expect("a list");
+    let find = |name: &str| {
+        interfaces
+            .iter()
+            .find(|i| i["name"] == name)
+            .unwrap_or_else(|| panic!("{name} missing from {view}"))
+    };
+    let addresses = |interface: &serde_json::Value| -> Vec<(String, String, u64)> {
+        interface["addresses"]
+            .as_array()
+            .expect("addresses")
+            .iter()
+            .map(|a| {
+                (
+                    a["family"].as_str().expect("family").to_owned(),
+                    a["address"].as_str().expect("address").to_owned(),
+                    a["prefixLength"].as_u64().expect("prefix"),
+                )
+            })
+            .collect()
+    };
+    let first = addresses(find(&a));
+    let mut expected_addresses = vec![("ipv4", "10.211.1.1", 24), ("ipv4", "10.211.1.2", 24)];
+    if ipv6 {
+        expected_addresses.push(("ipv6", "fd00:211::1", 64));
+    }
+    for expected in expected_addresses {
+        assert!(
+            first.contains(&(expected.0.into(), expected.1.into(), expected.2)),
+            "{expected:?} in {first:?}"
+        );
+    }
+    let second = addresses(find(&b));
+    assert!(second.contains(&("ipv4".into(), "10.212.0.1".into(), 16)));
+    assert_eq!(find(&a)["virtual"], true);
+    assert_eq!(find("lo")["loopback"], true);
+    for interface in interfaces {
+        assert!(interface.get("primary").is_none());
+    }
+    assert!(view.get("primaryInterface").is_none() && view.get("ip").is_none());
+}
+
+/// Removes the test's mounts whatever happens.
+struct Mounted(Vec<PathBuf>);
+
+impl Drop for Mounted {
+    fn drop(&mut self) {
+        for path in self.0.iter().rev() {
+            let _ = Command::new("umount").arg(path).output();
+        }
+    }
+}
+
+/// Criterion 24 on a real kernel: real capacity for a real mount, a tmpfs
+/// excluded, and a bind mount collapsed into its filesystem rather than
+/// listed twice or hidden.
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn filesystems_report_real_capacity_and_collapse_bind_mounts() {
+    let installation = Installation::new("mounts");
+    let port = installation.port;
+    let base = installation.root.join("mnt");
+    let (scratch, source, target) = (base.join("scratch"), base.join("src"), base.join("dst"));
+    for dir in [&scratch, &source, &target] {
+        std::fs::create_dir_all(dir).expect("dir");
+    }
+    let run = |args: &[&str]| {
+        let output = Command::new("mount").args(args).output().expect("mount");
+        assert!(output.status.success(), "mount {args:?}: {}", text(&output));
+    };
+    let mut guard = Mounted(Vec::new());
+    run(&["-t", "tmpfs", "tmpfs", &scratch.display().to_string()]);
+    guard.0.push(scratch.clone());
+    run(&[
+        "--bind",
+        &source.display().to_string(),
+        &target.display().to_string(),
+    ]);
+    guard.0.push(target.clone());
+
+    let token = installation.device_token();
+    let mut core = installation.start_core();
+    let pin = field(&core.ready(), "spki_sha256").expect("pin");
+    let mut stream = https::connect(port, &pin);
+    let view = api_json(&mut stream, port, "/api/v1/storage/filesystems", &token);
+    drop(stream);
+    core.stop();
+
+    let list = view["filesystems"].as_array().expect("a list");
+    let points: Vec<&str> = list
+        .iter()
+        .map(|f| f["mountPoint"].as_str().expect("mount point"))
+        .collect();
+    let scratch_text = scratch.display().to_string();
+    let target_text = target.display().to_string();
+    assert!(
+        !points.contains(&scratch_text.as_str()),
+        "tmpfs is excluded"
+    );
+    assert!(
+        !points.contains(&target_text.as_str()),
+        "a bind mount is not a filesystem"
+    );
+    let holder = list
+        .iter()
+        .find(|f| {
+            f["alsoMountedAt"]
+                .as_array()
+                .is_some_and(|also| also.iter().any(|p| p == &target_text))
+        })
+        .unwrap_or_else(|| panic!("the bind mount is listed under its filesystem: {view}"));
+
+    // The capacity is the kernel's own figure for that filesystem.
+    let stat = nix::sys::statvfs::statvfs(Path::new(
+        holder["mountPoint"].as_str().expect("mount point"),
+    ))
+    .expect("statvfs");
+    #[allow(clippy::useless_conversion)]
+    let total = u64::from(stat.blocks()) * u64::from(stat.fragment_size());
+    assert_eq!(holder["usage"]["totalBytes"].as_u64(), Some(total));
+    let usage = &holder["usage"];
+    assert_eq!(
+        usage["usedBytes"].as_u64().expect("used") + usage["freeBytes"].as_u64().expect("free"),
+        total
+    );
+}
+
+fn proc_stat_busy_total() -> (u64, u64) {
+    let text = std::fs::read_to_string("/proc/stat").expect("/proc/stat");
+    let fields: Vec<u64> = text
+        .lines()
+        .next()
+        .expect("cpu line")
+        .split_whitespace()
+        .skip(1)
+        .take(8)
+        .map(|f| f.parse().expect("number"))
+        .collect();
+    let total: u64 = fields.iter().sum();
+    (total - fields[3] - fields[4], total)
+}
+
+/// Criteria 21, 22, 25 and 29 on a real kernel. With every CPU kept busy,
+/// Core's usage agrees with a reading of `/proc/stat` taken around the same
+/// window; memory is exactly `MemTotal`; and with Agent stopped, hardware
+/// reads keep working while privileged and container say why they cannot.
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn metrics_match_proc_under_known_load_and_reads_survive_a_stopped_agent() {
+    let installation = Installation::new("metrics");
+    let port = installation.port;
+    let token = installation.device_token();
+    let mut core = installation.start_core();
+    let pin = field(&core.ready(), "spki_sha256").expect("pin");
+    let mut stream = https::connect(port, &pin);
+
+    // Right after start the first sample may not exist: null, never 0.
+    let early = api_json(&mut stream, port, "/api/v1/system/metrics", &token);
+    let early_cpu = &early["cpu"]["usagePercent"];
+    assert!(early_cpu.is_null() || early_cpu.as_f64().is_some());
+    if early_cpu.is_null() {
+        assert!(early["unavailable"]
+            .to_string()
+            .contains("first_sample_pending"));
+    }
+
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cpus = std::thread::available_parallelism().map_or(2, usize::from);
+    let workers: Vec<_> = (0..cpus)
+        .map(|_| {
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                let mut x = 0_u64;
+                while !stop.load(Ordering::Relaxed) {
+                    x = x.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                    std::hint::black_box(x);
+                }
+            })
+        })
+        .collect();
+    std::thread::sleep(Duration::from_secs(5));
+    let before = proc_stat_busy_total();
+    std::thread::sleep(Duration::from_millis(2500));
+    let after = proc_stat_busy_total();
+    let loaded = api_json(&mut stream, port, "/api/v1/system/metrics", &token);
+    stop.store(true, Ordering::Relaxed);
+    for worker in workers {
+        worker.join().expect("worker");
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let ours = (after.0 - before.0) as f64 * 100.0 / (after.1 - before.1).max(1) as f64;
+    let core_value = loaded["cpu"]["usagePercent"]
+        .as_f64()
+        .expect("a sampled value");
+    assert!(
+        (core_value - ours).abs() <= 25.0,
+        "Core says {core_value}%, /proc/stat says {ours}%"
+    );
+    assert!(core_value >= 50.0, "every CPU was busy: {core_value}%");
+
+    let meminfo = std::fs::read_to_string("/proc/meminfo").expect("meminfo");
+    let mem_total_kib: u64 = meminfo
+        .lines()
+        .find_map(|l| l.strip_prefix("MemTotal:"))
+        .and_then(|v| v.split_whitespace().next())
+        .and_then(|v| v.parse().ok())
+        .expect("MemTotal");
+    assert_eq!(
+        loaded["memory"]["totalBytes"].as_u64(),
+        Some(mem_total_kib * 1024)
+    );
+    assert!(loaded["load"]["one"].as_f64().is_some());
+
+    // No Agent is running in this installation: reads keep working.
+    let capabilities = api_json(&mut stream, port, "/api/v1/system/capabilities", &token);
+    assert_eq!(capabilities["hardware"]["available"], true);
+    assert_eq!(capabilities["network"]["available"], true);
+    assert_eq!(capabilities["storage"]["available"], true);
+    for name in ["privileged", "container"] {
+        assert_eq!(capabilities[name]["available"], false, "{capabilities}");
+        assert_eq!(
+            capabilities[name]["missing"][0]["reason"],
+            "agent_unreachable"
+        );
+    }
+    let system = api_json(&mut stream, port, "/api/v1/system", &token);
+    assert_eq!(system["kernel"]["name"], "Linux");
+    let diagnostics = api_json(&mut stream, port, "/api/v1/system/diagnostics", &token);
+    assert_eq!(
+        diagnostics["capabilities"]["privileged"]["reasons"][0],
+        "agent_unreachable"
+    );
+    assert!(diagnostics["recentIssues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .any(|i| i["code"] == "agent_unreachable" && i["subject"] == "agent"));
+    drop(stream);
+    core.stop();
+
+    // With Agent running, both come through it; a runtime counts as present
+    // only when its socket exists, and never as running.
+    let _agent = installation.start_agent();
+    let mut core = installation.start_core();
+    let pin = field(&core.ready(), "spki_sha256").expect("pin");
+    core.wait_for("\"event\":\"agent_status\"");
+    let mut stream = https::connect(port, &pin);
+    let capabilities = api_json(&mut stream, port, "/api/v1/system/capabilities", &token);
+    drop(stream);
+    core.stop();
+    assert_eq!(
+        capabilities["privileged"]["available"], true,
+        "{capabilities}"
+    );
+    assert_eq!(capabilities["privileged"]["protocol"], 1);
+    assert_eq!(capabilities["container"]["via"], "agent");
+    assert!(capabilities["container"]["version"].is_null());
+    // Present means a socket Agent's passive probe found (its own tests
+    // cover which paths); either way nothing claims the runtime is running.
+    let available = capabilities["container"]["available"]
+        .as_bool()
+        .expect("bool");
+    let reasons = capabilities["container"]["missing"].to_string();
+    if available {
+        assert!(
+            reasons.contains("runtime_liveness_not_probed_in_m1"),
+            "{reasons}"
+        );
+        assert!(capabilities["container"]["provider"].is_string());
+    } else {
+        assert!(reasons.contains("no_container_runtime"), "{reasons}");
+        assert!(capabilities["container"]["provider"].is_null());
+    }
 }

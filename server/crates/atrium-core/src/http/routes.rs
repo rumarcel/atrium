@@ -140,8 +140,8 @@ pub enum Endpoint {
     Healthz,
     /// `/`: a static page saying Core is running.
     Index,
-    /// `/api/v1/system/diagnostics`: in recovery, the redacted payload; in
-    /// normal mode a device route whose handler arrives in M1F.
+    /// `/api/v1/system/diagnostics`: in recovery, the redacted payload
+    /// anyone may read; in normal mode, the device-only allowlist (M1F).
     SystemDiagnostics,
     /// `GET /api/v1/pair/info`.
     PairInfo,
@@ -155,6 +155,16 @@ pub enum Endpoint {
     Devices,
     /// `DELETE /api/v1/devices/{deviceId}`.
     RevokeDevice,
+    /// `GET /api/v1/system`.
+    System,
+    /// `GET /api/v1/system/metrics`.
+    Metrics,
+    /// `GET /api/v1/system/capabilities`.
+    Capabilities,
+    /// `GET /api/v1/network/interfaces`.
+    Interfaces,
+    /// `GET /api/v1/storage/filesystems`.
+    Filesystems,
     /// Test only: reports a digest of the connection's channel binding.
     #[cfg(test)]
     TestBinding,
@@ -184,7 +194,7 @@ pub const BEGIN_BODY_LIMIT: usize = 1024;
 /// Largest `pair/complete` body: two fixed-length fields.
 pub const COMPLETE_BODY_LIMIT: usize = 256;
 
-/// The routes through M1E. Everything else in `M1-IMPLEMENTATION-PLAN.md` §8
+/// The routes through M1F. Everything else in `M1-IMPLEMENTATION-PLAN.md` §8
 /// arrives with the pass that implements it; nothing is declared ahead of
 /// its handler except the diagnostics route, whose recovery form M1B already
 /// specified and whose normal form must exist so the recovery routes stay a
@@ -259,6 +269,43 @@ pub const ROUTES: &[Route] = &[
         method: Method::DELETE,
         path: "/api/v1/devices/{deviceId}",
         endpoint: Endpoint::RevokeDevice,
+        normal: Some(Policy::device()),
+        recovery: None,
+    },
+    // The system domain (M1F): native reads, devices only, never in
+    // recovery (recovery has only the redacted diagnostics above).
+    Route {
+        method: Method::GET,
+        path: "/api/v1/system",
+        endpoint: Endpoint::System,
+        normal: Some(Policy::device()),
+        recovery: None,
+    },
+    Route {
+        method: Method::GET,
+        path: "/api/v1/system/metrics",
+        endpoint: Endpoint::Metrics,
+        normal: Some(Policy::device()),
+        recovery: None,
+    },
+    Route {
+        method: Method::GET,
+        path: "/api/v1/system/capabilities",
+        endpoint: Endpoint::Capabilities,
+        normal: Some(Policy::device()),
+        recovery: None,
+    },
+    Route {
+        method: Method::GET,
+        path: "/api/v1/network/interfaces",
+        endpoint: Endpoint::Interfaces,
+        normal: Some(Policy::device()),
+        recovery: None,
+    },
+    Route {
+        method: Method::GET,
+        path: "/api/v1/storage/filesystems",
+        endpoint: Endpoint::Filesystems,
         normal: Some(Policy::device()),
         recovery: None,
     },
@@ -440,6 +487,11 @@ mod tests {
                 "GET /api/v1/me normal=Device/Deny/None/Any recovery=absent",
                 "GET /api/v1/devices normal=Device/Deny/None/Any recovery=absent",
                 "DELETE /api/v1/devices/{deviceId} normal=Device/Deny/None/Any recovery=absent",
+                "GET /api/v1/system normal=Device/Deny/None/Any recovery=absent",
+                "GET /api/v1/system/metrics normal=Device/Deny/None/Any recovery=absent",
+                "GET /api/v1/system/capabilities normal=Device/Deny/None/Any recovery=absent",
+                "GET /api/v1/network/interfaces normal=Device/Deny/None/Any recovery=absent",
+                "GET /api/v1/storage/filesystems normal=Device/Deny/None/Any recovery=absent",
             ]
         );
     }

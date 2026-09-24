@@ -146,7 +146,10 @@ jobs:
         # M1C adds the Agent boundary: a root Agent on a socket-activated
         # 0660 root:atrium socket admits only the atrium uid (criterion 8),
         # keeps its state root-only (41), and journals what Core's audit
-        # records (33). The already-built test binaries run under sudo; cargo
+        # records (33). M1F adds the system domain against the real kernel:
+        # two NICs on a veth pair (23), a bind mount and a tmpfs (24), CPU
+        # under known load (22) and reads with Agent stopped (29).
+        # The already-built test binaries run under sudo; cargo
         # itself does not, so nothing root-owned lands in the build tree.
         run: |
           getent group atrium || sudo groupadd --system atrium
@@ -161,7 +164,9 @@ jobs:
               | jq -r --arg target "${target}" 'select(.reason == "compiler-artifact" and .target.name == $target and .executable != null) | .executable')"
             test -n "${binary}"
             echo "::group::${package} ${target}"
-            sudo "${binary}" --ignored --test-threads=1
+            # CI is passed through so tests that need a CI-guaranteed
+            # facility (IPv6 on the runner) fail rather than skip.
+            sudo --preserve-env=CI "${binary}" --ignored --test-threads=1
             echo "::endgroup::"
           done
       - name: Architecture and execution gates

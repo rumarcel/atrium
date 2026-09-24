@@ -72,6 +72,11 @@ IO_CRATES='tokio|mio|socket2|nix|rustix|libc|async-std|smol'
 forbid_dependency atrium-core 'atrium-agent' "dependency on the privileged component (ADR-001)"
 forbid_dependency atrium-core "${CONTAINER_RUNTIME}" "container-runtime client (ADR-013, criterion 36)"
 
+# M1F, criterion 21: Core reads the system natively. No monitoring library
+# and no HTTP client of any kind is linked into it.
+forbid_dependency atrium-core 'sysinfo|heim|psutil|procfs|prometheus|prometheus-client|metrics-exporter-prometheus|opentelemetry.*|reqwest|ureq|isahc|surf|curl|attohttpc' \
+    "third-party monitoring library or HTTP client (M1F)"
+
 # ADR-004: Agent speaks one typed protocol on one Unix socket.
 forbid_dependency atrium-agent "${HTTP_CRATES}" "HTTP crate"
 forbid_dependency atrium-agent "${TLS_CRATES}" "TLS crate"
@@ -209,6 +214,36 @@ if [ -n "${bind_hits}" ]; then
     printf '%s\n' "${bind_hits}" >&2
 else
     pass "Core binds TCP only where the TLS listener is set up"
+fi
+
+# The system domain (M1F) only reads. The providers and the domain service
+# may not write, create, rename or remove a file, run a process, open a
+# socket, or reach Agent: a request can make them read the kernel's own
+# interfaces and nothing else.
+SYSTEM_SRC=("${CRATES}/atrium-core/src/providers" "${CRATES}/atrium-core/src/system.rs")
+system_hits="$(grep -rnE 'fs::write|\.write\(true\)|\.create\(true\)|\.append\(true\)|remove_file|remove_dir|fs::rename|set_permissions|Command::|agentclient|AgentClient|atrium_protocol|TcpStream|UdpSocket|UnixStream|reqwest|hyper::' \
+    "${SYSTEM_SRC[@]}" --include='*.rs' 2>/dev/null |
+    grep -vE '/providers/(tests|fixture)\.rs:|/system/tests\.rs:' || true)"
+if [ -n "${system_hits}" ]; then
+    fail "the system domain does more than read:"
+    printf '%s\n' "${system_hits}" >&2
+else
+    pass "providers and the system domain only read: no write, process, socket or Agent"
+fi
+
+# ---------------------------------------------------------------------------
+section "No third-party monitoring in the product path (M1F)"
+
+# The prototype's integrations (Glances on :61208, Homarr, Cockpit,
+# qBittorrent) stay with the prototype. No Atrium server source may name
+# them outside a comment.
+monitor_hits="$(grep -rniE 'glances|homarr|cockpit|qbittorrent|:61208|/api/3/|/api/4/' \
+    "${CRATES}" --include='*.rs' 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true)"
+if [ -n "${monitor_hits}" ]; then
+    fail "a server source names a third-party monitoring integration:"
+    printf '%s\n' "${monitor_hits}" >&2
+else
+    pass "no server source names Glances, Homarr, Cockpit or qBittorrent"
 fi
 
 # ---------------------------------------------------------------------------

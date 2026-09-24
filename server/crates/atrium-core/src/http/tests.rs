@@ -61,10 +61,17 @@ pub(super) struct State {
     pub(super) secrets: Arc<SecretsKey>,
     pub(super) now: Arc<Mutex<OffsetDateTime>>,
     pub(super) server_id: ServerId,
+    /// The system domain's recent-issue record, to observe provider reads.
+    pub(super) issues: Arc<crate::system::Issues>,
 }
 
 impl State {
     fn new(identity: &Identity) -> (Self, Arc<Services>) {
+        Self::with_host(identity, crate::providers::HostRoot::system())
+    }
+
+    /// With the system providers reading `host` instead of the real machine.
+    fn with_host(identity: &Identity, host: crate::providers::HostRoot) -> (Self, Arc<Services>) {
         let fixture = Fixture::new("http");
         let database = db::create(&fixture.layout).expect("database");
         let mut key = [0_u8; 32];
@@ -76,6 +83,7 @@ impl State {
             Arc::new(move || *now.lock().expect("clock"))
         };
         let database = Arc::new(Mutex::new(database));
+        let issues = Arc::new(crate::system::Issues::default());
         let services = Arc::new(Services {
             pairing: crate::pairing::Pairing::new(
                 Arc::clone(&database),
@@ -88,12 +96,32 @@ impl State {
                 Arc::clone(&clock),
             ),
             devices: crate::devices::Devices::new(database, identity.server_id(), clock),
+            system: crate::system::System::new(
+                {
+                    let sampler = crate::providers::cpu::Sampler::new(host.clone());
+                    let (hardware, network, storage) =
+                        crate::providers::linux::adapters(&host, sampler);
+                    crate::system::Providers {
+                        hardware,
+                        network,
+                        storage,
+                    }
+                },
+                crate::capability::AgentStatus::new(),
+                Arc::clone(&issues),
+                identity.server_id(),
+                crate::system::StateFacts {
+                    layout: fixture.layout.clone(),
+                    schema_version: db::SCHEMA_VERSION,
+                },
+            ),
         });
         let state = Self {
             fixture,
             secrets,
             now,
             server_id: identity.server_id(),
+            issues,
         };
         (state, services)
     }
@@ -111,6 +139,24 @@ impl State {
         crate::pairing::arm(&mut database, &self.secrets, &self.server_id, now)
             .expect("arm")
             .secret
+    }
+
+    /// A paired device, inserted directly: its bearer token.
+    pub(super) fn device(&self, name: &str) -> String {
+        let mut raw = [0_u8; 32];
+        getrandom::fill(&mut raw).expect("random");
+        let token = atrium_pairing::token::DeviceToken::from_bytes(raw);
+        let mut id = [0_u8; 16];
+        getrandom::fill(&mut id).expect("random");
+        self.database()
+            .connection()
+            .execute(
+                "INSERT INTO devices (device_id, name, platform, role, token_digest, created_at) \
+                 VALUES (?1, ?2, 'linux', 'owner', ?3, '2026-09-24T00:00:00Z')",
+                (hex::encode(id), name, token.digest().as_bytes().as_slice()),
+            )
+            .expect("device");
+        token.encode().to_string()
     }
 
     /// Another connection to the database, for assertions.
@@ -153,6 +199,17 @@ impl Server {
 
     pub(super) async fn normal() -> Self {
         Self::normal_with(Limits::DEFAULT).await
+    }
+
+    /// Normal mode with the system providers reading a fixture tree.
+    pub(super) async fn normal_with_host(host: crate::providers::HostRoot) -> Self {
+        Self::start_with(|identity, served, port| {
+            let (state, services) = State::with_host(identity, host);
+            let app =
+                App::normal_with_limits(served, port, services, Limits::DEFAULT).expect("app");
+            (app, Some(state))
+        })
+        .await
     }
 
     pub(super) async fn normal_with(limits: Limits) -> Self {

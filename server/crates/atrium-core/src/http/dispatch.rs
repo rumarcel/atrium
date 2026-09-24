@@ -347,6 +347,11 @@ fn endpoint_label(endpoint: Endpoint) -> &'static str {
         Endpoint::Me => "me",
         Endpoint::Devices => "devices",
         Endpoint::RevokeDevice => "revoke-device",
+        Endpoint::System => "system",
+        Endpoint::Metrics => "system-metrics",
+        Endpoint::Capabilities => "system-capabilities",
+        Endpoint::Interfaces => "network-interfaces",
+        Endpoint::Filesystems => "storage-filesystems",
         #[cfg(test)]
         Endpoint::TestBinding => "test-binding",
         #[cfg(test)]
@@ -438,9 +443,31 @@ async fn endpoint_response(app: &App, call: Call<'_>) -> Result<Response<Full<By
         (Endpoint::SystemDiagnostics, super::AppMode::Recovery { diagnostics, .. }) => {
             Ok(stored_json(diagnostics))
         }
-        // Normal-mode diagnostics is a device route whose handler is M1F's;
-        // until then an authenticated device finds nothing there.
-        (Endpoint::SystemDiagnostics, super::AppMode::Normal) => Err(ApiError::NotFound),
+        // Normal mode: a device reached this through the Auth::Device check.
+        (Endpoint::SystemDiagnostics, super::AppMode::Normal) => {
+            let services = services(app)?;
+            serialized(&blocking(move || services.system.diagnostics()).await?)
+        }
+        (Endpoint::System, _) => {
+            let services = services(app)?;
+            serialized(&blocking(move || services.system.info()).await?)
+        }
+        (Endpoint::Metrics, _) => {
+            let services = services(app)?;
+            serialized(&blocking(move || services.system.metrics(Instant::now())).await?)
+        }
+        (Endpoint::Capabilities, _) => {
+            let services = services(app)?;
+            serialized(&blocking(move || services.system.capabilities()).await?)
+        }
+        (Endpoint::Interfaces, _) => {
+            let services = services(app)?;
+            serialized(&blocking(move || services.system.interfaces()).await?)
+        }
+        (Endpoint::Filesystems, _) => {
+            let services = services(app)?;
+            serialized(&services.system.filesystems().await)
+        }
         // The pairing and device routes do not exist in recovery, so these
         // arms are reached in normal mode only.
         (Endpoint::PairInfo, _) => {
