@@ -141,8 +141,10 @@ true on the owner's server running the prototype. Partial credit does not exist.
     rejected; the QR payload decodes to the identical 16 bytes; and comparison is
     on the decoded bytes, never the text. A shorter secret is a build failure, not
     a configuration option (ADR-003 §3, §5).
-13. Pairing with a wrong secret fails with a single generic `pairing_rejected`,
-    and five failures disable pairing until it is re-armed on the server.
+13. Pairing with a wrong secret fails with a single generic `pairing_rejected`;
+    the failed attempt is consumed and the armed secret is unaffected, so no
+    number of failures ends the owner's pairing window.
+    (Amended 2026-09-24; see *Criteria amended during planning* below.)
 14. A used secret cannot be reused. An expired secret cannot be used. A
     `begin`/`complete` pair older than two minutes is rejected.
 15. A man-in-the-middle presenting a different TLS key cannot complete pairing
@@ -282,6 +284,21 @@ quietly.
   server *is*. The new wording makes that impossible at the discretionary-access
   layer, not merely at the systemd layer, and it is the only version of the
   criterion that can be proven by attempting the attack.
+
+**Criterion 13 — failed pairing attempts (amended 2026-09-24, ADR-020).**
+
+- *Was:* "Pairing with a wrong secret fails with a single generic
+  `pairing_rejected`, and five failures disable pairing until it is re-armed on
+  the server."
+- *Now:* the same single generic refusal; each failed attempt is consumed,
+  counted for the audit, and the armed secret is otherwise unaffected. Rate
+  limits and the 15-minute lifetime still apply.
+- *Why this is stronger:* against guessing it is identical — a 128-bit random
+  secret cannot be found online in a 15-minute window whether or not anything
+  locks, and a stolen secret works on its first try either way. What the lock
+  added was a denial-of-service primitive: any LAN client could end the owner's
+  pairing window with five bogus proofs, without knowing anything. Removing it
+  keeps every protection and removes an unauthenticated attack.
 
 **Criterion 30 — catastrophic recovery.**
 

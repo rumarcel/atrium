@@ -1,6 +1,6 @@
 //! Pairing (M1E): arming at the console, and `pair/info`, `pair/begin` and
-//! `pair/complete` over the network, exactly as ADR-003 §3–§6, plan §6 and
-//! ADR-019 specify.
+//! `pair/complete` over the network, exactly as ADR-003 §3–§6, plan §6,
+//! ADR-019 and ADR-020 specify.
 //!
 //! # States
 //!
@@ -9,9 +9,11 @@
 //! | State | Row | Leaves by |
 //! | --- | --- | --- |
 //! | Unclaimed, disarmed | `claimed=0, armed=0` | `atriumctl pair` |
-//! | Armed (claimed or not) | `armed=1`, sealed secret present | success, expiry, 5th failure, re-arm |
+//! | Armed (claimed or not) | `armed=1`, sealed secret present | success, expiry, re-arm, identity change |
 //! | Claimed, disarmed | `claimed=1, armed=0` | `atriumctl pair` |
-//! | Failure-locked | `locked=1, armed=0`, no secret | `atriumctl pair` |
+//!
+//! There is no failure-locked state (ADR-020): a failed attempt never ends
+//! the armed secret.
 //!
 //! Expiry is enforced on every read (an expired arming is never usable) and
 //! the ciphertext is deleted by whichever comes first: the next pairing
@@ -25,7 +27,7 @@
 //!
 //! # Who owns what
 //!
-//! - `pairing_state` (armed secret, failure count, lock, claim) is owned by
+//! - `pairing_state` (armed secret, failure count, claim) is owned by
 //!   the database; every decision that changes it runs in one `IMMEDIATE`
 //!   transaction, so two requests — or Core and `atriumctl pair` — cannot
 //!   interleave inside a decision.
@@ -43,12 +45,14 @@
 //!
 //! # Failures
 //!
-//! Every refusal is the same `pairing.rejected`. The log and the audit carry
-//! a closed reason; nothing carries a secret, a proof, a nonce, an exporter,
-//! a token or a token digest. A `complete` that names a live attempt for the
-//! current arming and does not succeed counts against the arming; at the
-//! fifth the secret is destroyed and pairing is locked until the console
-//! re-arms. The proof is always computed, with placeholder inputs when there
+//! Every refusal is the same `pairing.rejected`. The log carries a closed
+//! reason; nothing carries a secret, a proof, a nonce, an exporter, a token
+//! or a token digest. A `complete` that names a live attempt for the current
+//! arming and does not succeed consumes that attempt and increments the
+//! arming's `failed_attempts`, which the audit row ending the arming records
+//! and nothing else reads (ADR-020). The armed secret is untouched: 128
+//! random bits need no lockout, and a lockout would let any LAN client end
+//! the owner's pairing window. The proof is always computed, with placeholder inputs when there
 //! is nothing real to compute it over, so the refusal paths do comparable
 //! work; no claim of network-level constant time is made.
 
@@ -249,7 +253,7 @@ impl Pairing {
             .database()?
             .pairing_row()
             .map_err(|error| internal("pair-info", "read", &error))?;
-        let open = !row.locked && row.armed.as_ref().is_some_and(|a| a.expires_at > now);
+        let open = row.armed.as_ref().is_some_and(|a| a.expires_at > now);
         Ok(InfoResponse {
             server_id: Id(*self.facts.server_id.as_bytes()),
             name: self.facts.name.clone(),
@@ -290,7 +294,7 @@ impl Pairing {
                 .pairing_row()
                 .map_err(|error| internal(ROUTE, "read", &error))?;
             match row.armed {
-                Some(armed) if !row.locked && armed.expires_at > now => armed,
+                Some(armed) if armed.expires_at > now => armed,
                 _ => return Err(rejected(ROUTE, Reason::NotOpen)),
             }
         };
@@ -431,27 +435,14 @@ impl Pairing {
             let counted =
                 armed.is_some() && !matches!(reason, Reason::Unsealable | Reason::NoBinding);
             if counted {
-                let locked = transaction
-                    .record_failure(reason.as_str(), now)
+                transaction
+                    .record_failure()
                     .map_err(|error| internal(ROUTE, "record", &error))?;
-                transaction
-                    .commit()
-                    .map_err(|error| internal(ROUTE, "commit", &error))?;
-                if locked {
-                    tracing::warn!(
-                        event = "pairing_locked",
-                        component = "atrium-core",
-                        "five pairing attempts failed; the secret was destroyed and pairing \
-                         is locked until it is re-armed with `atriumctl pair`"
-                    );
-                    self.forget_all();
-                }
-            } else {
-                // An expiry found above is still worth keeping.
-                transaction
-                    .commit()
-                    .map_err(|error| internal(ROUTE, "commit", &error))?;
             }
+            // The count, and any expiry found above, are kept.
+            transaction
+                .commit()
+                .map_err(|error| internal(ROUTE, "commit", &error))?;
             return Err(rejected(ROUTE, reason));
         }
         let Some(attempt) = attempt else {
@@ -569,8 +560,8 @@ impl std::fmt::Display for ArmError {
 
 impl std::error::Error for ArmError {}
 
-/// Arms pairing for the native profile, replacing any armed secret and
-/// clearing a failure lock: `atriumctl pair`. One transaction; on any error
+/// Arms pairing for the native profile, replacing any armed secret:
+/// `atriumctl pair`. One transaction; on any error
 /// nothing is armed and no secret exists anywhere.
 ///
 /// # Errors

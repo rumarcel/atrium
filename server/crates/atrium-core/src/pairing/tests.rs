@@ -177,7 +177,7 @@ impl Harness {
     }
 
     fn failures(&self) -> i64 {
-        self.scalar("SELECT failures FROM pairing_state")
+        self.scalar("SELECT failed_attempts FROM pairing_state")
     }
 
     /// Whether any part of a sealed secret is stored.
@@ -298,7 +298,7 @@ fn tampered_ciphertext_nonce_or_context_is_refused() {
 }
 
 #[test]
-fn consumed_expired_and_locked_secrets_leave_nothing_to_recover() {
+fn consumed_expired_and_replaced_secrets_leave_nothing_to_recover() {
     let harness = Harness::new();
     // Consumed.
     let secret = harness.arm();
@@ -313,14 +313,15 @@ fn consumed_expired_and_locked_secrets_leave_nothing_to_recover() {
         .disarm_if_expired(harness.now())
         .expect("sweep"));
     assert!(!harness.sealed_present());
-    // Locked.
+    // Failures end nothing (ADR-020): the sealed secret stays until one of
+    // the events above.
     harness.arm();
     let wrong = PairingSecret::from_bytes(random());
-    for _ in 0..5 {
+    for _ in 0..20 {
         assert!(harness.pair(&Conn::new(1), &wrong).is_err());
     }
-    assert!(!harness.sealed_present());
-    assert_eq!(harness.scalar::<i64>("SELECT locked FROM pairing_state"), 1);
+    assert!(harness.sealed_present());
+    assert_eq!(harness.failures(), 20);
     // Replaced: the old ciphertext is overwritten by the new arming.
     let first = harness.arm();
     let first_ciphertext: Vec<u8> = harness.scalar("SELECT secret_ciphertext FROM pairing_state");

@@ -1802,14 +1802,11 @@ fn pairing_end_to_end_leaves_no_secret_in_logs_audit_diagnostics_or_responses() 
             .expect("rows");
         rows.join("\n")
     };
-    for action in [
-        "pairing.armed",
-        "pairing.failed",
-        "pairing.consumed",
-        "device.created",
-    ] {
+    for action in ["pairing.armed", "pairing.consumed", "device.created"] {
         assert!(audit.contains(action), "{action}: {audit}");
     }
+    // ADR-020: the failed attempt is counted in the row that ends the arming.
+    assert!(audit.contains(r#""failed_attempts":1"#), "{audit}");
 
     let token_bytes = {
         use base64::Engine as _;

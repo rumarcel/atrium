@@ -198,8 +198,11 @@ provides:
    **not a human PIN**: short typed codes are not offered until a reviewed PAKE is
    adopted, which ADR-003 states as a prerequisite rather than an aspiration.
 5. **One-shot, expiring, rate-limited.** Single use; default 15-minute lifetime;
-   two minutes from `begin` to `complete`; five global failures destroy the
-   armed secret and lock pairing until re-armed on the server. Every refusal is
+   two minutes from `begin` to `complete`. A failed attempt is consumed and
+   counted, and never ends the armed secret ([ADR-020](adr/0020-no-failed-proof-lock.md)):
+   128 random bits need no lockout, a stolen secret works on its first try
+   anyway, and a lockout would let any LAN client end the owner's pairing
+   window. Rate limits bound work and state, not guessing. Every refusal is
    the same `403 pairing.rejected`. The armed secret is stored only as
    ciphertext under `secrets.key` ([ADR-019](adr/0019-sealed-pairing-secret.md)).
 6. **Claim-on-first-pair with a bounded window**, so a LAN attacker cannot win a
@@ -374,8 +377,9 @@ destructive confirmation produces an audit record:
 ## 13. Rate limiting and denial of service
 
 - Unauthenticated endpoints: strict per-IP token bucket, plus a global cap on
-  concurrent unauthenticated connections. Pairing has its own global failure
-  counter that disables the flow rather than merely slowing it. As built in
+  concurrent unauthenticated connections. (Pairing's five-failure lock was
+  removed by ADR-020: it protected nothing against a 128-bit secret and gave
+  any LAN client a way to end the owner's pairing window.) As built in
   M1E: a source is the socket's peer address (IPv4-mapped IPv6 folded to IPv4,
   IPv6 per address, since a LAN shares one /64), never a forwarding header; 8 connections per source inside
   the global 32; pairing requests 10 at once and 10 a minute per source, 30
@@ -566,6 +570,17 @@ Stated plainly, because the prototype's README set this standard:
 6. **Physical access to the disk defeats everything at rest.**
 7. **No external security audit has been performed.** As with the prototype, this
    is disclosed rather than glossed over.
+8. **Transient copies in memory are not all zeroized.** Atrium guarantees that
+   pairing secrets, proof material and device tokens are never persisted,
+   logged or exposed through diagnostics, except the device token's one-time
+   issuance in the `pair/complete` response. Secret-owning values under
+   Atrium's direct control — the decoded pairing secret, the pairing key, the
+   exporter copy, a parsed token, `secrets.key` — are zeroized when dropped.
+   Atrium does **not** claim that every transient copy made by the HTTP and TLS
+   stack (request and response buffers, JSON serialization, TLS record
+   buffers) is zeroized, and adds no `unsafe` code or custom body type to
+   pretend otherwise. Reading those copies requires reading Core's memory,
+   which is already inside Core's trust boundary (§4).
 
 Two risks that appeared in the previous revision of this document are gone
 because the architecture changed, not because they were talked away: Core's

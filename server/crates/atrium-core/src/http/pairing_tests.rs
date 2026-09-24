@@ -256,17 +256,18 @@ fn token_text(paired: &Paired) -> String {
 // ---------------------------------------------------------------------------
 // Database inspection
 
-fn pairing_columns(server: &Server) -> (bool, bool, bool, u32, bool) {
+/// `(claimed, armed, failed_attempts, ciphertext present)`.
+fn pairing_columns(server: &Server) -> (bool, bool, u32, bool) {
     let database = server.state().database();
-    let row: (i64, i64, i64, u32, Option<Vec<u8>>) = database
+    let row: (i64, i64, u32, Option<Vec<u8>>) = database
         .connection()
         .query_row(
-            "SELECT claimed, armed, locked, failures, secret_ciphertext FROM pairing_state",
+            "SELECT claimed, armed, failed_attempts, secret_ciphertext FROM pairing_state",
             (),
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .expect("row");
-    (row.0 == 1, row.1 == 1, row.2 == 1, row.3, row.4.is_some())
+    (row.0 == 1, row.1 == 1, row.2, row.3.is_some())
 }
 
 fn device_count(server: &Server) -> i64 {
@@ -411,7 +412,7 @@ async fn first_pairing_claims_the_server_and_a_second_needs_a_fresh_secret() {
     let after = info(&mut stream, &host).await;
     assert!(after.claimed);
     assert!(!after.pairing_open, "the secret was consumed");
-    assert_eq!(pairing_columns(&server), (true, false, false, 0, false));
+    assert_eq!(pairing_columns(&server), (true, false, 0, false));
 
     // Without a fresh secret: refused, even with the old one.
     let refused = pair_on(&mut stream, &host, &secret, "Second")
@@ -424,7 +425,7 @@ async fn first_pairing_claims_the_server_and_a_second_needs_a_fresh_secret() {
     let second = pair(&server, &fresh, "Second").await.expect("second");
     assert_ne!(first.device_id, second.device_id);
     assert_eq!(device_count(&server), 2);
-    assert_eq!(pairing_columns(&server), (true, false, false, 0, false));
+    assert_eq!(pairing_columns(&server), (true, false, 0, false));
     server.stop().await;
 }
 
@@ -505,37 +506,46 @@ async fn wrong_secret_returns_generic_rejection_identical_to_every_other_refusal
     server.stop().await;
 }
 
+/// ADR-020: failed proofs consume their attempts and nothing else. Any
+/// number of bogus completes leaves the owner's secret armed and usable,
+/// and the count is never exposed over the network.
 #[tokio::test]
-async fn five_failures_lock_pairing_until_the_console_re_arms() {
+async fn failed_proofs_never_end_the_owners_pairing_window() {
     let server = server().await;
     let host = server.host();
     let secret = server.state().arm();
     let wrong = PairingSecret::from_bytes(random());
-    for n in 1..=5 {
+    for n in 1..=12 {
         let refused = pair(&server, &wrong, "Guess").await.expect_err("wrong");
         assert_rejected(&refused);
-        let (_, armed, locked, failures, ciphertext) = pairing_columns(&server);
-        if n < 5 {
-            assert!(armed && !locked && ciphertext);
-            assert_eq!(failures, n);
-        } else {
-            // The fifth destroys the secret and locks.
-            assert!(!armed && locked && !ciphertext);
-            assert_eq!(failures, 5);
-        }
+        let (_, armed, failed_attempts, ciphertext) = pairing_columns(&server);
+        assert!(armed && ciphertext, "the secret survives failure {n}");
+        assert_eq!(failed_attempts, n);
     }
-    // The sixth, with the correct secret, is refused like any other.
-    let sixth = pair(&server, &secret, "Owner").await.expect_err("locked");
-    assert_rejected(&sixth);
     let mut stream = first_contact(server.port).await;
-    assert!(!info(&mut stream, &host).await.pairing_open);
+    let reply = exchange(&mut stream, &get("/api/v1/pair/info", &host)).await;
+    let info: InfoResponse = serde_json::from_str(&reply.body).expect("exactly the info fields");
+    assert!(info.pairing_open, "still open after twelve failures");
+    // The strict parse above proves there is no count field; nor does any
+    // value speak of failures.
+    assert!(!reply.body.to_lowercase().contains("fail"));
 
-    // `atriumctl pair` clears the lock with a new secret.
-    let fresh = server.state().arm();
-    assert_eq!(pairing_columns(&server), (false, true, false, 0, true));
-    pair(&server, &fresh, "Owner")
+    // The owner's correct secret pairs, first time.
+    pair(&server, &secret, "Owner")
         .await
-        .expect("paired after re-arm");
+        .expect("the owner still pairs");
+    let detail: String = server
+        .state()
+        .database()
+        .connection()
+        .query_row(
+            "SELECT detail FROM audit WHERE action = 'pairing.consumed'",
+            (),
+            |r| r.get(0),
+        )
+        .expect("consumed row");
+    assert!(detail.contains(r#""failed_attempts":12"#), "{detail}");
+    assert_eq!(pairing_columns(&server), (true, false, 0, false));
     server.stop().await;
 }
 
@@ -583,7 +593,7 @@ async fn expired_secret_is_refused_and_its_ciphertext_deleted() {
             .expect_err("expired"),
     );
     // The refused begin deleted the expired ciphertext.
-    assert_eq!(pairing_columns(&server), (false, false, false, 0, false));
+    assert_eq!(pairing_columns(&server), (false, false, 0, false));
     server.stop().await;
 }
 
@@ -605,7 +615,7 @@ async fn begin_complete_window_expires_after_two_minutes() {
     server.state().advance(ATTEMPT_WINDOW);
     assert_rejected(&complete(&mut stream, &host, &request).await);
     // Counted against the arming, which is still usable for a new attempt.
-    assert_eq!(pairing_columns(&server).3, 1);
+    assert_eq!(pairing_columns(&server).2, 1);
     pair_on(&mut stream, &host, &secret, "Prompt")
         .await
         .expect("a fresh attempt within the secret's lifetime");
@@ -722,7 +732,7 @@ async fn pairing_bodies_are_strict_bounded_and_json_only() {
         "validation.unsupported_media_type",
     );
     // None of that created an attempt or counted a failure.
-    assert_eq!(pairing_columns(&server).3, 0);
+    assert_eq!(pairing_columns(&server).2, 0);
     server.stop().await;
 }
 
@@ -1233,7 +1243,7 @@ async fn a_relaying_mitm_with_its_own_key_cannot_complete_pairing() {
     // Three refusals were counted; the arming is intact for the owner, and
     // the same secret on an honest connection pairs — so what failed above
     // was the binding, not the secret.
-    assert_eq!(pairing_columns(&server).3, 3);
+    assert_eq!(pairing_columns(&server).2, 3);
     let honest = pair(&server, &secret, "Owner").await.expect("honest");
     assert_eq!(honest.spki, *server.pin.as_bytes());
     server.stop().await;
@@ -1488,14 +1498,11 @@ async fn nothing_secret_reaches_the_audit_or_any_response() {
         .collect::<Result<_, _>>()
         .expect("rows");
     let audit = rows.join("\n");
-    for action in [
-        "pairing.armed",
-        "pairing.failed",
-        "pairing.consumed",
-        "device.created",
-    ] {
+    for action in ["pairing.armed", "pairing.consumed", "device.created"] {
         assert!(audit.contains(action), "{action} audited: {audit}");
     }
+    // ADR-020: the failure is counted in the row that ends the arming.
+    assert!(audit.contains(r#""failed_attempts":1"#), "{audit}");
     // The name the client chose is not copied into the audit either.
     assert!(!audit.contains("Good") && !audit.contains("Bad"));
     for form in &forbidden {

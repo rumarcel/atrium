@@ -145,7 +145,7 @@ SQLite in a `tempfile::TempDir`, a fake clock, and a harness client built on
 | `happy_path_pairs_and_returns_token` | 11 |
 | `proof_s_is_verifiable_by_the_client` | 11, 16 |
 | `wrong_secret_returns_generic_rejection` — body byte-identical to the expired case | 13 |
-| `five_failures_lock_pairing` — sixth attempt refused even with the correct secret; `atriumctl pair` clears it | 13 |
+| ~~`five_failures_lock_pairing`~~ → `failed_proofs_never_end_the_owners_pairing_window` — any number of failures leaves the secret armed and the correct secret still pairs (ADR-020) | 13 |
 | `used_secret_cannot_be_reused` | 14 |
 | `expired_secret_rejected` — fake clock +15 min | 14 |
 | `begin_complete_window_expires` — fake clock +2 min | 14 |
@@ -498,7 +498,7 @@ takes the exporter and the certificate from its own handshake.
 | `happy_path_pairs_and_returns_token` | `http/pairing_tests.rs` |
 | `proof_s_is_verifiable_by_the_client` | `proof_s_is_verifiable_by_the_client_and_a_wrong_one_is_refused`, and `atrium-pairing/src/client.rs` |
 | `wrong_secret_returns_generic_rejection` | `wrong_secret_returns_generic_rejection_identical_to_every_other_refusal` (byte-identical to unknown attempt, web profile, unknown profile and expired secret) |
-| `five_failures_lock_pairing` | `five_failures_lock_pairing_until_the_console_re_arms` |
+| `five_failures_lock_pairing` (superseded by ADR-020) | `failed_proofs_never_end_the_owners_pairing_window` |
 | `used_secret_cannot_be_reused` | `used_secret_and_replayed_complete_are_refused` |
 | `expired_secret_rejected`, `begin_complete_window_expires` | `expired_secret_is_refused_and_its_ciphertext_deleted`, `begin_complete_window_expires_after_two_minutes` |
 | `complete_on_a_different_connection_is_refused` | `http/pairing_tests.rs` |
@@ -547,7 +547,7 @@ forwarding headers change nothing.
 | 10 | L6 | Discovery, manual entry equivalence |
 | 11 | L3 + L6 | `happy_path_pairs_and_returns_token`; keychain assertion on Windows |
 | 12 | L1 + L2 | The eleven codec tests, plus property tests |
-| 13 | L3 | `wrong_secret_returns_generic_rejection`, `five_failures_lock_pairing` |
+| 13 | L3 | `wrong_secret_returns_generic_rejection`, `failed_proofs_never_end_the_owners_pairing_window` |
 | 14 | L3 | `used_secret_cannot_be_reused`, `expired_secret_rejected`, `begin_complete_window_expires` |
 | 15 | L1 + L3 | Binding-profile tests §4.2a, MITM harness §4.3 |
 | 16 | L3 | Hostile-server harness, §4.4 |

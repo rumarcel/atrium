@@ -8,7 +8,7 @@
 //! crash after it leaves the secret gone and the device present. There is no
 //! state in which a device exists and its secret is still usable, or the
 //! server is claimed without the device that claimed it. The schema's CHECKs
-//! (migration 2) make the half-states unrepresentable as well.
+//! (migrations 2 and 3) make the half-states unrepresentable as well.
 
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior};
 use time::format_description::well_known::Rfc3339;
@@ -51,10 +51,9 @@ impl std::fmt::Debug for ArmedRow {
 pub struct PairingRow {
     /// A device has been paired at least once.
     pub claimed: bool,
-    /// Five wrong proofs: refused until re-armed at the console.
-    pub locked: bool,
-    /// Wrong proofs against the current arming.
-    pub failures: u32,
+    /// Failed `complete`s against the current arming: telemetry for the
+    /// audit row that ends the arming, never a decision input (ADR-020).
+    pub failed_attempts: u32,
     /// The armed secret, if any.
     pub armed: Option<ArmedRow>,
 }
@@ -98,27 +97,26 @@ fn blob<const N: usize>(bytes: Vec<u8>) -> rusqlite::Result<[u8; N]> {
 
 fn read_row(connection: &rusqlite::Connection) -> rusqlite::Result<PairingRow> {
     connection.query_row(
-        "SELECT claimed, locked, failures, armed, arming_id, profile, secret_nonce, \
+        "SELECT claimed, failed_attempts, armed, arming_id, profile, secret_nonce, \
          secret_ciphertext, armed_at, expires_at FROM pairing_state WHERE id = 1",
         (),
         |row| {
-            let armed: bool = row.get(3)?;
+            let armed: bool = row.get(2)?;
             let armed = if armed {
                 Some(ArmedRow {
-                    arming_id: blob(row.get(4)?)?,
-                    profile: row.get(5)?,
-                    nonce: blob(row.get(6)?)?,
-                    ciphertext: row.get(7)?,
-                    armed_at: parse_time(&row.get::<_, String>(8)?)?,
-                    expires_at: parse_time(&row.get::<_, String>(9)?)?,
+                    arming_id: blob(row.get(3)?)?,
+                    profile: row.get(4)?,
+                    nonce: blob(row.get(5)?)?,
+                    ciphertext: row.get(6)?,
+                    armed_at: parse_time(&row.get::<_, String>(7)?)?,
+                    expires_at: parse_time(&row.get::<_, String>(8)?)?,
                 })
             } else {
                 None
             };
             Ok(PairingRow {
                 claimed: row.get(0)?,
-                locked: row.get(1)?,
-                failures: row.get(2)?,
+                failed_attempts: row.get(1)?,
                 armed,
             })
         },
@@ -126,7 +124,8 @@ fn read_row(connection: &rusqlite::Connection) -> rusqlite::Result<PairingRow> {
 }
 
 const DISARM: &str = "UPDATE pairing_state SET armed = 0, arming_id = NULL, profile = NULL, \
-     secret_nonce = NULL, secret_ciphertext = NULL, armed_at = NULL, expires_at = NULL";
+     secret_nonce = NULL, secret_ciphertext = NULL, armed_at = NULL, expires_at = NULL, \
+     failed_attempts = 0";
 
 /// One audit row written inside a pairing or device transaction.
 struct Entry<'a> {
@@ -164,8 +163,6 @@ fn audit(
 pub struct Armed {
     /// An earlier, unexpired secret was replaced and is now useless.
     pub replaced: bool,
-    /// A failure lock was cleared.
-    pub unlocked: bool,
 }
 
 impl Database {
@@ -178,8 +175,9 @@ impl Database {
         read_row(&self.connection)
     }
 
-    /// Arms pairing with a sealed secret, replacing whatever was armed and
-    /// clearing a failure lock, in one transaction with its audit row.
+    /// Arms pairing with a sealed secret, replacing whatever was armed, in
+    /// one transaction with its audit row. The row records how many failed
+    /// attempts the replaced arming had seen.
     ///
     /// # Errors
     ///
@@ -197,7 +195,7 @@ impl Database {
         transaction.execute(
             "UPDATE pairing_state SET armed = 1, arming_id = ?1, profile = ?2, \
              secret_nonce = ?3, secret_ciphertext = ?4, armed_at = ?5, expires_at = ?6, \
-             failures = 0, locked = 0 WHERE id = 1",
+             failed_attempts = 0 WHERE id = 1",
             (
                 armed.arming_id.as_slice(),
                 armed.profile.as_str(),
@@ -209,7 +207,6 @@ impl Database {
         )?;
         let outcome = Armed {
             replaced: before.armed.as_ref().is_some_and(|a| a.expires_at > now),
-            unlocked: before.locked,
         };
         audit(
             &transaction,
@@ -223,7 +220,7 @@ impl Database {
                     "profile": armed.profile,
                     "expires_at": format_time(armed.expires_at),
                     "replaced": outcome.replaced,
-                    "unlocked": outcome.unlocked,
+                    "replaced_failed_attempts": before.failed_attempts,
                 }),
             },
             now,
@@ -407,7 +404,10 @@ impl PairingTx<'_> {
                         actor_device: None,
                         target: None,
                         outcome: "ok",
-                        detail: serde_json::json!({ "expires_at": format_time(armed.expires_at) }),
+                        detail: serde_json::json!({
+                            "expires_at": format_time(armed.expires_at),
+                            "failed_attempts": row.failed_attempts,
+                        }),
                     },
                     now,
                 )?;
@@ -417,49 +417,24 @@ impl PairingTx<'_> {
         }
     }
 
-    /// Counts a wrong proof against the current arming. At the fifth, the
-    /// arming is destroyed and pairing locked until re-armed at the console.
-    /// Returns whether this failure locked it.
+    /// Counts a failed `complete` against the current arming (ADR-020): the
+    /// count is telemetry for the audit row that ends the arming and decides
+    /// nothing. The armed secret is untouched. Returns the new count; zero
+    /// when nothing is armed.
     ///
     /// # Errors
     ///
     /// SQLite's error.
-    pub fn record_failure(&self, reason: &str, now: OffsetDateTime) -> rusqlite::Result<bool> {
-        let row = self.row()?;
-        if row.armed.is_none() {
-            return Ok(false);
-        }
-        let failures = row.failures + 1;
-        let lock = failures >= 5;
-        if lock {
-            self.0.execute(DISARM, ())?;
-            self.0.execute(
-                "UPDATE pairing_state SET failures = 5, locked = 1 WHERE id = 1",
-                (),
-            )?;
-        } else {
-            self.0.execute(
-                "UPDATE pairing_state SET failures = ?1 WHERE id = 1",
-                [failures],
-            )?;
-        }
-        audit(
-            &self.0,
-            &Entry {
-                action: if lock {
-                    AuditAction::PairingLocked
-                } else {
-                    AuditAction::PairingFailed
-                },
-                actor: Actor::System.as_str(),
-                actor_device: None,
-                target: None,
-                outcome: "refused",
-                detail: serde_json::json!({ "reason": reason }),
-            },
-            now,
+    pub fn record_failure(&self) -> rusqlite::Result<u32> {
+        let updated = self.0.execute(
+            "UPDATE pairing_state SET failed_attempts = failed_attempts + 1 \
+             WHERE id = 1 AND armed = 1",
+            (),
         )?;
-        Ok(lock)
+        if updated == 0 {
+            return Ok(0);
+        }
+        Ok(self.row()?.failed_attempts)
     }
 
     /// Consumes the armed secret and creates the device, claiming the server
@@ -471,6 +446,7 @@ impl PairingTx<'_> {
     pub fn consume(&self, device: &NewDevice<'_>, now: OffsetDateTime) -> rusqlite::Result<bool> {
         let row = self.row()?;
         let first = !row.claimed;
+        let failed_attempts = row.failed_attempts;
         self.0.execute(
             "INSERT INTO devices (device_id, name, platform, role, token_digest, created_at) \
              VALUES (?1, ?2, ?3, 'owner', ?4, ?5)",
@@ -483,10 +459,8 @@ impl PairingTx<'_> {
             ),
         )?;
         self.0.execute(DISARM, ())?;
-        self.0.execute(
-            "UPDATE pairing_state SET claimed = 1, failures = 0, locked = 0 WHERE id = 1",
-            (),
-        )?;
+        self.0
+            .execute("UPDATE pairing_state SET claimed = 1 WHERE id = 1", ())?;
         audit(
             &self.0,
             &Entry {
@@ -495,7 +469,10 @@ impl PairingTx<'_> {
                 actor_device: None,
                 target: Some(device.device_id),
                 outcome: "ok",
-                detail: serde_json::json!({ "first_claim": first }),
+                detail: serde_json::json!({
+                    "first_claim": first,
+                    "failed_attempts": failed_attempts,
+                }),
             },
             now,
         )?;
@@ -622,7 +599,8 @@ mod tests {
         assert_eq!(outcome, super::super::Reconciled::Revoked(2));
         assert!(database.list_devices().expect("list").is_empty());
         let row = database.pairing_row().expect("row");
-        assert!(row.armed.is_none() && !row.locked);
+        assert!(row.armed.is_none());
+        assert_eq!(row.failed_attempts, 0);
         assert!(database
             .device_by_digest(&TokenDigest::from_bytes([1; 32]))
             .expect("lookup")

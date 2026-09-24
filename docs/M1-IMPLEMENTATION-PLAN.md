@@ -681,14 +681,15 @@ stateDiagram-v2
     Armed --> Armed: pair/begin (session created)
     Armed --> Claimed: pair/complete verified (first device)
     Armed --> Disarmed: secret expired (15 min)
-    Armed --> FailureLocked: 5th failed proof
     Claimed --> ArmedClaimed: atriumctl pair (console)
     ArmedClaimed --> Claimed: pair/complete verified (additional device)
     ArmedClaimed --> Disarmed: expiry
-    ArmedClaimed --> FailureLocked: 5th failed proof
-    FailureLocked --> Armed: atriumctl pair (console re-arm, clears counter)
     Disarmed --> Armed: atriumctl pair (console)
 ```
+
+*Amended by [ADR-020](adr/0020-no-failed-proof-lock.md):* the `FailureLocked`
+state and its "5th failed proof" transitions are removed. A failed proof
+consumes its attempt and never changes the armed state.
 
 `Disarmed` in a claimed server is the steady state: **a claimed server with no
 armed secret refuses every pairing attempt**, which is criterion 17's second
@@ -776,10 +777,10 @@ and costs nothing, because both ends are ours and HTTP/1.1 keep-alive is enough.
 | Event | Precondition | Effect | Response |
 | --- | --- | --- | --- |
 | `GET /pair/info` | always | none | `{serverId, name, version, spki, claimed, pairingOpen}` |
-| `POST /pair/begin` | armed ∧ ¬locked ∧ ¬expired ∧ sessions < 4 | create session bound to this connection | `{pairingId, serverNonce, expiresAt}` |
+| `POST /pair/begin` | armed ∧ ¬expired ∧ sessions < 4 | create session bound to this connection | `{pairingId, serverNonce, expiresAt}` |
 | `POST /pair/begin` | otherwise | count as a failure only if the secret is expired or absent — never reveal which | `403 pairing_rejected` |
 | `POST /pair/complete` | session exists ∧ same connection ∧ permitted profile ∧ < 2 min ∧ proofC verifies | consume secret, insert device, disarm, claim if first, audit — all in one transaction | `{proofS, deviceId, deviceToken, role, server}` |
-| `POST /pair/complete` | proof mismatch | `failures += 1`; at 5 → `locked = 1`; destroy session | `403 pairing_rejected` |
+| `POST /pair/complete` | proof mismatch | `failed_attempts += 1` (audit telemetry only); destroy session; the armed secret is unchanged (ADR-020) | `403 pairing_rejected` |
 | `POST /pair/complete` | replay of a consumed `pairingId`, or expired window | destroy session; counts as a failure | `403 pairing_rejected` |
 
 Every failure returns the **same** body and status. No timing difference is
@@ -1390,7 +1391,7 @@ suites pass unchanged.
   exists in the error type and is always `null`.
 - **Audit events (M1 closed set)**: `identity.generated`,
   `identity.certificate_reissued`, `identity.key_rotated`, `pairing.armed`,
-  `pairing.consumed`, `pairing.failed`, `pairing.locked`, `device.created`,
+  `pairing.consumed`, `pairing.expired`, `device.created`,
   `device.revoked`, `devices.revoked_all`, `agent.call`, `recovery.entered`,
   `recovery.restore`.
 - **Redaction is by construction.** The pairing secret, its decoded bytes, device
@@ -1422,7 +1423,7 @@ suites pass unchanged.
 | Certificate generation failure | Fail to start with a clear error and exit non-zero; systemd retries with backoff | Never serve plaintext HTTP |
 | TLS listener bind failure | Fail to start, exit non-zero | Never fall back to another port or to HTTP |
 | Pairing timeout / expiry | Generic `pairing_rejected`; session destroyed | Never extend a window |
-| Wrong pairing proof | Generic `pairing_rejected`; failure counter incremented; lock at 5 | Never reveal which part was wrong |
+| Wrong pairing proof | Generic `pairing_rejected`; the attempt is consumed and counted; the armed secret is unaffected (ADR-020) | Never reveal which part was wrong |
 | Address change | Certificate reissued with the same key; mDNS re-announced; pins hold | Never regenerate the key |
 | No mDNS (bind failure) | `discovery.available:false` / `mdns_bind_failed`; manual entry unaffected | Never silently disable discovery |
 | No temperature sensor | `temperatures: []` plus capability `missing` | Never report 0 °C |
@@ -1850,7 +1851,8 @@ recorded here.
   creation, token issue, revocation,
   `atriumctl pair`.
 - **Tests:** the entire criterion-12 list including the `tr_TR.UTF-8` decode;
-  property tests over encode/decode; wrong secret; five-failure lock; replay;
+  property tests over encode/decode; wrong secret; five-failure lock
+  (removed by ADR-020: now "failures never end the window"); replay;
   expiry; 2-minute window; cross-connection `complete`; **MITM harness**
   substituting SPKI and exporter; claim-on-first-pair; second attempt on a
   claimed server; revocation within one request.
@@ -1891,11 +1893,13 @@ the implementation is more specific than this plan, or departs from it:
    attempt records its connection id, the arming id, both nonces and the
    device metadata; the exporter is read again from the connection at
    `complete`, and the attempt is removed before anything is checked, so it
-   is single use. Successful consumption and the failure lock forget every
-   attempt.
+   is single use. Successful consumption forgets every attempt.
 4. **What counts as a failure.** A `complete` that names a live attempt for
    the current arming and does not succeed — wrong proof, other connection,
-   window passed — counts; the fifth destroys the secret and locks. §6.5's
+   window passed — counts; the fifth destroys the secret and locks
+   (*superseded by [ADR-020](adr/0020-no-failed-proof-lock.md) before M1F: a
+   failure is counted in `failed_attempts` for the audit and never ends the
+   armed secret; migration 3 removes `locked`*). §6.5's
    "count a `begin` failure if the secret is expired or absent" is not
    implemented: there is no arming to count against, and a `begin` carries
    nothing derived from the secret, so counting it would let anyone lock
@@ -1979,9 +1983,15 @@ the implementation is more specific than this plan, or departs from it:
 - A LAN client can still spend the global pairing budget or complete five
   bogus proofs against its own attempts, which locks pairing until the owner
   re-arms at the console. That is ADR-003's design (lock rather than allow
-  guessing); the owner re-arms.
+  guessing); the owner re-arms. *Resolved by
+  [ADR-020](adr/0020-no-failed-proof-lock.md) before M1F: there is no lock; a
+  LAN client can still spend the global budget or hold attempt slots for two
+  minutes, which slows the owner but never ends the window.*
 - The token is returned in a response body that hyper buffers; that buffer
   is not zeroed. The raw token is not stored or logged anywhere by Core.
+  *Accepted as a documented residual limitation (SECURITY.md §20 item 8):
+  no claim is made that every transient copy in the HTTP/TLS stack is
+  zeroized.*
 - Comparison of proofs, digests and secrets is constant-time; the network
   timing of the refusal paths is comparable (the proof is always computed)
   but not claimed constant.
@@ -1992,8 +2002,8 @@ the implementation is more specific than this plan, or departs from it:
 | --- | --- |
 | Pair without console arming? | No. `begin` needs an armed, unexpired, unlocked row, which only `atriumctl pair` (and `rotate-identity`) writes. `first_pairing_claims_…`, `expired_secret_…` |
 | One secret, two devices? | No. The attempt is removed before checking; consumption, device insert and claim are one `IMMEDIATE` transaction that re-reads the arming. `one_secret_never_makes_two_devices_even_concurrently` |
-| Brute force through an oracle? | No. One body for every refusal, no remaining count, five failures destroy the secret; 128 bits make offline guessing moot. `wrong_secret_returns_generic_rejection_identical_to_every_other_refusal` |
-| Unbounded memory or storage from failures? | No. ≤4 attempts, ≤1024 rate entries, ≤32 connection entries; ≤5 failure audit rows per arming. `attempts_are_bounded_and_expire`, `source_state_is_bounded` |
+| Brute force through an oracle? | No. One body for every refusal, no remaining count; 128 bits make online and offline guessing moot (the five-failure lock is gone since ADR-020 — it protected nothing and was a DoS primitive). `wrong_secret_returns_generic_rejection_identical_to_every_other_refusal` |
+| Unbounded memory or storage from failures? | No. ≤4 attempts, ≤1024 rate entries, ≤32 connection entries; failures are one counter per arming, recorded in the single audit row that ends it (ADR-020). `attempts_are_bounded_and_expire`, `source_state_is_bounded` |
 | Relay through a MITM? | No, even with the correct secret: SPKI and exporter differ. `a_relaying_mitm_with_its_own_key_cannot_complete_pairing` |
 | Move `complete` to another TLS connection? | No. The attempt records the connection id and the exporter is read from the arriving connection. `complete_on_a_different_connection_is_refused` |
 | Profile downgrade? | No. The profile is armed, not negotiated; the web profile does not parse; the schema admits only the native one. Profile tests and gate |
@@ -2159,7 +2169,7 @@ versions.
 | 10 | Manual entry gives identical results | M1G | Same suite, both paths compared |
 | 11 | Pairing returns a token; client verifies `proofS` first; keychain storage | M1E, M1G | Integration + Windows keychain assertion |
 | 12 | Secret is 16 bytes/128 bits/26 symbols, full decode rule set | M1E | Unit + property tests, incl. `tr_TR.UTF-8` |
-| 13 | Wrong secret → generic reject; 5 failures lock | M1E | Integration test |
+| 13 | Wrong secret → generic reject; failed attempt consumed, armed secret unaffected (amended, ADR-020) | M1E | Integration test |
 | 14 | Used/expired secret and stale window rejected | M1E | Integration test with a fake clock |
 | 15 | MITM with the correct secret cannot complete | M1E | MITM harness substituting SPKI and exporter |
 | 16 | Wrong `proofS` → client `untrusted`, stores nothing | M1G | Hostile-server harness + keychain assertion |

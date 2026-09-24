@@ -2,7 +2,8 @@
 
 **Status:** accepted — revised in the hardening review of 2026-09-22; §1's
 generation and file-mode sentences superseded by [ADR-017](0017-install-time-identity-and-root-owned-key-material.md);
-§3's "only a hash" storage sentence superseded by [ADR-019](0019-sealed-pairing-secret.md)
+§3's "only a hash" storage sentence superseded by [ADR-019](0019-sealed-pairing-secret.md);
+the five-failure lock superseded by [ADR-020](0020-no-failed-proof-lock.md)
 **Date:** 2026-09-22
 **Related:** ADR-006, ADR-009
 **Assumptions:** A-06, A-07, A-08, A-24, A-30, A-31
@@ -303,7 +304,7 @@ manage and rotate in exchange for no threat-model benefit.
 | **Replay resistance** | `cb` is unique per TLS connection; `clientNonce` and `serverNonce` are per-attempt; `pairingId` and the secret are single-use and consumed atomically. A captured `proofC` is worthless against any other connection. |
 | **Expiry** | Secret: 15 minutes by default. Pairing session: 2 minutes from `begin`. Both are server-enforced; the client's clock is not trusted. |
 | **Single use** | The secret is consumed on first successful verification, inside the same transaction that creates the device record. A crash between the two leaves the secret consumed, never the reverse. |
-| **Rate limiting** | Per-IP token bucket on the whole pairing surface, plus a global counter: five failures disable pairing until it is re-armed on the server. This bounds online guessing; it does nothing about offline guessing, which is what §5 is for. |
+| **Rate limiting** | Per-IP token bucket on the whole pairing surface, plus a global counter: five failures disable pairing until it is re-armed on the server. This bounds online guessing; it does nothing about offline guessing, which is what §5 is for. *Superseded in part by [ADR-020](0020-no-failed-proof-lock.md): there is no five-failure lock; the rate limits remain, for bounding work.* |
 | **Re-pairing** | A new secret from the console, a new device record, a new token. An existing device is unaffected. Re-pairing the *same* device produces a second device record, which the owner can see and prune. |
 | **Key rotation** | `atriumctl rotate-identity` generates a new key pair. Every pin breaks, every device must re-pair, and the UI says so before it happens. Deliberately heavyweight, and the correct response to a suspected key compromise. |
 | **Certificate reissue** | Automatic on address change, expiry, or hostname change. Same key pair, so no pin breaks and no client notices. |

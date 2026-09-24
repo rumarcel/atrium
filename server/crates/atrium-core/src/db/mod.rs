@@ -38,7 +38,7 @@ use crate::layout::{Layout, DATABASE_FILE};
 use crate::protect::{self, Expect, Violation};
 
 /// The schema this binary writes and understands.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// How long a connection waits for another writer.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -69,6 +69,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 2,
         name: "pairing",
         sql: include_str!("migrations/0002_pairing.sql"),
+    },
+    Migration {
+        version: 3,
+        name: "no_failure_lock",
+        sql: include_str!("migrations/0003_no_failure_lock.sql"),
     },
 ];
 
@@ -188,10 +193,6 @@ pub enum AuditAction {
     PairingExpired,
     /// A pairing completed: the secret was consumed.
     PairingConsumed,
-    /// A wrong proof was counted against the arming.
-    PairingFailed,
-    /// The fifth wrong proof locked pairing.
-    PairingLocked,
     /// A device was created by pairing.
     DeviceCreated,
     /// A device was revoked.
@@ -212,8 +213,6 @@ impl AuditAction {
             Self::PairingArmed => "pairing.armed",
             Self::PairingExpired => "pairing.expired",
             Self::PairingConsumed => "pairing.consumed",
-            Self::PairingFailed => "pairing.failed",
-            Self::PairingLocked => "pairing.locked",
             Self::DeviceCreated => "device.created",
             Self::DeviceRevoked => "device.revoked",
         }
@@ -397,7 +396,7 @@ impl Database {
                 transaction.execute(
                     "UPDATE pairing_state SET armed = 0, arming_id = NULL, profile = NULL, \
                      secret_nonce = NULL, secret_ciphertext = NULL, armed_at = NULL, \
-                     expires_at = NULL, failures = 0, locked = 0",
+                     expires_at = NULL, failed_attempts = 0",
                     (),
                 )?;
                 transaction.execute(
@@ -805,7 +804,7 @@ mod tests {
                 )
                 .expect("seed");
         }
-        let opened = open(&fixture.layout, now()).expect("migrates");
+        let opened = open_with(&fixture.layout, &MIGRATIONS[..2], now()).expect("migrates");
         assert_eq!(opened.migrated.map(|m| (m.from, m.to)), Some((1, 2)));
         let row: (i64, i64, i64, Option<Vec<u8>>) = opened
             .database
@@ -823,6 +822,73 @@ mod tests {
         );
     }
 
+    /// ADR-020: migration 3 drops the lock. An armed row keeps its sealed
+    /// secret — which still opens — and its count; a locked row arrives
+    /// simply disarmed.
+    #[test]
+    fn migration_3_drops_the_lock_and_keeps_an_armed_secret() {
+        use crate::identity::SecretsKey;
+        use crate::pairing::seal;
+        let secrets = SecretsKey::from_bytes([4; 32]);
+        let server_id = [0x5e; 16];
+        let arming_id = [0xa1; 16];
+        let armed_at = OffsetDateTime::from_unix_timestamp(1_900_000_000).expect("time");
+        let expires_at = armed_at + time::Duration::minutes(15);
+        let context = seal::Context {
+            server_id: &server_id,
+            arming_id: &arming_id,
+            profile: pairing::NATIVE_PROFILE,
+            armed_at,
+            expires_at,
+        };
+        let secret = atrium_pairing::secret::PairingSecret::from_bytes([7; 16]);
+        let sealed = seal::seal(&secrets, &context, &secret).expect("seal");
+
+        for (locked, armed) in [(false, true), (true, false)] {
+            let fixture = Fixture::new("m3");
+            {
+                let database = create_with(&fixture.layout, &MIGRATIONS[..2]).expect("schema 2");
+                if armed {
+                    database
+                        .connection()
+                        .execute(
+                            "UPDATE pairing_state SET armed = 1, arming_id = ?1, profile = ?2, \
+                             secret_nonce = ?3, secret_ciphertext = ?4, armed_at = ?5, \
+                             expires_at = ?6, failures = 3",
+                            (
+                                arming_id.as_slice(),
+                                pairing::NATIVE_PROFILE,
+                                sealed.nonce.as_slice(),
+                                sealed.ciphertext.as_slice(),
+                                format_time(armed_at),
+                                format_time(expires_at),
+                            ),
+                        )
+                        .expect("armed");
+                }
+                if locked {
+                    database
+                        .connection()
+                        .execute("UPDATE pairing_state SET failures = 5, locked = 1", ())
+                        .expect("locked");
+                }
+            }
+            let opened = open(&fixture.layout, now()).expect("migrates");
+            assert_eq!(opened.migrated.map(|m| (m.from, m.to)), Some((2, 3)));
+            let row = opened.database.pairing_row().expect("row");
+            if armed {
+                assert_eq!(row.failed_attempts, 3);
+                let armed = row.armed.expect("still armed");
+                let opened_secret = seal::open(&secrets, &context, &armed.nonce, &armed.ciphertext)
+                    .expect("the sealed secret still opens");
+                assert!(opened_secret.ct_eq(&secret));
+            } else {
+                assert!(row.armed.is_none());
+                assert_eq!(row.failed_attempts, 0);
+            }
+        }
+    }
+
     #[test]
     fn the_schema_refuses_ambiguous_pairing_and_device_rows() {
         let fixture = Fixture::new("checks");
@@ -837,11 +903,15 @@ mod tests {
              secret_ciphertext = zeroblob(32), armed_at = 'x', expires_at = 'y'",
             // disarmed but still holding ciphertext
             "UPDATE pairing_state SET secret_ciphertext = zeroblob(32)",
-            // armed and locked at once
+            // a failure count with nothing armed
+            "UPDATE pairing_state SET failed_attempts = 1",
+            // armed with a negative count
             "UPDATE pairing_state SET armed = 1, arming_id = zeroblob(16), \
              profile = 'atrium-pair-binding/native-tls-exporter-v1', secret_nonce = zeroblob(24), \
-             secret_ciphertext = zeroblob(32), armed_at = 'x', expires_at = 'y', locked = 1",
-            "UPDATE pairing_state SET failures = 6",
+             secret_ciphertext = zeroblob(32), armed_at = 'x', expires_at = 'y', \
+             failed_attempts = -1",
+            // the lock is gone
+            "UPDATE pairing_state SET locked = 1",
             "INSERT INTO pairing_state (id) VALUES (2)",
             "INSERT INTO devices VALUES ('00112233445566778899aabbccddeeff', 'n', 'linux', \
              'admin', zeroblob(32), 't', NULL)",
@@ -900,8 +970,7 @@ mod tests {
                 "secret_ciphertext",
                 "armed_at",
                 "expires_at",
-                "failures",
-                "locked"
+                "failed_attempts"
             ]
         );
         assert_eq!(

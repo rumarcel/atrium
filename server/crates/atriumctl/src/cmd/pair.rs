@@ -3,8 +3,8 @@
 //!
 //! It generates a 128-bit secret, seals it under `secrets.key` into the
 //! state database for the native TLS-exporter profile only, and shows it
-//! once, with its expiry. Arming replaces any secret already armed and
-//! clears a failure lock; there is only ever one armed secret. Core need not
+//! once, with its expiry. Arming replaces any secret already armed; there is
+//! only ever one armed secret, and failed attempts never end it (ADR-020). Core need not
 //! be stopped: it reads the armed state on every pairing request, and the
 //! arming is one transaction.
 //!
@@ -102,10 +102,6 @@ pub fn arm_and_show(
     if armed.outcome.replaced {
         println!();
         println!("The previous pairing code was replaced and no longer works.");
-    }
-    if armed.outcome.unlocked {
-        println!();
-        println!("Pairing was locked after five failed attempts; arming unlocked it.");
     }
     Ok(())
 }

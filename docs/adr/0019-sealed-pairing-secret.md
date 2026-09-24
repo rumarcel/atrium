@@ -72,7 +72,7 @@ event that ends it:
 | --- | --- |
 | consumed by a successful `pair/complete` | the transaction that inserts the device and claims the server |
 | expired | the next pairing request, or Core's 30-second sweep, whichever is first |
-| fifth failed proof | the transaction that sets `locked` |
+| ~~fifth failed proof~~ | *removed by [ADR-020](0020-no-failed-proof-lock.md): failures never end the secret* |
 | replaced by a new `atriumctl pair` | the arming transaction (one row, overwritten) |
 | identity key changed | `reconcile_identity`'s revocation transaction |
 
