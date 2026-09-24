@@ -84,6 +84,10 @@ for pure in atrium-protocol atrium-pairing atrium-api-types; do
     forbid_dependency "${pure}" "${IO_CRATES}|${HTTP_CRATES}|${TLS_CRATES}|${SQL_CRATES}" \
         "I/O dependency in a pure crate"
 done
+# The pairing construction takes every random value as an argument, so its
+# vectors are fixed and no code path in it can pick a weak source.
+forbid_dependency atrium-pairing 'getrandom|rand|rand_core|rand_chacha' \
+    "randomness source in the pure pairing crate"
 
 # The client ships inside the Windows desktop application. Nothing Linux-only
 # or server-only may reach it.
@@ -163,16 +167,19 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-section "The network boundary cannot reach privilege or state (M1D)"
+section "The network boundary cannot reach privilege or state (M1D, M1E)"
 
-# Core's HTTP module answers from values fixed at startup. Its production
-# code must not name the Agent client, the state database, identity rotation,
+# Core's HTTP module holds no database handle of its own. Its production code
+# must not name the Agent client, the state database, identity rotation,
 # restore, init, a raw file write or process execution: unauthenticated
-# network input must have no path to any of them. The module's own test file
-# is excluded; everything else under src/http is checked.
+# network input must have no path to any of them. From M1E it reaches state
+# only through the pairing and device services (crate::pairing,
+# crate::devices), which are gated below. The module's test files are
+# excluded; everything else under src/http is checked.
 HTTP_DIR="${CRATES}/atrium-core/src/http"
+HTTP_TESTS="^${HTTP_DIR}/(tests|pairing_tests)\.rs:"
 http_hits="$(grep -rnE 'agentclient|agentmonitor|AgentClient|crate::db|rusqlite|crate::rotate|restore::|crate::init|fs::write|OpenOptions|Command::' \
-    "${HTTP_DIR}" --include='*.rs' 2>/dev/null | grep -v "^${HTTP_DIR}/tests.rs:" || true)"
+    "${HTTP_DIR}" --include='*.rs' 2>/dev/null | grep -vE "${HTTP_TESTS}" || true)"
 if [ -n "${http_hits}" ]; then
     fail "the HTTP module reaches something network input must never reach:"
     printf '%s\n' "${http_hits}" >&2
@@ -180,15 +187,96 @@ else
     pass "src/http names no Agent client, database, rotation, restore, file write or process"
 fi
 
+# The services the network reaches: pairing and devices. They own the state
+# they change and nothing else — no Agent, no process, no identity files, no
+# rotation or restore. Pairing never contacts Agent.
+SERVICES=("${CRATES}/atrium-core/src/pairing" "${CRATES}/atrium-core/src/devices.rs")
+service_hits="$(grep -rnE 'agentclient|agentmonitor|AgentClient|crate::rotate|restore::|crate::init|fs::write|OpenOptions|Command::|atrium_protocol' \
+    "${SERVICES[@]}" --include='*.rs' 2>/dev/null | grep -v '/src/pairing/tests\.rs:' || true)"
+if [ -n "${service_hits}" ]; then
+    fail "a network-reachable service reaches Agent, a process or the identity files:"
+    printf '%s\n' "${service_hits}" >&2
+else
+    pass "pairing and devices name no Agent, process, rotation, restore or file write"
+fi
+
 # There is one listener and it is TLS: no plaintext bind anywhere else in
 # Core's production code.
 bind_hits="$(grep -rnE 'TcpListener::bind' "${CRATES}/atrium-core/src" --include='*.rs' 2>/dev/null |
-    grep -vE '^[^:]*/src/lib\.rs:|/src/http/tests\.rs:' || true)"
+    grep -vE '^[^:]*/src/lib\.rs:|/src/http/(tests|pairing_tests)\.rs:' || true)"
 if [ -n "${bind_hits}" ]; then
     fail "a TCP listener is bound outside Core's one TLS listener setup:"
     printf '%s\n' "${bind_hits}" >&2
 else
     pass "Core binds TCP only where the TLS listener is set up"
+fi
+
+# ---------------------------------------------------------------------------
+section "Pairing and device secrets (M1E)"
+
+PAIRING_SRC="${CRATES}/atrium-pairing/src"
+CORE_SRC="${CRATES}/atrium-core/src"
+PRODUCTION_CORE=("${CORE_SRC}/pairing/mod.rs" "${CORE_SRC}/pairing/seal.rs" \
+    "${CORE_SRC}/devices.rs" "${CORE_SRC}/db/pairing.rs" "${CORE_SRC}/http/dispatch.rs" \
+    "${CORE_SRC}/http/mod.rs" "${CORE_SRC}/http/limits.rs" "${CORE_SRC}/lib.rs" \
+    "${CRATES}/atriumctl/src/cmd/pair.rs")
+
+# Test plan 2.1 and 4.2: the secret, the token and the verifier are compared
+# only in constant time. None of their types may derive or implement
+# equality, so `==` on them does not compile.
+eq_hits="$(grep -nE -B3 'pub struct (PairingSecret|DeviceToken|TokenDigest)\b' \
+    "${PAIRING_SRC}/secret.rs" "${PAIRING_SRC}/token.rs" | grep -E 'PartialEq|Eq\b' || true)"
+impl_eq="$(grep -nE 'impl (Partial)?Eq for (PairingSecret|DeviceToken|TokenDigest)' -r "${PAIRING_SRC}" || true)"
+if [ -n "${eq_hits}${impl_eq}" ]; then
+    fail "a secret type has equality; compare with ct_eq only:"
+    printf '%s\n' "${eq_hits}${impl_eq}" >&2
+else
+    pass "PairingSecret, DeviceToken and TokenDigest have no ==, only constant-time ct_eq"
+fi
+
+# Plan 7.3: no verification cache sits between a request and the digest
+# lookup, so a revoked token fails on its next request.
+cache_hits="$(grep -nE 'HashMap|BTreeMap|LruCache|lru::|moka|cached|OnceCell|OnceLock|LazyLock|thread_local' \
+    "${CORE_SRC}/devices.rs" "${CORE_SRC}/db/pairing.rs" || true)"
+if [ -n "${cache_hits}" ]; then
+    fail "device authentication holds state that could outlive a revocation:"
+    printf '%s\n' "${cache_hits}" >&2
+else
+    pass "no authentication cache in devices or its queries"
+fi
+
+# Test plan 4.2a: the accepted profile comes from pairing_state, never from a
+# request. Arming names only the native constant, and the request's profile
+# field is read in exactly one place, to be compared against the armed one.
+armed_profiles="$(grep -nE 'profile: *[A-Za-z_:.]+' "${CORE_SRC}/pairing/mod.rs" | grep -vE 'NATIVE_PROFILE|&armed\.profile|&self\.|profile: &' || true)"
+request_profile="$(grep -rn 'binding_profile' "${CORE_SRC}" --include='*.rs' | grep -vE '/(tests|pairing_tests)\.rs:' || true)"
+if [ -n "${armed_profiles}" ] || [ "$(printf '%s\n' "${request_profile}" | grep -c .)" -ne 1 ]; then
+    fail "the armed profile could come from somewhere other than the native constant:"
+    printf '%s\n%s\n' "${armed_profiles}" "${request_profile}" >&2
+else
+    pass "only the native profile is armed; the request's profile is only compared"
+fi
+
+# Limits and sources come from the socket. No client-controlled forwarding
+# header is read anywhere in Core's production code.
+forward_hits="$(grep -rniE 'x-forwarded|forwarded-for|"forwarded"|x-real-ip' "${CORE_SRC}" --include='*.rs' |
+    grep -vE '/(tests|pairing_tests)\.rs:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true)"
+if [ -n "${forward_hits}" ]; then
+    fail "Core reads a forwarding header:"
+    printf '%s\n' "${forward_hits}" >&2
+else
+    pass "no forwarding header is read; the source is the accepted socket"
+fi
+
+# Nothing secret is logged: no tracing field or format argument names the
+# secret, the token, a proof, a digest or the exporter.
+log_hits="$(grep -nE '[%?][a-z_.]*(secret|token|proof|exporter|digest|nonce)|\b[a-z_]*(secret|token|proof|exporter|digest|nonce)[a-z_]*[[:space:]]*=[[:space:]]*[%?][a-z_&(]|^[[:space:]]*(secret|token|proof_c|proof_s|exporter|digest|token_digest)[[:space:]]*=[[:space:]]*[a-z]' \
+    "${PRODUCTION_CORE[@]}" || true)"
+if [ -n "${log_hits}" ]; then
+    fail "a log statement may carry secret material:"
+    printf '%s\n' "${log_hits}" >&2
+else
+    pass "no log field carries a secret, token, proof, digest or exporter"
 fi
 
 # ---------------------------------------------------------------------------

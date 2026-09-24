@@ -15,11 +15,12 @@ use bytes::Bytes;
 use http::{header, HeaderValue, Response, StatusCode};
 use http_body_util::Full;
 
-/// The closed set of API errors in M1D.
+/// The closed set of API errors, through M1E.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ApiError {
-    /// The route needs an authenticated device. In M1D no device can
-    /// authenticate yet, so every such request is refused.
+    /// The route needs an authenticated device and the request did not
+    /// carry a valid device token. Missing, malformed, unknown and revoked
+    /// tokens are all this, identically.
     Unauthorized,
     /// `Host` is missing, malformed or not one of this server's names.
     HostRejected,
@@ -47,11 +48,16 @@ pub enum ApiError {
     RecoveryMode,
     /// Core could not build its own response.
     Internal,
+    /// A pairing request was refused: the one answer for every reason, so
+    /// the refusal is not an oracle (ADR-003, API.md §3).
+    PairingRejected,
+    /// The body is not declared as `application/json`.
+    UnsupportedMediaType,
 }
 
 impl ApiError {
     /// Every variant, for the enumeration tests.
-    pub const ALL: [ApiError; 14] = [
+    pub const ALL: [ApiError; 16] = [
         ApiError::Unauthorized,
         ApiError::HostRejected,
         ApiError::OriginRejected,
@@ -66,6 +72,8 @@ impl ApiError {
         ApiError::Timeout,
         ApiError::RecoveryMode,
         ApiError::Internal,
+        ApiError::PairingRejected,
+        ApiError::UnsupportedMediaType,
     ];
 
     /// The HTTP status.
@@ -74,13 +82,16 @@ impl ApiError {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::HostRejected => StatusCode::MISDIRECTED_REQUEST,
-            Self::OriginRejected | Self::TlsVersionRequired => StatusCode::FORBIDDEN,
+            Self::OriginRejected | Self::TlsVersionRequired | Self::PairingRejected => {
+                StatusCode::FORBIDDEN
+            }
             Self::NotFound | Self::UnsupportedApiVersion => StatusCode::NOT_FOUND,
             Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             Self::BodyNotAccepted | Self::InvalidBody | Self::UnknownField => {
                 StatusCode::BAD_REQUEST
             }
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
             Self::Timeout => StatusCode::REQUEST_TIMEOUT,
             Self::RecoveryMode => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
@@ -105,6 +116,8 @@ impl ApiError {
             Self::Timeout => "request.timeout",
             Self::RecoveryMode => "internal.recovery_mode",
             Self::Internal => "internal.server",
+            Self::PairingRejected => "pairing.rejected",
+            Self::UnsupportedMediaType => "validation.unsupported_media_type",
         }
     }
 
@@ -124,6 +137,8 @@ impl ApiError {
             Self::Timeout => "Request timed out",
             Self::RecoveryMode => "Server in recovery mode",
             Self::Internal => "Internal error",
+            Self::PairingRejected => "Pairing refused",
+            Self::UnsupportedMediaType => "Unsupported media type",
         }
     }
 
@@ -148,6 +163,11 @@ impl ApiError {
                  serving normally."
             }
             Self::Internal => "The server could not complete the response.",
+            Self::PairingRejected => {
+                "The server did not accept this pairing attempt. Pairing needs a current \
+                 pairing code from the server's console."
+            }
+            Self::UnsupportedMediaType => "This request's body must be sent as application/json.",
         }
     }
 
@@ -161,7 +181,8 @@ impl ApiError {
             Self::UnsupportedApiVersion => "update_client",
             Self::TlsVersionRequired => "update_client",
             Self::TooLarge => "reduce_request_size",
-            Self::InvalidBody | Self::UnknownField => "fix_request",
+            Self::InvalidBody | Self::UnknownField | Self::UnsupportedMediaType => "fix_request",
+            Self::PairingRejected => "get_pairing_code_at_console",
             Self::RecoveryMode => "restore_at_console",
             Self::Internal | Self::Timeout => "retry_later",
         }
@@ -219,7 +240,7 @@ mod tests {
     fn every_error_variant_has_a_unique_stable_code() {
         let codes: HashSet<&str> = ApiError::ALL.iter().map(|e| e.code()).collect();
         assert_eq!(codes.len(), ApiError::ALL.len());
-        let families = ["auth.", "request.", "validation.", "internal."];
+        let families = ["auth.", "request.", "validation.", "internal.", "pairing."];
         for error in ApiError::ALL {
             assert!(
                 families.iter().any(|f| error.code().starts_with(f)),

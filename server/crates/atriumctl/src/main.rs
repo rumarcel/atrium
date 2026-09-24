@@ -1,8 +1,8 @@
 //! `atriumctl` — the console tool.
 //!
 //! It runs on the server, as root, and owns the operations that must not be
-//! reachable over the network: rotating the identity key and restoring the
-//! state database (and, from M1E, issuing a pairing secret). Keeping them here
+//! reachable over the network: issuing a pairing secret, rotating the
+//! identity key and restoring the state database. Keeping them here
 //! rather than in Core is the same invariant the filesystem enforces — the
 //! long-running network service contains no code that can replace the
 //! identity or overwrite the state.
@@ -28,18 +28,20 @@ const USAGE: &str = "\
 atriumctl — Atrium console tool
 
 Usage:
+  atriumctl pair                    arm pairing: show a one-time pairing code for
+                                    a native Atrium client (15 minutes, one device)
   atriumctl diagnostics             what Core would find: identity, certificate,
                                     state database, backups (read-only)
   atriumctl restore --list          pre-migration backups of the state database
   atriumctl restore --from <name>   replace the state database with a backup;
                                     atrium-core must be stopped first
   atriumctl rotate-identity         replace the identity key; revokes every
-                                    device; atrium-core must be stopped first
+                                    device and arms a fresh pairing code;
+                                    atrium-core must be stopped first
   atriumctl --version
   atriumctl --help
 
 Destructive commands ask you to type the server's name to confirm.
-`pair` arrives with pairing; see docs/M1-IMPLEMENTATION-PLAN.md section 17.
 ";
 
 /// Conventional usage error, distinct from a runtime failure, so a script can
@@ -65,6 +67,8 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         #[cfg(unix)]
+        ["pair"] => cmd::pair::run(),
+        #[cfg(unix)]
         ["diagnostics"] => cmd::diagnostics::run(),
         #[cfg(unix)]
         ["restore", "--list"] => cmd::restore::list(),
@@ -73,7 +77,7 @@ fn main() -> ExitCode {
         #[cfg(unix)]
         ["rotate-identity"] => cmd::rotate_identity::run(),
         #[cfg(not(unix))]
-        ["diagnostics" | "restore" | "rotate-identity", ..] => {
+        ["pair" | "diagnostics" | "restore" | "rotate-identity", ..] => {
             eprintln!("atriumctl: this command runs on the Linux server only");
             ExitCode::FAILURE
         }

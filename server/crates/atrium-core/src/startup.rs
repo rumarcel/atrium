@@ -20,6 +20,8 @@ use crate::recovery::{Recovery, RecoveryReason};
 pub struct Normal {
     /// The verified identity.
     pub identity: Identity,
+    /// `secrets.key`, which seals and opens an armed pairing secret.
+    pub secrets: std::sync::Arc<identity::SecretsKey>,
     /// The open state database.
     pub database: Database,
     /// The certificate currently on disk.
@@ -74,6 +76,12 @@ pub fn prepare(
             return enter_recovery(layout, (&fault).into(), &fault.to_string(), None, now);
         }
     };
+    let secrets = match identity::load_secrets_key(layout) {
+        Ok(secrets) => secrets,
+        Err(fault) => {
+            return enter_recovery(layout, (&fault).into(), &fault.to_string(), None, now);
+        }
+    };
     tracing::info!(
         event = "identity_loaded",
         component = "atrium-core",
@@ -122,7 +130,8 @@ pub fn prepare(
             component = "atrium-core",
             devices = devices,
             reason = "identity_key_changed",
-            "the identity key differs from the one the state was paired against; every              device was revoked and pairing disarmed"
+            "the identity key differs from the one the state was paired against; every \
+             device was revoked and pairing disarmed"
         ),
         Ok(Reconciled::Recorded | Reconciled::Unchanged) => {}
         Err(error) => {
@@ -140,7 +149,8 @@ pub fn prepare(
         tracing::warn!(
             event = "identity_directory_debris",
             component = "atrium-core",
-            "a leftover temporary file is in the identity directory; the identity itself              verified. Remove it from the console (it cannot be removed by Core)"
+            "a leftover temporary file is in the identity directory; the identity itself \
+             verified. Remove it from the console (it cannot be removed by Core)"
         );
     }
 
@@ -160,6 +170,7 @@ pub fn prepare(
 
     Mode::Normal(Box::new(Normal {
         identity,
+        secrets: std::sync::Arc::new(secrets),
         database,
         certificate,
     }))

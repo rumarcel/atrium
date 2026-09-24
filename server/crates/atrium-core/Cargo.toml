@@ -19,7 +19,10 @@ hyper.workspace = true
 hyper-util.workspace = true
 rustls.workspace = true
 tokio-rustls.workspace = true
+atrium-pairing.workspace = true
 atrium-protocol.workspace = true
+chacha20poly1305.workspace = true
+hkdf.workspace = true
 getrandom.workspace = true
 hex.workspace = true
 nix = { workspace = true, features = ["user", "fs", "net"] }
@@ -28,6 +31,7 @@ rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+subtle.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = [
     "rt-multi-thread",
@@ -45,4 +49,5 @@ x509-parser.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
 nix = { workspace = true, features = ["signal", "process"] }

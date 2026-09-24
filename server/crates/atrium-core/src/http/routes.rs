@@ -7,14 +7,17 @@
 //! route cannot be added without saying who may call it. The authenticated
 //! constructor is the short one.
 //!
-//! Dispatch is exact match on the raw path — no parameters, no wildcards, no
-//! prefix handlers, no percent-decoding, no normalisation. Anything not in
-//! the table is absent. Under `/api/v1` "absent" is answered with 401,
+//! Dispatch is exact match on the raw path — no wildcards, no prefix
+//! handlers, no percent-decoding, no normalisation. The one parameter is
+//! `{deviceId}` (M1E), which matches a whole segment of exactly 32 lowercase
+//! hex characters and nothing else; a segment that is not one makes the path
+//! absent. Anything not in the table is absent. Under `/api/v1` "absent" is answered with 401,
 //! because the whole namespace outside the pairing surface requires a device
 //! (criterion 26) and an unauthenticated caller must not learn which paths
 //! exist. `/api/<anything else>` is an unsupported version and never reaches
 //! a v1 handler.
 
+use atrium_pairing::wire::Id;
 use http::Method;
 
 /// Who may call a route.
@@ -22,9 +25,11 @@ use http::Method;
 pub enum Auth {
     /// Anyone who reaches Core with a valid `Host`.
     None,
-    /// A paired device. M1D implements no authentication, so every request
-    /// to such a route is refused with 401; M1E adds verification.
+    /// A paired device, by `Authorization: Bearer` (M1E).
     Device,
+    /// **Unauthenticated**, and one of the three pairing routes: TLS 1.3
+    /// only, no browser, rate limited per source before the body is read.
+    Pairing,
 }
 
 /// Whether a browser on another origin may call a route.
@@ -91,6 +96,17 @@ impl Policy {
         }
     }
 
+    /// A pairing route: unauthenticated, rate limited, TLS 1.3, no browser.
+    #[must_use]
+    pub const fn pairing(body: Body) -> Self {
+        Self {
+            auth: Auth::Pairing,
+            browser: Browser::Deny,
+            body,
+            tls: Tls::Tls13,
+        }
+    }
+
     /// Who may call.
     #[must_use]
     pub fn auth(self) -> Auth {
@@ -127,6 +143,18 @@ pub enum Endpoint {
     /// `/api/v1/system/diagnostics`: in recovery, the redacted payload; in
     /// normal mode a device route whose handler arrives in M1F.
     SystemDiagnostics,
+    /// `GET /api/v1/pair/info`.
+    PairInfo,
+    /// `POST /api/v1/pair/begin`.
+    PairBegin,
+    /// `POST /api/v1/pair/complete`.
+    PairComplete,
+    /// `GET /api/v1/me`.
+    Me,
+    /// `GET /api/v1/devices`.
+    Devices,
+    /// `DELETE /api/v1/devices/{deviceId}`.
+    RevokeDevice,
     /// Test only: reports a digest of the connection's channel binding.
     #[cfg(test)]
     TestBinding,
@@ -150,11 +178,18 @@ pub struct Route {
     pub recovery: Option<Policy>,
 }
 
-/// M1D's routes. Everything else in `M1-IMPLEMENTATION-PLAN.md` §8 arrives
-/// with the pass that implements it; nothing is declared ahead of its
-/// handler except the diagnostics route, whose recovery form M1B already
+/// Largest `pair/begin` body: a 64-character name is at most 128 bytes of
+/// UTF-8, or six times that as JSON `\u` escapes; the rest is fixed.
+pub const BEGIN_BODY_LIMIT: usize = 1024;
+/// Largest `pair/complete` body: two fixed-length fields.
+pub const COMPLETE_BODY_LIMIT: usize = 256;
+
+/// The routes through M1E. Everything else in `M1-IMPLEMENTATION-PLAN.md` §8
+/// arrives with the pass that implements it; nothing is declared ahead of
+/// its handler except the diagnostics route, whose recovery form M1B already
 /// specified and whose normal form must exist so the recovery routes stay a
-/// subset of the normal ones.
+/// subset of the normal ones. `POST /api/v1/devices/actions/revoke-all`
+/// needs the confirmation mechanism and is not here.
 pub const ROUTES: &[Route] = &[
     Route {
         method: Method::GET,
@@ -179,7 +214,77 @@ pub const ROUTES: &[Route] = &[
         // therefore cut down to the allowlisted payload (plan §4.6).
         recovery: Some(Policy::public(Browser::Deny, Body::None, Tls::Any)),
     },
+    // Pairing: never in recovery (plan §4.6).
+    Route {
+        method: Method::GET,
+        path: "/api/v1/pair/info",
+        endpoint: Endpoint::PairInfo,
+        normal: Some(Policy::pairing(Body::None)),
+        recovery: None,
+    },
+    Route {
+        method: Method::POST,
+        path: "/api/v1/pair/begin",
+        endpoint: Endpoint::PairBegin,
+        normal: Some(Policy::pairing(Body::Json {
+            limit: BEGIN_BODY_LIMIT,
+        })),
+        recovery: None,
+    },
+    Route {
+        method: Method::POST,
+        path: "/api/v1/pair/complete",
+        endpoint: Endpoint::PairComplete,
+        normal: Some(Policy::pairing(Body::Json {
+            limit: COMPLETE_BODY_LIMIT,
+        })),
+        recovery: None,
+    },
+    // Devices: recovery cannot authenticate, so none of these exist there.
+    Route {
+        method: Method::GET,
+        path: "/api/v1/me",
+        endpoint: Endpoint::Me,
+        normal: Some(Policy::device()),
+        recovery: None,
+    },
+    Route {
+        method: Method::GET,
+        path: "/api/v1/devices",
+        endpoint: Endpoint::Devices,
+        normal: Some(Policy::device()),
+        recovery: None,
+    },
+    Route {
+        method: Method::DELETE,
+        path: "/api/v1/devices/{deviceId}",
+        endpoint: Endpoint::RevokeDevice,
+        normal: Some(Policy::device()),
+        recovery: None,
+    },
 ];
+
+/// The only path parameter.
+const DEVICE_ID: &str = "{deviceId}";
+
+/// Matches `path` against a route's `pattern`: literally, or with
+/// `{deviceId}` standing for exactly one 32-lowercase-hex segment.
+fn match_path(pattern: &str, path: &str) -> Option<Option<Id>> {
+    if !pattern.contains('{') {
+        return (pattern == path).then_some(None);
+    }
+    let mut found = None;
+    let mut expected = pattern.split('/');
+    let mut actual = path.split('/');
+    loop {
+        match (expected.next(), actual.next()) {
+            (None, None) => return Some(found),
+            (Some(DEVICE_ID), Some(segment)) => found = Some(Id::parse(segment)?),
+            (Some(literal), Some(segment)) if literal == segment => {}
+            _ => return None,
+        }
+    }
+}
 
 /// Which mode Core is serving.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,8 +309,9 @@ pub enum Namespace {
 /// The result of looking a request up.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Lookup {
-    /// A route, and its policy in the current mode.
-    Found(Endpoint, Policy),
+    /// A route, its policy in the current mode, and the `{deviceId}` in the
+    /// path if the route has one.
+    Found(Endpoint, Policy, Option<Id>),
     /// The path exists in this mode, but not for this method. `device` is
     /// true when every route at the path requires a device.
     WrongMethod {
@@ -235,22 +341,26 @@ pub fn lookup(routes: &[Route], mode: ServingMode, method: &Method, path: &str) 
         ServingMode::Normal => route.normal,
         ServingMode::Recovery => route.recovery,
     };
-    let at_path: Vec<(&Route, Policy)> = routes
+    let at_path: Vec<(&Route, Policy, Option<Id>)> = routes
         .iter()
-        .filter(|route| route.path == path)
-        .filter_map(|route| policy(route).map(|p| (route, p)))
+        .filter_map(|route| {
+            let parameter = match_path(route.path, path)?;
+            policy(route).map(|p| (route, p, parameter))
+        })
         .collect();
-    if let Some((route, found)) = at_path.iter().find(|(route, _)| route.method == *method) {
-        return Lookup::Found(route.endpoint, *found);
+    if let Some((route, found, parameter)) =
+        at_path.iter().find(|(route, _, _)| route.method == *method)
+    {
+        return Lookup::Found(route.endpoint, *found, *parameter);
     }
     if at_path.is_empty() {
         return Lookup::Absent(namespace(path));
     }
     Lookup::WrongMethod {
-        device: at_path.iter().all(|(_, p)| p.auth() == Auth::Device),
+        device: at_path.iter().all(|(_, p, _)| p.auth() == Auth::Device),
         allow: at_path
             .iter()
-            .map(|(route, _)| route.method.clone())
+            .map(|(route, _, _)| route.method.clone())
             .collect(),
     }
 }
@@ -322,17 +432,26 @@ mod tests {
                 "GET / normal=None/SameOrigin/None/Any recovery=absent",
                 "GET /api/v1/system/diagnostics normal=Device/Deny/None/Any \
                  recovery=None/Deny/None/Any",
+                "GET /api/v1/pair/info normal=Pairing/Deny/None/Tls13 recovery=absent",
+                "POST /api/v1/pair/begin normal=Pairing/Deny/Json { limit: 1024 }/Tls13 \
+                 recovery=absent",
+                "POST /api/v1/pair/complete normal=Pairing/Deny/Json { limit: 256 }/Tls13 \
+                 recovery=absent",
+                "GET /api/v1/me normal=Device/Deny/None/Any recovery=absent",
+                "GET /api/v1/devices normal=Device/Deny/None/Any recovery=absent",
+                "DELETE /api/v1/devices/{deviceId} normal=Device/Deny/None/Any recovery=absent",
             ]
         );
     }
 
     #[test]
-    fn no_route_takes_a_parameter_a_command_or_a_runtime_api() {
+    fn no_route_takes_a_free_parameter_a_command_or_a_runtime_api() {
         for route in ROUTES {
             assert!(route.path.starts_with('/'));
+            let literal = route.path.replace(DEVICE_ID, "");
             assert!(
-                !route.path.contains(['{', '}', '*', ':', '%', '?']),
-                "{} is a literal path",
+                !literal.contains(['{', '}', '*', ':', '%', '?']),
+                "{} is a literal path apart from {DEVICE_ID}",
                 route.path
             );
             for word in [
@@ -370,14 +489,94 @@ mod tests {
         }
     }
 
+    /// Criterion 28's route half: only the two pairing POSTs take a body,
+    /// each bounded, each JSON; everything else takes none.
     #[test]
-    fn nothing_but_get_exists_in_m1d() {
-        assert!(ROUTES.iter().all(|r| r.method == Method::GET));
-        assert!(ROUTES
+    fn only_the_pairing_posts_take_a_body() {
+        for route in ROUTES {
+            for policy in [route.normal, route.recovery].into_iter().flatten() {
+                match route.endpoint {
+                    Endpoint::PairBegin | Endpoint::PairComplete => {
+                        assert_eq!(route.method, Method::POST);
+                        assert!(
+                            matches!(policy.body(), Body::Json { limit } if limit <= 1024),
+                            "{}",
+                            route.path
+                        );
+                    }
+                    _ => {
+                        assert_ne!(route.method, Method::POST, "{}", route.path);
+                        assert_eq!(policy.body(), Body::None, "{}", route.path);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_unauthenticated_route_is_named_and_pairing_is_tls13_only() {
+        let open: Vec<&str> = ROUTES
             .iter()
-            .flat_map(|r| [r.normal, r.recovery])
-            .flatten()
-            .all(|p| p.body() == Body::None));
+            .filter(|r| r.normal.is_some_and(|p| p.auth() != Auth::Device))
+            .map(|r| r.path)
+            .collect();
+        assert_eq!(
+            open,
+            [
+                "/healthz",
+                "/",
+                "/api/v1/pair/info",
+                "/api/v1/pair/begin",
+                "/api/v1/pair/complete"
+            ]
+        );
+        for route in ROUTES
+            .iter()
+            .filter(|r| r.path.starts_with("/api/v1/pair/"))
+        {
+            let policy = route.normal.expect("normal");
+            assert_eq!(policy.auth(), Auth::Pairing);
+            assert_eq!(policy.tls(), Tls::Tls13);
+            assert_eq!(policy.browser(), Browser::Deny);
+            assert!(route.recovery.is_none());
+        }
+    }
+
+    #[test]
+    fn the_device_id_parameter_matches_one_exact_segment() {
+        let normal = ServingMode::Normal;
+        let id = "00112233445566778899aabbccddeeff";
+        assert!(matches!(
+            lookup(ROUTES, normal, &Method::DELETE, &format!("/api/v1/devices/{id}")),
+            Lookup::Found(Endpoint::RevokeDevice, _, Some(found)) if found.to_hex() == id
+        ));
+        for path in [
+            "/api/v1/devices/00112233445566778899AABBCCDDEEFF".to_owned(),
+            "/api/v1/devices/00112233445566778899aabbccddeef".to_owned(),
+            format!("/api/v1/devices/{id}/"),
+            format!("/api/v1/devices/{id}/x"),
+            format!("/api/v1/devices//{id}"),
+            "/api/v1/devices/%30%30".to_owned(),
+            "/api/v1/devices/{deviceId}".to_owned(),
+        ] {
+            assert_eq!(
+                lookup(ROUTES, normal, &Method::DELETE, &path),
+                Lookup::Absent(Namespace::ApiV1),
+                "{path}"
+            );
+        }
+        assert_eq!(
+            lookup(
+                ROUTES,
+                normal,
+                &Method::GET,
+                &format!("/api/v1/devices/{id}")
+            ),
+            Lookup::WrongMethod {
+                device: true,
+                allow: vec![Method::DELETE]
+            }
+        );
     }
 
     #[test]
@@ -385,7 +584,7 @@ mod tests {
         let normal = ServingMode::Normal;
         assert!(matches!(
             lookup(ROUTES, normal, &Method::GET, "/healthz"),
-            Lookup::Found(Endpoint::Healthz, _)
+            Lookup::Found(Endpoint::Healthz, _, None)
         ));
         for path in [
             "/healthz/",
@@ -452,7 +651,7 @@ mod tests {
         ));
         assert!(matches!(
             lookup(ROUTES, recovery, &Method::GET, "/api/v1/system/diagnostics"),
-            Lookup::Found(Endpoint::SystemDiagnostics, p) if p.auth() == Auth::None
+            Lookup::Found(Endpoint::SystemDiagnostics, p, None) if p.auth() == Auth::None
         ));
     }
 }

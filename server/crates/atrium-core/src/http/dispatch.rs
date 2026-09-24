@@ -5,32 +5,43 @@
 //! Host            exactly one, parsed strictly, in the allowlist      → 421
 //! lookup          exact method and path in this mode's table
 //! browser         Origin / Sec-Fetch-Site against the route's policy  → 403
-//! absent          recovery → 503; /api/v1 → 401; /api/x → 404; else 404
-//! wrong method    device route → 401; otherwise 405 with Allow
+//! absent          recovery → 503; /api/v1 → 401, or 404 to a device;
+//!                 /api/x → 404; else 404
+//! wrong method    device route → 401, or 405 to a device; otherwise 405
 //! TLS             route needs 1.3 and this is 1.2                     → 403
-//! auth            Device → 401 (no device can authenticate in M1D)
-//! body            none allowed and one sent → 400; JSON over limit → 413
+//! auth            Device: the one token check                          → 401
+//!                 Pairing: the source's and the global budget          → 403
+//! body            none allowed and one sent → 400; not JSON → 415;
+//!                 over limit → 413
 //! handler
 //! headers         version, request id and security headers on every response
 //! ```
 //!
 //! No step can be skipped by a route, and nothing before `handler` reads the
-//! request body. Nothing reflects request text into a response or a log:
+//! request body. Device authentication happens in exactly one function,
+//! [`authenticate`], which every `Auth::Device` route and every "does this
+//! exist?" answer under `/api/v1` goes through; no handler parses a token. Nothing reflects request text into a response or a log:
 //! logs carry the request id, a fixed route label, the method if standard,
 //! and the status.
 
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use http::{header, HeaderMap, HeaderValue, Method, Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::{Body as _, Incoming};
+use zeroize::Zeroizing;
+
+use atrium_pairing::wire::Id;
 
 use super::connection::{ConnectionContext, TlsVersion};
 use super::error::ApiError;
 use super::host::{self, Authority};
 use super::routes::{self, Auth, Body, Browser, Endpoint, Lookup, Namespace, ServingMode, Tls};
-use super::App;
+use super::{App, Services};
+use crate::devices::Authenticated;
+use crate::pairing::{Arrival, Refused};
 
 /// Longest a handler, including reading a request body, may take.
 const HANDLER_TIMEOUT: Duration = Duration::from_secs(10);
@@ -120,6 +131,16 @@ fn json(value: &serde_json::Value) -> Response<Full<Bytes>> {
     response
 }
 
+fn serialized<T: serde::Serialize>(value: &T) -> Result<Response<Full<Bytes>>, ApiError> {
+    let bytes = serde_json::to_vec(value).map_err(|_| ApiError::Internal)?;
+    let mut response = Response::new(Full::new(Bytes::from(bytes)));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json; charset=utf-8"),
+    );
+    Ok(response)
+}
+
 fn stored_json(bytes: &Bytes) -> Response<Full<Bytes>> {
     let mut response = Response::new(Full::new(bytes.clone()));
     response.headers_mut().insert(
@@ -142,8 +163,26 @@ async fn read_body(body: Incoming, limit: usize) -> Result<Bytes, ApiError> {
     }
 }
 
+/// Whether the request declares exactly one `Content-Type`, and it is
+/// `application/json`, optionally with `charset=utf-8`.
+fn declares_json(headers: &HeaderMap) -> bool {
+    let mut values = headers.get_all(header::CONTENT_TYPE).iter();
+    let (Some(value), None) = (values.next(), values.next()) else {
+        return false;
+    };
+    let Ok(text) = value.to_str() else {
+        return false;
+    };
+    let compact: String = text
+        .chars()
+        .filter(|c| *c != ' ' && *c != '\t')
+        .collect::<String>()
+        .to_ascii_lowercase();
+    compact == "application/json" || compact == "application/json;charset=utf-8"
+}
+
 /// Parses a strict JSON body, telling an unknown field from other errors.
-#[cfg(test)]
+/// Duplicate fields are refused by the derived deserializers.
 fn parse_strict<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
     serde_json::from_slice(bytes).map_err(|error| {
         if error.to_string().starts_with("unknown field") {
@@ -154,10 +193,38 @@ fn parse_strict<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiEr
     })
 }
 
+/// The central device check: the request's single `Authorization` value,
+/// looked up by `crate::devices`. `Ok(None)` for every way of not being a
+/// device.
+async fn authenticate(app: &App, headers: &HeaderMap) -> Result<Option<Authenticated>, ApiError> {
+    let Some(services) = app.services.clone() else {
+        // Recovery: nothing can authenticate.
+        return Ok(None);
+    };
+    let mut values = headers.get_all(header::AUTHORIZATION).iter();
+    let (Some(value), None) = (values.next(), values.next()) else {
+        return Ok(None);
+    };
+    let value = Zeroizing::new(value.as_bytes().to_vec());
+    tokio::task::spawn_blocking(move || services.devices.authenticate(Some(&value)))
+        .await
+        .map_err(|_| ApiError::Internal)?
+        .map_err(|_| ApiError::Internal)
+}
+
+fn with_allow(mut response: Response<Full<Bytes>>, allow: &[Method]) -> Response<Full<Bytes>> {
+    let listed: Vec<&str> = allow.iter().map(Method::as_str).collect();
+    if let Ok(value) = HeaderValue::from_str(&listed.join(", ")) {
+        response.headers_mut().insert(header::ALLOW, value);
+    }
+    response
+}
+
 async fn handle(
     app: &App,
     connection: &ConnectionContext,
     request: Request<Incoming>,
+    request_id: &str,
 ) -> (Result<Response<Full<Bytes>>, ApiError>, &'static str) {
     let host = match validated_host(app, &request) {
         Ok(host) => host,
@@ -166,30 +233,54 @@ async fn handle(
     let mode = app.serving_mode();
     let lookup = routes::lookup(app.routes, mode, request.method(), request.uri().path());
     let browser = match &lookup {
-        Lookup::Found(_, policy) => policy.browser(),
+        Lookup::Found(_, policy, _) => policy.browser(),
         _ => Browser::Deny,
     };
     if !browser_allowed(browser, request.headers(), &host) {
         return (Err(ApiError::OriginRejected), "origin");
     }
-    let (endpoint, policy) = match lookup {
-        Lookup::Found(endpoint, policy) => (endpoint, policy),
+    let (endpoint, policy, parameter) = match lookup {
+        Lookup::Found(endpoint, policy, parameter) => (endpoint, policy, parameter),
         Lookup::Absent(_) if mode == ServingMode::Recovery => {
             return (Err(ApiError::RecoveryMode), "recovery")
         }
-        Lookup::Absent(Namespace::ApiV1) => return (Err(ApiError::Unauthorized), "api"),
+        // Whether a path exists under /api/v1 is itself device-only
+        // information (criterion 26).
+        Lookup::Absent(Namespace::ApiV1) => {
+            return match authenticate(app, request.headers()).await {
+                Ok(Some(_)) => (Err(ApiError::NotFound), "api"),
+                Ok(None) => (Err(ApiError::Unauthorized), "api"),
+                Err(error) => (Err(error), "api"),
+            };
+        }
         Lookup::Absent(Namespace::ApiOther) => {
             return (Err(ApiError::UnsupportedApiVersion), "api-version")
         }
         Lookup::Absent(Namespace::Other) => return (Err(ApiError::NotFound), "absent"),
-        Lookup::WrongMethod { device: true, .. } => return (Err(ApiError::Unauthorized), "method"),
+        Lookup::WrongMethod {
+            device: true,
+            allow,
+        } => {
+            return match authenticate(app, request.headers()).await {
+                Ok(Some(_)) => (
+                    Ok(with_allow(
+                        ApiError::MethodNotAllowed.response(request_id),
+                        &allow,
+                    )),
+                    "method",
+                ),
+                Ok(None) => (Err(ApiError::Unauthorized), "method"),
+                Err(error) => (Err(error), "method"),
+            };
+        }
         Lookup::WrongMethod { allow, .. } => {
-            let mut response = ApiError::MethodNotAllowed.response("");
-            let listed: Vec<&str> = allow.iter().map(Method::as_str).collect();
-            if let Ok(value) = HeaderValue::from_str(&listed.join(", ")) {
-                response.headers_mut().insert(header::ALLOW, value);
-            }
-            return (Ok(response), "method");
+            return (
+                Ok(with_allow(
+                    ApiError::MethodNotAllowed.response(request_id),
+                    &allow,
+                )),
+                "method",
+            );
         }
     };
     let label = endpoint_label(endpoint);
@@ -197,10 +288,25 @@ async fn handle(
     if policy.tls() == Tls::Tls13 && connection.tls() != TlsVersion::Tls13 {
         return (Err(ApiError::TlsVersionRequired), label);
     }
-    if policy.auth() == Auth::Device {
-        // M1D: no device can authenticate. M1E verifies the token here.
-        return (Err(ApiError::Unauthorized), label);
-    }
+    let device = match policy.auth() {
+        Auth::None => None,
+        Auth::Device => match authenticate(app, request.headers()).await {
+            Ok(Some(device)) => Some(device),
+            Ok(None) => return (Err(ApiError::Unauthorized), label),
+            Err(error) => return (Err(error), label),
+        },
+        Auth::Pairing => {
+            // Before the body is read or anything is parsed.
+            if let Err(wait) = app.pairing_rates.check(connection.source(), Instant::now()) {
+                let mut response = ApiError::PairingRejected.response(request_id);
+                if let Ok(value) = HeaderValue::from_str(&wait.as_secs().to_string()) {
+                    response.headers_mut().insert(header::RETRY_AFTER, value);
+                }
+                return (Ok(response), label);
+            }
+            None
+        }
+    };
     let body = match policy.body() {
         Body::None => {
             if !request.body().is_end_stream() {
@@ -209,6 +315,9 @@ async fn handle(
             Bytes::new()
         }
         Body::Json { limit } => {
+            if !declares_json(request.headers()) {
+                return (Err(ApiError::UnsupportedMediaType), label);
+            }
             match tokio::time::timeout(HANDLER_TIMEOUT, read_body(request.into_body(), limit)).await
             {
                 Ok(Ok(bytes)) => bytes,
@@ -217,7 +326,14 @@ async fn handle(
             }
         }
     };
-    (endpoint_response(app, connection, endpoint, &body), label)
+    let call = Call {
+        connection,
+        endpoint,
+        parameter,
+        device,
+        body,
+    };
+    (endpoint_response(app, call).await, label)
 }
 
 fn endpoint_label(endpoint: Endpoint) -> &'static str {
@@ -225,6 +341,12 @@ fn endpoint_label(endpoint: Endpoint) -> &'static str {
         Endpoint::Healthz => "healthz",
         Endpoint::Index => "index",
         Endpoint::SystemDiagnostics => "system-diagnostics",
+        Endpoint::PairInfo => "pair-info",
+        Endpoint::PairBegin => "pair-begin",
+        Endpoint::PairComplete => "pair-complete",
+        Endpoint::Me => "me",
+        Endpoint::Devices => "devices",
+        Endpoint::RevokeDevice => "revoke-device",
         #[cfg(test)]
         Endpoint::TestBinding => "test-binding",
         #[cfg(test)]
@@ -232,14 +354,71 @@ fn endpoint_label(endpoint: Endpoint) -> &'static str {
     }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn endpoint_response(
-    app: &App,
-    connection: &ConnectionContext,
+/// Everything a handler receives, after every check has passed.
+struct Call<'a> {
+    connection: &'a ConnectionContext,
     endpoint: Endpoint,
-    body: &Bytes,
-) -> Result<Response<Full<Bytes>>, ApiError> {
-    let _ = (connection, body);
+    parameter: Option<Id>,
+    device: Option<Authenticated>,
+    body: Bytes,
+}
+
+fn services(app: &App) -> Result<Arc<Services>, ApiError> {
+    app.services.clone().ok_or(ApiError::Internal)
+}
+
+fn refused(refusal: Refused) -> ApiError {
+    match refusal {
+        Refused::Rejected => ApiError::PairingRejected,
+        Refused::Internal => ApiError::Internal,
+    }
+}
+
+/// Runs `work` on the blocking pool: every service call touches SQLite.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, ApiError> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|_| ApiError::Internal)
+}
+
+/// What a pairing handler knows about the connection, owned so it can move
+/// to the blocking pool. The exporter copy is zeroed on drop.
+struct OwnedArrival {
+    connection: super::connection::ConnectionId,
+    source: super::limits::SourceKey,
+    exporter: Option<Zeroizing<[u8; 32]>>,
+}
+
+impl OwnedArrival {
+    fn of(connection: &ConnectionContext) -> Self {
+        Self {
+            connection: connection.id(),
+            source: connection.source(),
+            exporter: connection
+                .binding()
+                .map(|binding| Zeroizing::new(*binding.exporter())),
+        }
+    }
+
+    fn view(&self) -> Arrival<'_> {
+        Arrival {
+            connection: self.connection,
+            source: self.source,
+            exporter: self.exporter.as_deref(),
+        }
+    }
+}
+
+async fn endpoint_response(app: &App, call: Call<'_>) -> Result<Response<Full<Bytes>>, ApiError> {
+    let Call {
+        connection,
+        endpoint,
+        parameter,
+        device,
+        body,
+    } = call;
     match (endpoint, &app.mode) {
         (Endpoint::Healthz, super::AppMode::Normal) => Ok(json(&serde_json::json!({
             "status": "ok",
@@ -259,9 +438,64 @@ fn endpoint_response(
         (Endpoint::SystemDiagnostics, super::AppMode::Recovery { diagnostics, .. }) => {
             Ok(stored_json(diagnostics))
         }
-        // Normal-mode diagnostics is a device route (M1F); the policy has
-        // already refused it. A recovery-only index cannot be reached either.
-        (Endpoint::SystemDiagnostics | Endpoint::Index, _) => Err(ApiError::Unauthorized),
+        // Normal-mode diagnostics is a device route whose handler is M1F's;
+        // until then an authenticated device finds nothing there.
+        (Endpoint::SystemDiagnostics, super::AppMode::Normal) => Err(ApiError::NotFound),
+        // The pairing and device routes do not exist in recovery, so these
+        // arms are reached in normal mode only.
+        (Endpoint::PairInfo, _) => {
+            let services = services(app)?;
+            let info = blocking(move || services.pairing.info())
+                .await?
+                .map_err(refused)?;
+            serialized(&info)
+        }
+        (Endpoint::PairBegin, _) => {
+            let request: atrium_pairing::wire::BeginRequest = parse_strict(&body)?;
+            let services = services(app)?;
+            let arrival = OwnedArrival::of(connection);
+            let begun = blocking(move || services.pairing.begin(&arrival.view(), request))
+                .await?
+                .map_err(refused)?;
+            serialized(&begun)
+        }
+        (Endpoint::PairComplete, _) => {
+            let request: atrium_pairing::wire::CompleteRequest = parse_strict(&body)?;
+            let services = services(app)?;
+            let arrival = OwnedArrival::of(connection);
+            let completed = blocking(move || services.pairing.complete(&arrival.view(), &request))
+                .await?
+                .map_err(refused)?;
+            serialized(&completed)
+        }
+        (Endpoint::Me, _) => {
+            let device = device.ok_or(ApiError::Unauthorized)?;
+            serialized(&services(app)?.devices.me(&device))
+        }
+        (Endpoint::Devices, _) => {
+            let device = device.ok_or(ApiError::Unauthorized)?;
+            let services = services(app)?;
+            let list = blocking(move || services.devices.list(&device))
+                .await?
+                .map_err(|_| ApiError::Internal)?;
+            serialized(&list)
+        }
+        (Endpoint::RevokeDevice, _) => {
+            let device = device.ok_or(ApiError::Unauthorized)?;
+            let target = parameter.ok_or(ApiError::NotFound)?.to_hex();
+            let services = services(app)?;
+            let revoked = blocking(move || services.devices.revoke(&device, &target))
+                .await?
+                .map_err(|_| ApiError::Internal)?;
+            if !revoked {
+                return Err(ApiError::NotFound);
+            }
+            let mut response = Response::new(Full::new(Bytes::new()));
+            *response.status_mut() = StatusCode::NO_CONTENT;
+            Ok(response)
+        }
+        // A recovery-only index cannot be reached.
+        (Endpoint::Index, _) => Err(ApiError::NotFound),
         #[cfg(test)]
         (Endpoint::TestBinding, _) => {
             use sha2::Digest;
@@ -281,7 +515,7 @@ fn endpoint_response(
             struct Echo {
                 name: String,
             }
-            let echo: Echo = parse_strict(body)?;
+            let echo: Echo = parse_strict(&body)?;
             Ok(json(&serde_json::json!({ "name": echo.name })))
         }
     }
@@ -332,19 +566,11 @@ pub(super) async fn dispatch(
 ) -> Response<Full<Bytes>> {
     let request_id = request_id(request.headers());
     let method = method_label(request.method());
-    let (result, route) = handle(app, connection, request).await;
+    let (result, route) = handle(app, connection, request, &request_id).await;
     let mut response = match result {
         Ok(response) => response,
         Err(error) => error.response(&request_id),
     };
-    if response.status() == StatusCode::METHOD_NOT_ALLOWED {
-        // Built before the id was known to the error; rebuild the body with it.
-        let allow = response.headers().get(header::ALLOW).cloned();
-        response = ApiError::MethodNotAllowed.response(&request_id);
-        if let Some(allow) = allow {
-            response.headers_mut().insert(header::ALLOW, allow);
-        }
-    }
     finish(&mut response, &request_id);
     tracing::debug!(
         event = "http_request",

@@ -30,6 +30,8 @@ use std::fmt;
 
 use zeroize::Zeroizing;
 
+use super::limits::SourceKey;
+
 /// The exporter label, from ADR-003 §4.
 pub const EXPORTER_LABEL: &[u8] = b"EXPORTER-Atrium-Pairing-v1";
 
@@ -66,8 +68,6 @@ impl ConnectionId {
 }
 
 /// The exporter of one TLS 1.3 connection.
-// Read by M1E's pairing handler; until then only tests read it.
-#[cfg_attr(not(test), allow(dead_code))]
 pub struct ChannelBinding(Zeroizing<[u8; 32]>);
 
 impl ChannelBinding {
@@ -75,10 +75,9 @@ impl ChannelBinding {
         Self(Zeroizing::new(bytes))
     }
 
-    /// The exporter bytes. Crate-private: only the pairing handler (M1E)
-    /// has any business reading them, and never to print them.
+    /// The exporter bytes. Crate-private: only the pairing handler has any
+    /// business reading them, and never to print them.
     #[must_use]
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn exporter(&self) -> &[u8; 32] {
         &self.0
     }
@@ -92,16 +91,33 @@ impl fmt::Debug for ChannelBinding {
 
 /// Everything captured from one connection.
 #[derive(Debug)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub struct ConnectionContext {
     id: ConnectionId,
     tls: TlsVersion,
     binding: Option<ChannelBinding>,
+    source: SourceKey,
 }
 
 impl ConnectionContext {
-    pub(crate) fn new(id: ConnectionId, tls: TlsVersion, binding: Option<ChannelBinding>) -> Self {
-        Self { id, tls, binding }
+    pub(crate) fn new(
+        id: ConnectionId,
+        tls: TlsVersion,
+        binding: Option<ChannelBinding>,
+        source: SourceKey,
+    ) -> Self {
+        Self {
+            id,
+            tls,
+            binding,
+            source,
+        }
+    }
+
+    /// Where the connection comes from: the accepted socket's peer, never
+    /// anything the client said.
+    #[must_use]
+    pub fn source(&self) -> SourceKey {
+        self.source
     }
 
     /// This connection's id.
@@ -118,7 +134,6 @@ impl ConnectionContext {
 
     /// The exporter, on a TLS 1.3 connection.
     #[must_use]
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn binding(&self) -> Option<&ChannelBinding> {
         self.binding.as_ref()
     }
@@ -134,6 +149,7 @@ mod tests {
             ConnectionId::generate().expect("random"),
             TlsVersion::Tls13,
             Some(ChannelBinding::new([0xab; 32])),
+            SourceKey::V4(0x7f00_0001),
         );
         let text = format!("{context:?}");
         // Neither as a byte list (`[171, 171, …`) nor as hex.

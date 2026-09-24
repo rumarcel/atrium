@@ -108,9 +108,13 @@ impl From<&StateFault> for RecoveryReason {
         match fault {
             StateFault::Unprotected(_) => Self::StateUnprotected,
             StateFault::Missing => Self::StateMissing,
-            // AlreadyExists comes only from creation, which Core never does;
-            // were it ever reported here, "unreadable" is the safe reading.
-            StateFault::Unreadable(_) | StateFault::AlreadyExists => Self::StateDatabaseUnreadable,
+            // AlreadyExists comes only from creation, which Core never does,
+            // and NotMigrated only from attaching after startup has already
+            // migrated; were either reported here, "unreadable" is the safe
+            // reading.
+            StateFault::Unreadable(_)
+            | StateFault::AlreadyExists
+            | StateFault::NotMigrated { .. } => Self::StateDatabaseUnreadable,
             StateFault::SchemaNewer { .. } => Self::StateSchemaNewer,
             StateFault::BackupFailed(_) => Self::StateBackupFailed,
             StateFault::MigrationFailed { .. } => Self::StateMigrationFailed,

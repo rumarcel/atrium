@@ -7,6 +7,17 @@ license.workspace = true
 repository.workspace = true
 description = "Atrium: pure shared types and constants (no I/O)"
 
-# No dependencies, on purpose. This crate is I/O-free by policy and
-# server/ci/boundary-checks.sh fails the build if that changes.
+# Pure cryptographic primitives and codecs only: no I/O, no randomness source
+# (callers pass bytes they drew from the OS), no runtime. The boundary gate
+# fails the build if an I/O crate ever reaches this graph.
 [dependencies]
+base64.workspace = true
+hkdf.workspace = true
+hmac.workspace = true
+serde.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

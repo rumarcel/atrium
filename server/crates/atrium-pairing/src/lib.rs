@@ -1,19 +1,35 @@
-//! Identifiers and sizes frozen by the pairing design (ADR-003).
+//! Pairing, as ADR-003 specifies it: the secret codec, the transcript, the
+//! proofs, device metadata, device tokens, the three pairing messages, and
+//! the client's side of the exchange.
 //!
-//! This crate is **pure**: no I/O, no paths, no runtime. In M1A it holds only
-//! the constants the architecture fixes, plus tests that keep the arithmetic
-//! honest — an earlier draft of ADR-003 said "32 bytes rendered as 26 Crockford
-//! base32 characters", which is not a thing that can happen, and these tests
-//! exist so that class of mistake cannot come back silently.
+//! This crate is **pure**: no I/O, no paths, no runtime and no randomness
+//! source. Callers pass bytes they drew from the OS CSPRNG. Core, `atriumctl`
+//! and the native client all compute the same bytes from this one
+//! implementation.
 //!
-//! # What is deliberately not here yet
+//! - [`secret`] — 16 bytes ⇄ 26 canonical Crockford Base32 symbols;
+//! - [`transcript`] — `K`, `T`, `proofC`, `proofS`, byte-exact, frozen by
+//!   vectors;
+//! - [`device`] — the name and platform policy;
+//! - [`token`] — device tokens, their digest, and the strict base64url used
+//!   for every binary field;
+//! - [`wire`] — `pair/info`, `pair/begin`, `pair/complete`;
+//! - [`client`] — a state machine that yields a storable pairing only after
+//!   `proofS` verifies.
 //!
-//! The Crockford Base32 codec, the normalization rules, the transcript builder
-//! and the HMAC proofs arrive in **M1E**. M1A defines no cryptography.
+//! The constants below were frozen in M1A; tests keep their arithmetic
+//! honest.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 #![deny(clippy::all)]
+
+pub mod client;
+pub mod device;
+pub mod secret;
+pub mod token;
+pub mod transcript;
+pub mod wire;
 
 /// Binding profile used by native clients: the transcript covers the server's
 /// SPKI hash and an RFC 8446 TLS exporter.

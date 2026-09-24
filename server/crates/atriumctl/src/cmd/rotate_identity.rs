@@ -18,9 +18,9 @@
 //! (`Database::reconcile_identity`). A device paired against the old key
 //! cannot survive either way.
 //!
-//! Arming a fresh pairing secret — the plan's step 3 — belongs to pairing,
-//! which arrives in M1E. Until then this command says so, and no device can
-//! pair, which is the safe consequence.
+//! Step 3 ends by arming a fresh pairing secret (the plan's step 3) and
+//! printing it, exactly as `atriumctl pair` does, so the owner can re-pair
+//! against the new key straight away.
 
 use std::process::ExitCode;
 
@@ -119,6 +119,7 @@ pub fn run() -> ExitCode {
 
     let now = OffsetDateTime::now_utc();
     let mut failures = 0;
+    let mut armed = false;
     match db::open(layout, now) {
         Ok(mut opened) => {
             match opened
@@ -148,6 +149,18 @@ pub fn run() -> ExitCode {
                 failures += 1;
                 eprintln!("atriumctl {COMMAND}: the audit row could not be written: {error}");
             }
+            println!();
+            match super::pair::arm_and_show(layout, &mut opened.database, &summary.server_id) {
+                Ok(()) => armed = true,
+                Err(error) => {
+                    failures += 1;
+                    eprintln!(
+                        "atriumctl {COMMAND}: {error}. Arm pairing with `atriumctl pair` once \
+                         Core is running"
+                    );
+                }
+            }
+            println!();
         }
         Err(fault) => {
             failures += 1;
@@ -174,10 +187,11 @@ pub fn run() -> ExitCode {
         }
     }
 
-    println!(
-        "No device can connect until it is paired again. Pairing arrives with \
-         `atriumctl pair` (M1E)."
-    );
+    if armed {
+        println!("No device can connect until it is paired again, with the code above.");
+    } else {
+        println!("No device can connect until it is paired again: run `atriumctl pair`.");
+    }
     println!("Start Core: systemctl start atrium-core");
     if failures == 0 {
         ExitCode::SUCCESS

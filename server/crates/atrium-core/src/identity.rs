@@ -8,7 +8,9 @@
 //!   SubjectPublicKeyInfo. Written last, so its presence means generation
 //!   completed.
 //! - `tls.key` — the device identity key, ECDSA P-256, PKCS#8 DER.
-//! - `secrets.key` — 32 random bytes, reserved for M3 and not read by M1.
+//! - `secrets.key` — 32 random bytes. From M1E it is read by Core and by
+//!   `atriumctl pair` to seal and open an armed pairing secret (ADR-019), and
+//!   by nothing else until M3.
 //!
 //! [`load`] is what Core does at startup. It reads, verifies that the three
 //! files agree with each other, and reports a [`IdentityFault`] for anything
@@ -76,6 +78,13 @@ impl ServerId {
         Some(Self(bytes))
     }
 
+    /// The 16 bytes, for the pairing transcript and the sealed secret's
+    /// associated data.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
+
     /// The first eight hex characters, used in the certificate's names and
     /// the mDNS instance name.
     #[must_use]
@@ -106,6 +115,12 @@ impl SpkiPin {
     #[must_use]
     pub fn of(spki_der: &[u8]) -> Self {
         Self(Sha256::digest(spki_der).into())
+    }
+
+    /// The 32 bytes, for the pairing transcript.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
     }
 
     /// Parses 64 lowercase hexadecimal characters.
@@ -512,6 +527,45 @@ fn read(layout: &Layout, name: &'static str, limit: u64) -> Result<Vec<u8>, Iden
     })
 }
 
+/// `secrets.key`, in memory: zeroed on drop, never printed.
+pub struct SecretsKey(Redacted<[u8; SECRETS_KEY_LEN]>);
+
+impl SecretsKey {
+    /// The 32 bytes, for key derivation only.
+    #[must_use]
+    pub fn expose(&self) -> &[u8; SECRETS_KEY_LEN] {
+        self.0.expose()
+    }
+
+    /// From bytes; for tests and for the caller that just read the file.
+    #[must_use]
+    pub fn from_bytes(bytes: [u8; SECRETS_KEY_LEN]) -> Self {
+        Self(Redacted::new(bytes))
+    }
+}
+
+impl fmt::Debug for SecretsKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SecretsKey(<redacted>)")
+    }
+}
+
+/// Reads `secrets.key`. Only its size is checked here; its ownership and mode
+/// are checked with the rest of the identity by [`load`].
+///
+/// # Errors
+///
+/// [`IdentityFault`]: missing, unreadable, or not exactly 32 bytes.
+pub fn load_secrets_key(layout: &Layout) -> Result<SecretsKey, IdentityFault> {
+    let bytes = Redacted::new(read(layout, SECRETS_KEY_FILE, SECRETS_KEY_LEN as u64 + 1)?);
+    let array: [u8; SECRETS_KEY_LEN] = bytes
+        .expose()
+        .as_slice()
+        .try_into()
+        .map_err(|_| IdentityFault::Inconsistent(Inconsistency::SecretsKeyMalformed))?;
+    Ok(SecretsKey::from_bytes(array))
+}
+
 /// Loads and verifies the identity. Reads only; never writes, never generates.
 ///
 /// # Errors
@@ -555,8 +609,8 @@ pub fn load(layout: &Layout, protection: Protection) -> Result<Identity, Identit
         ));
     }
 
-    // secrets.key is not read in M1: nothing uses it until M3. Its presence
-    // and size are part of a consistent identity all the same.
+    // secrets.key is read on its own by `load_secrets_key` (ADR-019); its
+    // presence and size are part of a consistent identity.
     match fsio::lstat(&layout.etc_file(SECRETS_KEY_FILE)) {
         Ok(Some(metadata)) if metadata.file_type().is_file() => {
             if metadata.size() != SECRETS_KEY_LEN as u64 {

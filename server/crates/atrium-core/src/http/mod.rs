@@ -2,8 +2,9 @@
 //! fixed route table.
 //!
 //! - [`tls`] — the identity key and the current certificate; no resumption.
-//! - [`connection`] — per-connection context: id, TLS version and the
-//!   exporter M1E's pairing binds to.
+//! - [`connection`] — per-connection context: id, TLS version, source and
+//!   the exporter pairing binds to.
+//! - [`limits`] — per-source connection shares and pairing rate limits.
 //! - [`host`] — the `Host` allowlist, from the certificate's own names.
 //! - [`routes`] — every route and its policy, literally.
 //! - [`error`] — the closed set of RFC 9457 problems.
@@ -12,7 +13,8 @@
 //! There is no plaintext listener. A client speaking plain HTTP to the port
 //! fails the TLS handshake and gets no HTTP response at all.
 //!
-//! Limits: at most [`MAX_CONNECTIONS`] connections at once (the rest are
+//! Limits: at most [`MAX_CONNECTIONS`] connections at once, and at most
+//! [`limits::MAX_CONNECTIONS_PER_SOURCE`] from one source (the rest are
 //! closed on accept, before TLS); [`HANDSHAKE_TIMEOUT`] to finish TLS;
 //! [`HEADER_TIMEOUT`] to send a request's headers, which also bounds how
 //! long an idle keep-alive connection is kept; [`MAX_HEADER_BYTES`] of
@@ -21,16 +23,21 @@
 //! dropped. A stalled client can hold one connection slot for a bounded
 //! time, and can never hold up shutdown.
 //!
-//! Nothing here reaches Agent, the database, or the identity files: the
-//! handlers in M1D answer from values fixed at startup.
+//! Nothing here reaches Agent, the database, or the identity files. The
+//! pairing and device handlers call [`Services`] — `crate::pairing` and
+//! `crate::devices` — which own every database access; this module has no
+//! database handle of its own.
 
 pub mod connection;
 mod dispatch;
 pub mod error;
 pub mod host;
+pub mod limits;
 pub mod routes;
 pub mod tls;
 
+#[cfg(test)]
+mod pairing_tests;
 #[cfg(test)]
 mod tests;
 
@@ -51,11 +58,13 @@ use self::connection::{
     ChannelBinding, ConnectionContext, ConnectionId, TlsVersion, EXPORTER_LABEL,
 };
 use self::host::{Authority, HostAllowlist};
+use self::limits::{ConnectionLimiter, PairingRates, RateLimiter, SourceKey};
 use self::routes::{Route, ServingMode, ROUTES};
 use self::tls::{CertStore, Served, TlsError};
 use crate::recovery::Recovery;
 
-/// Concurrent connections, all unauthenticated in M1 (plan §8.2).
+/// Concurrent connections (plan §8.2). One source may hold at most
+/// [`limits::MAX_CONNECTIONS_PER_SOURCE`] of them.
 pub const MAX_CONNECTIONS: usize = 32;
 /// Time to complete the TLS handshake.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -84,6 +93,33 @@ pub enum AppMode {
     },
 }
 
+/// The state-owning services the normal-mode handlers call. Recovery has
+/// none.
+#[derive(Debug)]
+pub struct Services {
+    /// Pairing.
+    pub pairing: crate::pairing::Pairing,
+    /// Device authentication and management.
+    pub devices: crate::devices::Devices,
+}
+
+/// The per-source limits an [`App`] enforces.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    /// Concurrent connections from one source.
+    pub connections_per_source: usize,
+    /// Pairing request budgets.
+    pub pairing: PairingRates,
+}
+
+impl Limits {
+    /// The production values.
+    pub const DEFAULT: Self = Self {
+        connections_per_source: limits::MAX_CONNECTIONS_PER_SOURCE,
+        pairing: PairingRates::DEFAULT,
+    };
+}
+
 /// Everything the listener needs, shared by every connection.
 #[derive(Debug)]
 pub struct App {
@@ -93,6 +129,9 @@ pub struct App {
     port: u16,
     certificates: Arc<CertStore>,
     tls: Arc<rustls::ServerConfig>,
+    services: Option<Arc<Services>>,
+    connections: Arc<ConnectionLimiter>,
+    pairing_rates: RateLimiter,
 }
 
 impl App {
@@ -101,6 +140,8 @@ impl App {
         routes: &'static [Route],
         served: &Served,
         port: u16,
+        services: Option<Arc<Services>>,
+        limits: Limits,
     ) -> Result<Arc<Self>, TlsError> {
         let certificates = Arc::new(CertStore::new(served));
         let tls = tls::server_config(Arc::clone(&certificates))?;
@@ -111,16 +152,50 @@ impl App {
             port,
             certificates,
             tls,
+            services,
+            connections: ConnectionLimiter::new(limits.connections_per_source),
+            pairing_rates: RateLimiter::new(limits.pairing, std::time::Instant::now()),
         }))
     }
 
-    /// Normal mode, serving `served` on `port`.
+    /// Normal mode, serving `served` on `port`, with `services` behind the
+    /// pairing and device routes.
     ///
     /// # Errors
     ///
     /// [`TlsError`] if rustls refuses the configuration.
-    pub fn normal(served: &Served, port: u16) -> Result<Arc<Self>, TlsError> {
-        Self::build(AppMode::Normal, ROUTES, served, port)
+    pub fn normal(
+        served: &Served,
+        port: u16,
+        services: Arc<Services>,
+    ) -> Result<Arc<Self>, TlsError> {
+        Self::build(
+            AppMode::Normal,
+            ROUTES,
+            served,
+            port,
+            Some(services),
+            Limits::DEFAULT,
+        )
+    }
+
+    /// Normal mode with the real routes and chosen limits, for tests that
+    /// drive many requests from one loopback address.
+    #[doc(hidden)]
+    pub fn normal_with_limits(
+        served: &Served,
+        port: u16,
+        services: Arc<Services>,
+        limits: Limits,
+    ) -> Result<Arc<Self>, TlsError> {
+        Self::build(
+            AppMode::Normal,
+            ROUTES,
+            served,
+            port,
+            Some(services),
+            limits,
+        )
     }
 
     /// Recovery mode: `/healthz` and the redacted diagnostics only.
@@ -143,13 +218,26 @@ impl App {
             ROUTES,
             served,
             port,
+            None,
+            Limits::DEFAULT,
         )
     }
 
     /// Normal mode with the test route table.
     #[cfg(test)]
-    pub(crate) fn with_test_routes(served: &Served, port: u16) -> Result<Arc<Self>, TlsError> {
-        Self::build(AppMode::Normal, routes::TEST_ROUTES, served, port)
+    pub(crate) fn with_test_routes(
+        served: &Served,
+        port: u16,
+        limits: Limits,
+    ) -> Result<Arc<Self>, TlsError> {
+        Self::build(
+            AppMode::Normal,
+            routes::TEST_ROUTES,
+            served,
+            port,
+            None,
+            limits,
+        )
     }
 
     /// Serves a reissued certificate — same key, new names — to every new
@@ -187,9 +275,15 @@ pub async fn serve(listener: TcpListener, app: Arc<App>, mut stop: watch::Receiv
                 }
             }
             accepted = listener.accept() => match accepted {
-                Ok((stream, _peer)) => {
+                Ok((stream, peer)) => {
+                    // The source is the socket's peer and nothing else.
+                    let source = SourceKey::of(peer.ip());
+                    // Over either cap: closed before any TLS work is done.
+                    let Some(slot) = app.connections.try_acquire(source) else {
+                        drop(stream);
+                        continue;
+                    };
                     let Ok(permit) = Arc::clone(&permits).try_acquire_owned() else {
-                        // Over the cap: closed before any TLS work is done.
                         drop(stream);
                         continue;
                     };
@@ -197,8 +291,9 @@ pub async fn serve(listener: TcpListener, app: Arc<App>, mut stop: watch::Receiv
                     let app = Arc::clone(&app);
                     let stop = stop.clone();
                     tasks.spawn(async move {
-                        serve_connection(stream, acceptor, app, stop).await;
+                        serve_connection(stream, source, acceptor, app, stop).await;
                         drop(permit);
+                        drop(slot);
                     });
                 }
                 Err(error) => {
@@ -227,6 +322,7 @@ pub async fn serve(listener: TcpListener, app: Arc<App>, mut stop: watch::Receiv
 
 async fn serve_connection(
     stream: tokio::net::TcpStream,
+    source: SourceKey,
     acceptor: TlsAcceptor,
     app: Arc<App>,
     mut stop: watch::Receiver<bool>,
@@ -259,7 +355,7 @@ async fn serve_connection(
         let Ok(id) = ConnectionId::generate() else {
             return;
         };
-        Arc::new(ConnectionContext::new(id, version, binding))
+        Arc::new(ConnectionContext::new(id, version, binding, source))
     };
 
     let service = service_fn(move |request| {

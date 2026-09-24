@@ -1097,7 +1097,8 @@ fn rotation_as_root_changes_spki_keeps_server_id_and_revokes_devices() {
         connection
             .execute(
                 "INSERT INTO devices (device_id, name, platform, role, token_digest, created_at) \
-                 VALUES ('00112233445566778899aabbccddeeff', 'laptop', 'linux', 'owner', x'00', \
+                 VALUES ('00112233445566778899aabbccddeeff', 'laptop', 'linux', 'owner', \
+                 randomblob(32), \
                  '2026-09-24T00:00:00Z')",
                 (),
             )
@@ -1114,6 +1115,13 @@ fn rotation_as_root_changes_spki_keeps_server_id_and_revokes_devices() {
         &format!("{SERVER_NAME}\n"),
     );
     assert!(output.status.success(), "{}", text(&output));
+    // Plan §5.5 step 3: a fresh pairing code, armed and shown.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Pairing code:"), "{}", text(&output));
+    assert_eq!(
+        installation.query_count("SELECT armed FROM pairing_state"),
+        1
+    );
 
     // The new key is installed exactly as the installer would have left it.
     let key = std::fs::metadata(installation.etc().join("tls.key")).expect("stat");
@@ -1387,9 +1395,42 @@ mod https {
 
     /// One GET on `stream`; returns the status and the body.
     pub fn get(stream: &mut Stream, port: u16, path: &str) -> (u16, String) {
+        request(stream, port, "GET", path, "", "")
+    }
+
+    /// One request with a JSON body.
+    pub fn post(stream: &mut Stream, port: u16, path: &str, body: &str) -> (u16, String) {
+        let headers = format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            body.len()
+        );
+        request(stream, port, "POST", path, &headers, body)
+    }
+
+    /// One request with a device token.
+    pub fn authorized(
+        stream: &mut Stream,
+        port: u16,
+        method: &str,
+        path: &str,
+        token: &str,
+    ) -> (u16, String) {
+        let headers = format!("Authorization: Bearer {token}\r\n");
+        request(stream, port, method, path, &headers, "")
+    }
+
+    /// One request; returns the status and the body.
+    pub fn request(
+        stream: &mut Stream,
+        port: u16,
+        method: &str,
+        path: &str,
+        headers: &str,
+        body: &str,
+    ) -> (u16, String) {
         write!(
             stream,
-            "GET {path} HTTP/1.1\r\nHost: localhost:{port}\r\n\r\n"
+            "{method} {path} HTTP/1.1\r\nHost: localhost:{port}\r\n{headers}\r\n{body}"
         )
         .expect("write");
         let mut buffer = Vec::new();
@@ -1422,6 +1463,14 @@ mod https {
             assert!(read > 0, "connection closed before a response");
             buffer.extend_from_slice(&chunk[..read]);
         }
+    }
+
+    /// `SHA-256(SPKI)` of the certificate this connection's handshake
+    /// presented.
+    pub fn spki(stream: &Stream) -> [u8; 32] {
+        let certificate = &stream.conn.peer_certificates().expect("certificate")[0];
+        let (_, parsed) = x509_parser::parse_x509_certificate(certificate).expect("x509");
+        *SpkiPin::of(parsed.public_key().raw).as_bytes()
     }
 
     /// This connection's exporter, as the client computes it.
@@ -1578,4 +1627,339 @@ fn core_stops_promptly_with_stalled_network_clients() {
         "Core took {:?} to stop behind stalled clients",
         started.elapsed()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Pairing (M1E)
+
+/// What one pairing exchange put on the wire, for the secrecy scan.
+struct Exchange {
+    proof_c: [u8; 32],
+    proof_s: Option<[u8; 32]>,
+    exporter: [u8; 32],
+    bodies: Vec<String>,
+}
+
+/// The harness client, synchronously: info, begin, prove, complete, and
+/// `proofS` checked before anything is kept.
+fn pair(
+    stream: &mut https::Stream,
+    port: u16,
+    secret: &atrium_pairing::secret::PairingSecret,
+    name: &str,
+) -> (Result<atrium_pairing::client::Paired, u16>, Exchange) {
+    use atrium_pairing::client::ClientPairing;
+    use atrium_pairing::device::{DeviceMetadata, DeviceName, Platform};
+    use atrium_pairing::wire::{BeginResponse, CompleteResponse, InfoResponse};
+
+    let mut bodies = Vec::new();
+    let (status, body) = https::get(stream, port, "/api/v1/pair/info");
+    assert_eq!(status, 200, "{body}");
+    let info: InfoResponse = serde_json::from_str(&body).expect("info");
+    bodies.push(body);
+    let exporter = https::exporter(stream);
+    let mut nonce = [0_u8; 32];
+    getrandom_fill(&mut nonce);
+    let pairing = ClientPairing::new(
+        atrium_pairing::secret::PairingSecret::from_bytes(*secret.expose()),
+        DeviceMetadata::new(DeviceName::parse(name).expect("name"), Platform::Linux),
+        info.server_id.0,
+        https::spki(stream),
+        exporter,
+        nonce,
+    );
+    let (status, body) = https::post(
+        stream,
+        port,
+        "/api/v1/pair/begin",
+        &serde_json::to_string(&pairing.begin_request()).expect("json"),
+    );
+    assert_eq!(status, 200, "{body}");
+    let begun: BeginResponse = serde_json::from_str(&body).expect("begin");
+    bodies.push(body);
+    let (request, awaiting) = pairing.prove(&begun);
+    let (status, body) = https::post(
+        stream,
+        port,
+        "/api/v1/pair/complete",
+        &serde_json::to_string(&request).expect("json"),
+    );
+    let mut exchange = Exchange {
+        proof_c: request.proof_c.0,
+        proof_s: None,
+        exporter,
+        bodies: Vec::new(),
+    };
+    if status != 200 {
+        bodies.push(body);
+        exchange.bodies = bodies;
+        return (Err(status), exchange);
+    }
+    let response: CompleteResponse = serde_json::from_str(&body).expect("complete");
+    exchange.proof_s = Some(response.proof_s.0);
+    exchange.bodies = bodies;
+    (
+        Ok(awaiting.finish(response).expect("the server proved itself")),
+        exchange,
+    )
+}
+
+fn getrandom_fill(bytes: &mut [u8]) {
+    let mut file = std::fs::File::open("/dev/urandom").expect("urandom");
+    std::io::Read::read_exact(&mut file, bytes).expect("random");
+}
+
+/// Every form a value could be written in.
+fn forms(bytes: &[u8]) -> Vec<Vec<u8>> {
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE_NO_PAD};
+    use base64::Engine as _;
+    vec![
+        bytes.to_vec(),
+        hex(bytes).into_bytes(),
+        hex(bytes).to_uppercase().into_bytes(),
+        STANDARD.encode(bytes).into_bytes(),
+        STANDARD_NO_PAD.encode(bytes).into_bytes(),
+        URL_SAFE_NO_PAD.encode(bytes).into_bytes(),
+    ]
+}
+
+fn find(haystack: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+/// Test plan §9 "log scan" and "bundle scan", and criterion 32, on a real
+/// installation: Core as `atrium`, `atriumctl pair` as root, a real client.
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn pairing_end_to_end_leaves_no_secret_in_logs_audit_diagnostics_or_responses() {
+    let installation = Installation::new("pair");
+    let port = installation.port;
+    // Debug: the most Core will ever say.
+    let mut core = installation.start_core_with_log("debug");
+    let ready = core.ready();
+    let pin = field(&ready, "spki_sha256").expect("pin");
+
+    let armed = installation.as_root(&installation.ctl, &["pair"], "");
+    assert!(armed.status.success(), "{}", text(&armed));
+    let shown = String::from_utf8_lossy(&armed.stdout).into_owned();
+    let code = shown
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Pairing code:"))
+        .expect("the code is shown")
+        .trim()
+        .to_owned();
+    assert_eq!(code.len(), 32, "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX: {code}");
+    let secret = atrium_pairing::secret::PairingSecret::decode(&code).expect("the code decodes");
+    // `atriumctl_leaves_no_root_owned_wal`: arming as root left nothing of
+    // root's in the state directory.
+    for entry in walk(&installation.state()) {
+        let metadata = std::fs::symlink_metadata(&entry).expect("stat");
+        assert_eq!(
+            metadata.uid(),
+            installation.atrium.uid,
+            "{}",
+            entry.display()
+        );
+    }
+
+    // One failed attempt, then the real one, on one pinned connection.
+    let mut stream = https::connect(port, &pin);
+    let wrong = atrium_pairing::secret::PairingSecret::from_bytes([0x5a; 16]);
+    let (refused, failed) = pair(&mut stream, port, &wrong, "Guess");
+    assert_eq!(refused.err(), Some(403));
+    let (paired, succeeded) = pair(&mut stream, port, &secret, "Owner laptop");
+    let paired = paired.expect("paired");
+    assert_eq!(hex(&paired.spki), pin);
+    let token = paired.token.encode().to_string();
+    let (status, me) = https::authorized(&mut stream, port, "GET", "/api/v1/me", &token);
+    assert_eq!(status, 200, "{me}");
+    let (status, list) = https::authorized(&mut stream, port, "GET", "/api/v1/devices", &token);
+    assert_eq!(status, 200, "{list}");
+    let (status, unauthorized) = https::get(&mut stream, port, "/api/v1/devices");
+    assert_eq!(status, 401);
+    drop(stream);
+    std::thread::sleep(Duration::from_millis(300));
+    core.stop();
+
+    let diagnostics = installation.as_root(&installation.ctl, &["diagnostics"], "");
+    let audit: String = {
+        let uri = format!(
+            "file:{}?immutable=1",
+            installation.state().join("atrium.db").display()
+        );
+        let connection = Connection::open_with_flags(
+            uri,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+        )
+        .expect("open read-only");
+        let mut statement = connection
+            .prepare("SELECT action || ' ' || coalesce(target,'') || ' ' || coalesce(detail,'') FROM audit")
+            .expect("audit");
+        let rows: Vec<String> = statement
+            .query_map((), |r| r.get(0))
+            .expect("rows")
+            .collect::<Result<_, _>>()
+            .expect("rows");
+        rows.join("\n")
+    };
+    for action in [
+        "pairing.armed",
+        "pairing.failed",
+        "pairing.consumed",
+        "device.created",
+    ] {
+        assert!(audit.contains(action), "{action}: {audit}");
+    }
+
+    let token_bytes = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(token.as_bytes())
+            .expect("token")
+    };
+    let mut forbidden = forms(secret.expose());
+    forbidden.push(secret.canonical().as_bytes().to_vec());
+    forbidden.push(code.clone().into_bytes());
+    forbidden.extend(forms(&token_bytes));
+    forbidden.extend(forms(paired.token.digest().as_bytes()));
+    for exchange in [&failed, &succeeded] {
+        forbidden.extend(forms(&exchange.proof_c));
+        forbidden.extend(forms(&exchange.exporter));
+        if let Some(proof_s) = exchange.proof_s {
+            forbidden.extend(forms(&proof_s));
+        }
+    }
+
+    let log = core.lines().join("\n");
+    assert!(log.contains("device_paired"), "the run did log: {log}");
+    let mut places: Vec<(&str, Vec<u8>)> = vec![
+        ("core log", log.into_bytes()),
+        ("atriumctl pair stderr", armed.stderr.clone()),
+        (
+            "diagnostics",
+            [diagnostics.stdout.clone(), diagnostics.stderr.clone()].concat(),
+        ),
+        ("audit", audit.into_bytes()),
+        ("device list", list.into_bytes()),
+        ("me", me.into_bytes()),
+        ("401 body", unauthorized.into_bytes()),
+    ];
+    for body in failed.bodies.iter().chain(&succeeded.bodies) {
+        places.push(("pairing response", body.clone().into_bytes()));
+    }
+    for (place, bytes) in &places {
+        for form in &forbidden {
+            assert!(
+                !find(bytes, form),
+                "secret material in the {place}: {:?}",
+                String::from_utf8_lossy(form)
+            );
+        }
+    }
+    // The database holds the digest (the verifier) and nothing else of
+    // either secret.
+    let mut on_disk = forms(secret.expose());
+    on_disk.push(secret.canonical().as_bytes().to_vec());
+    on_disk.extend(forms(&token_bytes));
+    on_disk.push(token.clone().into_bytes());
+    for entry in walk(&installation.state()) {
+        if entry.is_file() {
+            let bytes = installation.read(&entry);
+            for form in &on_disk {
+                assert!(!find(&bytes, form), "{}", entry.display());
+            }
+        }
+    }
+}
+
+/// Test plan 4.5 `local_restore_succeeds_and_normal_service_resumes`: a device
+/// paired before the corruption still authenticates after a console restore.
+/// The backup is the one Core takes before migrating a schema-1 database
+/// that already holds the device.
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn a_device_paired_before_corruption_authenticates_after_restore() {
+    let installation = Installation::new("restoredevice");
+    let port = installation.port;
+    let pin = atrium_core::identity::load(
+        &atrium_core::layout::Layout::under(&installation.root).expect("layout"),
+        atrium_core::identity::Protection::NotChecked,
+    )
+    .expect("identity")
+    .pin()
+    .to_string();
+    let mut raw = [0_u8; 32];
+    getrandom_fill(&mut raw);
+    let token = atrium_pairing::token::DeviceToken::from_bytes(raw);
+
+    // A schema-1 database with a paired device, as M1D left them.
+    let path = installation.state().join("atrium.db");
+    std::fs::remove_file(&path).expect("remove");
+    {
+        let connection = Connection::open(&path).expect("create");
+        connection
+            .execute_batch(include_str!(
+                "../../atrium-core/src/db/migrations/0001_initial.sql"
+            ))
+            .expect("schema 1");
+        connection
+            .execute(
+                "INSERT INTO devices (device_id, name, platform, role, token_digest, created_at) \
+                 VALUES ('00112233445566778899aabbccddeeff', 'Laptop', 'linux', 'owner', ?1, \
+                 '2026-09-24T00:00:00Z')",
+                [token.digest().as_bytes().as_slice()],
+            )
+            .expect("device");
+        connection
+            .execute("INSERT INTO pairing_state (id, claimed) VALUES (1, 1)", ())
+            .expect("claimed");
+        connection
+            .execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)",
+                (atrium_core::db::IDENTITY_PIN_SETTING, &pin),
+            )
+            .expect("pin");
+        connection
+            .pragma_update(None, "user_version", 1)
+            .expect("version");
+    }
+    chown(&path, installation.atrium.uid, installation.atrium.gid);
+    chmod(&path, 0o600);
+
+    // Core migrates behind a backup; the device authenticates.
+    let mut core = installation.start_core();
+    assert_eq!(field(&core.ready(), "mode").as_deref(), Some("normal"));
+    let mut stream = https::connect(port, &pin);
+    let bearer = token.encode().to_string();
+    assert_eq!(
+        https::authorized(&mut stream, port, "GET", "/api/v1/me", &bearer).0,
+        200
+    );
+    drop(stream);
+    core.stop();
+
+    // Corruption, then the console restore.
+    let name = backup_name(&installation);
+    std::fs::write(&path, vec![0x5a_u8; 8192]).expect("corrupt");
+    for suffix in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+    }
+    let mut core = installation.start_core();
+    assert_eq!(field(&core.ready(), "mode").as_deref(), Some("recovery"));
+    core.stop();
+    let output = installation.as_root(
+        &installation.ctl,
+        &["restore", "--from", &name],
+        &format!("{SERVER_NAME}\n"),
+    );
+    assert!(output.status.success(), "{}", text(&output));
+
+    let mut core = installation.start_core();
+    assert_eq!(field(&core.ready(), "mode").as_deref(), Some("normal"));
+    let mut stream = https::connect(port, &pin);
+    let (status, me) = https::authorized(&mut stream, port, "GET", "/api/v1/me", &bearer);
+    assert_eq!(status, 200, "{me}");
+    assert!(me.contains("00112233445566778899aabbccddeeff"), "{me}");
+    drop(stream);
+    core.stop();
 }

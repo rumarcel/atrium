@@ -234,7 +234,8 @@ fn rotation_changes_spki_preserves_server_id_and_revokes_all_devices() {
         connection
             .execute(
                 "INSERT INTO devices (device_id, name, platform, role, token_digest, created_at) \
-                 VALUES ('00112233445566778899aabbccddeeff', 'laptop', 'linux', 'owner', x'00', \
+                 VALUES ('00112233445566778899aabbccddeeff', 'laptop', 'linux', 'owner', \
+                 randomblob(32), \
                  '2026-09-24T00:00:00Z')",
                 (),
             )
@@ -258,6 +259,12 @@ fn rotation_changes_spki_preserves_server_id_and_revokes_all_devices() {
         .query_row("SELECT count(*) FROM devices", (), |row| row.get(0))
         .expect("count");
     assert_eq!(devices, 0, "every device is revoked");
+    // Plan 5.5 step 3: a fresh secret is armed and shown.
+    let armed: i64 = connection
+        .query_row("SELECT armed FROM pairing_state", (), |row| row.get(0))
+        .expect("armed");
+    assert_eq!(armed, 1);
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Pairing code:"));
     let actions: Vec<String> = connection
         .prepare("SELECT action FROM audit ORDER BY id")
         .expect("prepare")
@@ -340,4 +347,78 @@ fn the_shipped_configuration_example_is_valid() {
         atrium_core::config::parse(&text, &Layout::production()).expect("the example must parse");
     assert_eq!(config.server_name, "atrium");
     assert_eq!(config.listen.port(), 7443);
+}
+
+fn shown_code(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Pairing code:"))
+        .expect("a pairing code is shown")
+        .trim()
+        .to_owned()
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+#[test]
+fn pair_arms_the_native_profile_and_shows_the_code_once() {
+    let tree = Tree::initialized("pair");
+    let output = tree.ctl(&["pair"], "");
+    assert!(output.status.success(), "{}", text(&output));
+    let code = shown_code(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert_eq!(stdout.matches(&code).count(), 1, "shown exactly once");
+    assert!(stdout.contains("15 minutes"), "{stdout}");
+    assert!(output.stderr.is_empty(), "{}", text(&output));
+    let secret = atrium_pairing::secret::PairingSecret::decode(&code).expect("decodes");
+
+    let connection = Connection::open(tree.layout.database()).expect("open");
+    let (profile, nonce, ciphertext): (String, Vec<u8>, Vec<u8>) = connection
+        .query_row(
+            "SELECT profile, secret_nonce, secret_ciphertext FROM pairing_state WHERE armed = 1",
+            (),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("armed row");
+    assert_eq!(profile, atrium_pairing::BINDING_PROFILE_NATIVE);
+    assert_eq!((nonce.len(), ciphertext.len()), (24, 32));
+    drop(connection);
+    // Only ciphertext on disk, in any form.
+    let hex: String = secret.expose().iter().map(|b| format!("{b:02x}")).collect();
+    for (path, bytes) in tree.snapshot() {
+        for form in [
+            secret.expose().as_slice(),
+            hex.as_bytes(),
+            secret.canonical().as_bytes(),
+            code.as_bytes(),
+        ] {
+            assert!(!contains(&bytes, form), "{}", path.display());
+        }
+    }
+
+    // Again: a new code, the old one replaced and said so.
+    let again = tree.ctl(&["pair"], "");
+    assert!(again.status.success(), "{}", text(&again));
+    assert_ne!(shown_code(&again), code);
+    assert!(String::from_utf8_lossy(&again.stdout).contains("previous pairing code was replaced"));
+}
+
+#[test]
+fn pair_refuses_without_a_usable_state_and_arms_nothing() {
+    let tree = Tree::initialized("pairnodb");
+    std::fs::remove_file(tree.layout.database()).expect("remove");
+    let output = tree.ctl(&["pair"], "");
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("Pairing code:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("nothing was armed"));
+
+    let tree = Tree::initialized("pairnoid");
+    std::fs::remove_file(tree.layout.etc_file("secrets.key")).expect("remove");
+    let before = tree.snapshot();
+    let output = tree.ctl(&["pair"], "");
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("Pairing code:"));
+    assert_eq!(tree.snapshot(), before, "nothing changed");
 }

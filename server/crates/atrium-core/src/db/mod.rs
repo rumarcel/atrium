@@ -20,6 +20,7 @@
 //!   `user_version` bump, so a failure leaves the previous schema intact.
 
 pub mod backups;
+pub mod pairing;
 pub mod restore;
 
 use std::fmt;
@@ -37,7 +38,7 @@ use crate::layout::{Layout, DATABASE_FILE};
 use crate::protect::{self, Expect, Violation};
 
 /// The schema this binary writes and understands.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// How long a connection waits for another writer.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -58,11 +59,18 @@ pub struct Migration {
 }
 
 /// Every migration, in order, starting at 1 with no gaps.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial",
-    sql: include_str!("migrations/0001_initial.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial",
+        sql: include_str!("migrations/0001_initial.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "pairing",
+        sql: include_str!("migrations/0002_pairing.sql"),
+    },
+];
 
 /// Why the state database cannot be used.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +99,12 @@ pub enum StateFault {
     },
     /// `create` found a database already there.
     AlreadyExists,
+    /// [`attach`] found a schema older than this binary's: only [`open`],
+    /// at Core's startup, migrates.
+    NotMigrated {
+        /// The `user_version` found.
+        found: u32,
+    },
 }
 
 impl fmt::Display for StateFault {
@@ -116,6 +130,11 @@ impl fmt::Display for StateFault {
                 "migration {version} failed and was rolled back: {message}"
             ),
             Self::AlreadyExists => formatter.write_str("a state database already exists"),
+            Self::NotMigrated { found } => write!(
+                formatter,
+                "the state database has schema {found}, older than this binary's \
+                 {SCHEMA_VERSION}; start atrium-core once so it migrates it"
+            ),
         }
     }
 }
@@ -163,6 +182,20 @@ pub enum AuditAction {
     KeyRotated,
     /// Core called Agent (M1C), whatever the outcome.
     AgentCall,
+    /// A pairing secret was armed at the console.
+    PairingArmed,
+    /// An armed secret expired and its ciphertext was deleted.
+    PairingExpired,
+    /// A pairing completed: the secret was consumed.
+    PairingConsumed,
+    /// A wrong proof was counted against the arming.
+    PairingFailed,
+    /// The fifth wrong proof locked pairing.
+    PairingLocked,
+    /// A device was created by pairing.
+    DeviceCreated,
+    /// A device was revoked.
+    DeviceRevoked,
 }
 
 impl AuditAction {
@@ -176,6 +209,13 @@ impl AuditAction {
             Self::DevicesRevoked => "identity.devices_revoked",
             Self::KeyRotated => "identity.key_rotated",
             Self::AgentCall => "agent.call",
+            Self::PairingArmed => "pairing.armed",
+            Self::PairingExpired => "pairing.expired",
+            Self::PairingConsumed => "pairing.consumed",
+            Self::PairingFailed => "pairing.failed",
+            Self::PairingLocked => "pairing.locked",
+            Self::DeviceCreated => "device.created",
+            Self::DeviceRevoked => "device.revoked",
         }
     }
 }
@@ -214,7 +254,7 @@ pub enum Actor {
 }
 
 impl Actor {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::System => "system",
             Self::Console => "console",
@@ -355,7 +395,8 @@ impl Database {
             Some(_) => {
                 let revoked = transaction.execute("DELETE FROM devices", ())?;
                 transaction.execute(
-                    "UPDATE pairing_state SET armed = 0, secret_digest = NULL, armed_at = NULL, \
+                    "UPDATE pairing_state SET armed = 0, arming_id = NULL, profile = NULL, \
+                     secret_nonce = NULL, secret_ciphertext = NULL, armed_at = NULL, \
                      expires_at = NULL, failures = 0, locked = 0",
                     (),
                 )?;
@@ -586,6 +627,33 @@ pub(crate) fn open_with(
     })
 }
 
+/// Another connection to a database that [`open`] has already verified and
+/// migrated: Core's network services use one, and `atriumctl pair` uses one
+/// while Core runs. It checks ownership, modes and integrity like `open` and
+/// requires exactly the current schema, but never migrates, backs up or
+/// creates.
+///
+/// # Errors
+///
+/// A [`StateFault`]; nothing is changed.
+pub fn attach(layout: &Layout) -> Result<Database, StateFault> {
+    if !check_state_tree(layout)? {
+        return Err(StateFault::Missing);
+    }
+    let path = layout.database();
+    let connection = connect(&path)?;
+    integrity(&connection).map_err(StateFault::Unreadable)?;
+    let found = user_version(&connection).map_err(|error| StateFault::Unreadable(clip(error)))?;
+    if found > SCHEMA_VERSION {
+        return Err(StateFault::SchemaNewer { found });
+    }
+    if found < SCHEMA_VERSION {
+        return Err(StateFault::NotMigrated { found });
+    }
+    configure(&connection).map_err(|error| StateFault::Unreadable(clip(error)))?;
+    Ok(Database { connection, path })
+}
+
 /// Creates the state database at installation, at [`SCHEMA_VERSION`].
 ///
 /// # Errors
@@ -724,7 +792,76 @@ mod tests {
     }
 
     #[test]
-    fn migration_1_creates_exactly_the_planned_schema() {
+    fn migration_2_upgrades_a_schema_1_database_and_disarms_a_digest() {
+        let fixture = Fixture::new("m2");
+        {
+            let database = create_with(&fixture.layout, &MIGRATIONS[..1]).expect("schema 1");
+            database
+                .connection()
+                .execute(
+                    "INSERT INTO pairing_state (id, claimed, armed, secret_digest, failures, locked) \
+                     VALUES (1, 1, 1, zeroblob(32), 2, 0)",
+                    (),
+                )
+                .expect("seed");
+        }
+        let opened = open(&fixture.layout, now()).expect("migrates");
+        assert_eq!(opened.migrated.map(|m| (m.from, m.to)), Some((1, 2)));
+        let row: (i64, i64, i64, Option<Vec<u8>>) = opened
+            .database
+            .connection()
+            .query_row(
+                "SELECT claimed, armed, failures, secret_ciphertext FROM pairing_state",
+                (),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .expect("row");
+        assert_eq!(
+            row,
+            (1, 0, 0, None),
+            "claim kept, digest-armed state disarmed"
+        );
+    }
+
+    #[test]
+    fn the_schema_refuses_ambiguous_pairing_and_device_rows() {
+        let fixture = Fixture::new("checks");
+        let database = create(&fixture.layout).expect("created");
+        let c = database.connection();
+        for bad in [
+            // armed without a sealed secret
+            "UPDATE pairing_state SET armed = 1",
+            // armed with a web profile
+            "UPDATE pairing_state SET armed = 1, arming_id = zeroblob(16), \
+             profile = 'atrium-pair-binding/web-pki-v1', secret_nonce = zeroblob(24), \
+             secret_ciphertext = zeroblob(32), armed_at = 'x', expires_at = 'y'",
+            // disarmed but still holding ciphertext
+            "UPDATE pairing_state SET secret_ciphertext = zeroblob(32)",
+            // armed and locked at once
+            "UPDATE pairing_state SET armed = 1, arming_id = zeroblob(16), \
+             profile = 'atrium-pair-binding/native-tls-exporter-v1', secret_nonce = zeroblob(24), \
+             secret_ciphertext = zeroblob(32), armed_at = 'x', expires_at = 'y', locked = 1",
+            "UPDATE pairing_state SET failures = 6",
+            "INSERT INTO pairing_state (id) VALUES (2)",
+            "INSERT INTO devices VALUES ('00112233445566778899aabbccddeeff', 'n', 'linux', \
+             'admin', zeroblob(32), 't', NULL)",
+            "INSERT INTO devices VALUES ('00112233445566778899aabbccddeeff', 'n', 'linux', \
+             'owner', zeroblob(31), 't', NULL)",
+            "INSERT INTO devices VALUES ('00112233445566778899AABBCCDDEEFF', 'n', 'linux', \
+             'owner', zeroblob(32), 't', NULL)",
+            "INSERT INTO devices VALUES ('00112233445566778899aabbccddeeff', '', 'linux', \
+             'owner', zeroblob(32), 't', NULL)",
+            "INSERT INTO devices VALUES ('00112233445566778899aabbccddeeff', 'n', 'android', \
+             'owner', zeroblob(32), 't', NULL)",
+            "INSERT INTO devices VALUES ('00112233445566778899aabbccddeeff', 'n', 'linux', \
+             'owner', 'text-not-blob-of-length-32-bytes', 't', NULL)",
+        ] {
+            assert!(c.execute(bad, ()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn migrations_create_exactly_the_planned_schema() {
         let fixture = Fixture::new("schema");
         let database = create(&fixture.layout).expect("created");
         let connection = database.connection();
@@ -757,7 +894,10 @@ mod tests {
                 "id",
                 "claimed",
                 "armed",
-                "secret_digest",
+                "arming_id",
+                "profile",
+                "secret_nonce",
+                "secret_ciphertext",
                 "armed_at",
                 "expires_at",
                 "failures",
@@ -922,7 +1062,10 @@ mod tests {
             .file_name()
             .and_then(|n| n.to_str())
             .expect("name");
-        assert!(name.starts_with("atrium.db.pre-1-"), "{name}");
+        assert!(
+            name.starts_with(&format!("atrium.db.pre-{SCHEMA_VERSION}-")),
+            "{name}"
+        );
         let metadata = std::fs::metadata(&migrated.backup).expect("backup exists");
         assert_eq!(fsio::mode_of(&metadata), 0o600);
         let dir = std::fs::metadata(fixture.layout.backups_dir()).expect("dir");
@@ -978,7 +1121,7 @@ mod tests {
             },
         ];
         let fixture = Fixture::new("rollback");
-        drop(create(&fixture.layout).expect("created"));
+        drop(create_with(&fixture.layout, &MIGRATIONS[..1]).expect("created at schema 1"));
 
         let fault = open_with(&fixture.layout, BROKEN, now()).expect_err("must fail");
         assert!(
@@ -1035,7 +1178,9 @@ mod tests {
         database
             .connection()
             .execute(
-                "INSERT INTO devices (device_id, name, platform, role, token_digest, created_at)                  VALUES ('00', 'laptop', 'linux', 'owner', x'00', '2026-01-01T00:00:00Z')",
+                "INSERT INTO devices (device_id, name, platform, role, token_digest, created_at) \
+                 VALUES ('00112233445566778899aabbccddeeff', 'laptop', 'linux', 'owner', \
+                 zeroblob(32), '2026-01-01T00:00:00Z')",
                 (),
             )
             .expect("seed device");

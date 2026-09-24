@@ -8,7 +8,7 @@
 
 use std::io::{Read as _, Write as _};
 use std::net::{IpAddr, TcpStream as StdTcpStream};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -23,16 +23,19 @@ use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
 
 use super::connection::EXPORTER_LABEL;
+use super::limits::MAX_CONNECTIONS_PER_SOURCE;
 use super::tls::Served;
-use super::{serve, App, HEADER_TIMEOUT, MAX_CONNECTIONS};
+use super::{serve, App, Limits, Services, HEADER_TIMEOUT, MAX_CONNECTIONS};
 use crate::certificate::{self, AddressSet, SubjectNames};
-use crate::identity::{DeviceKey, Identity, IdentityRecord, ServerId, SpkiPin};
+use crate::db;
+use crate::identity::{DeviceKey, Identity, IdentityRecord, SecretsKey, ServerId, SpkiPin};
 use crate::recovery::{Recovery, RecoveryReason};
+use crate::testutil::Fixture;
 
 // ---------------------------------------------------------------------------
 // Fixture
 
-fn identity() -> Identity {
+pub(super) fn identity() -> Identity {
     let key = DeviceKey::generate().expect("key");
     Identity {
         record: IdentityRecord {
@@ -44,29 +47,97 @@ fn identity() -> Identity {
     }
 }
 
-fn served(identity: &Identity, extra: &[&str]) -> Served {
+pub(super) fn served(identity: &Identity, extra: &[&str]) -> Served {
     let addresses = AddressSet::new(extra.iter().map(|ip| ip.parse::<IpAddr>().expect("ip")));
     let names = SubjectNames::for_server(&identity.server_id(), &addresses);
     let issued = certificate::issue(identity, &names, OffsetDateTime::now_utc()).expect("issue");
     Served::new(identity, issued.pem.as_bytes()).expect("served")
 }
 
-struct Server {
-    port: u16,
-    pin: SpkiPin,
+/// The state behind a normal-mode server: a real database in a private
+/// temporary tree, a `secrets.key`, and a clock the test moves.
+pub(super) struct State {
+    pub(super) fixture: Fixture,
+    pub(super) secrets: Arc<SecretsKey>,
+    pub(super) now: Arc<Mutex<OffsetDateTime>>,
+    pub(super) server_id: ServerId,
+}
+
+impl State {
+    fn new(identity: &Identity) -> (Self, Arc<Services>) {
+        let fixture = Fixture::new("http");
+        let database = db::create(&fixture.layout).expect("database");
+        let mut key = [0_u8; 32];
+        getrandom::fill(&mut key).expect("random");
+        let secrets = Arc::new(SecretsKey::from_bytes(key));
+        let now = Arc::new(Mutex::new(OffsetDateTime::now_utc()));
+        let clock: crate::pairing::Clock = {
+            let now = Arc::clone(&now);
+            Arc::new(move || *now.lock().expect("clock"))
+        };
+        let database = Arc::new(Mutex::new(database));
+        let services = Arc::new(Services {
+            pairing: crate::pairing::Pairing::new(
+                Arc::clone(&database),
+                Arc::clone(&secrets),
+                crate::pairing::ServerFacts {
+                    server_id: identity.server_id(),
+                    spki: identity.pin(),
+                    name: "test-server".to_owned(),
+                },
+                Arc::clone(&clock),
+            ),
+            devices: crate::devices::Devices::new(database, identity.server_id(), clock),
+        });
+        let state = Self {
+            fixture,
+            secrets,
+            now,
+            server_id: identity.server_id(),
+        };
+        (state, services)
+    }
+
+    /// Moves the test clock.
+    pub(super) fn advance(&self, by: time::Duration) {
+        let mut now = self.now.lock().expect("clock");
+        *now += by;
+    }
+
+    /// What `atriumctl pair` does: arms through its own connection.
+    pub(super) fn arm(&self) -> atrium_pairing::secret::PairingSecret {
+        let mut database = db::attach(&self.fixture.layout).expect("attach");
+        let now = *self.now.lock().expect("clock");
+        crate::pairing::arm(&mut database, &self.secrets, &self.server_id, now)
+            .expect("arm")
+            .secret
+    }
+
+    /// Another connection to the database, for assertions.
+    pub(super) fn database(&self) -> db::Database {
+        db::attach(&self.fixture.layout).expect("attach")
+    }
+}
+
+pub(super) struct Server {
+    pub(super) port: u16,
+    pub(super) pin: SpkiPin,
     app: Arc<App>,
     stop: watch::Sender<bool>,
     task: tokio::task::JoinHandle<()>,
-    identity: Identity,
+    pub(super) identity: Identity,
+    pub(super) state: Option<State>,
 }
 
 impl Server {
-    async fn start_with(build: impl FnOnce(&Served, u16) -> Arc<App>) -> Self {
+    async fn start_with(
+        build: impl FnOnce(&Identity, &Served, u16) -> (Arc<App>, Option<State>),
+    ) -> Self {
         let identity = identity();
         let served = served(&identity, &["192.168.1.20"]);
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let port = listener.local_addr().expect("addr").port();
-        let app = build(&served, port);
+        let (app, state) = build(&identity, &served, port);
         let (stop, receiver) = watch::channel(false);
         let task = tokio::spawn(serve(listener, Arc::clone(&app), receiver));
         Self {
@@ -76,38 +147,60 @@ impl Server {
             stop,
             task,
             identity,
+            state,
         }
     }
 
-    async fn normal() -> Self {
-        Self::start_with(|served, port| App::normal(served, port).expect("app")).await
+    pub(super) async fn normal() -> Self {
+        Self::normal_with(Limits::DEFAULT).await
+    }
+
+    pub(super) async fn normal_with(limits: Limits) -> Self {
+        Self::start_with(|identity, served, port| {
+            let (state, services) = State::new(identity);
+            let app = App::normal_with_limits(served, port, services, limits).expect("app");
+            (app, Some(state))
+        })
+        .await
     }
 
     async fn test_routes() -> Self {
-        Self::start_with(|served, port| App::with_test_routes(served, port).expect("app")).await
+        Self::start_with(|_, served, port| {
+            (
+                App::with_test_routes(served, port, Limits::DEFAULT).expect("app"),
+                None,
+            )
+        })
+        .await
     }
 
-    async fn recovery() -> Self {
+    pub(super) async fn recovery() -> Self {
         let recovery = Recovery {
             reason: RecoveryReason::StateDatabaseUnreadable,
             since: OffsetDateTime::now_utc(),
             schema_version: Some(1),
             backup_count: 2,
         };
-        Self::start_with(move |served, port| App::recovery(served, port, &recovery).expect("app"))
-            .await
+        Self::start_with(move |_, served, port| {
+            (App::recovery(served, port, &recovery).expect("app"), None)
+        })
+        .await
     }
 
-    fn host(&self) -> String {
+    pub(super) fn state(&self) -> &State {
+        self.state.as_ref().expect("a normal-mode server")
+    }
+
+    pub(super) fn host(&self) -> String {
         format!("localhost:{}", self.port)
     }
 
-    async fn connect(&self) -> TlsStream<TcpStream> {
+    pub(super) async fn connect(&self) -> TlsStream<TcpStream> {
         connect(self.port, self.pin, &[&rustls::version::TLS13]).await
     }
 
     /// Stops the server and returns how long it took.
-    async fn stop(self) -> Duration {
+    pub(super) async fn stop(self) -> Duration {
         let started = Instant::now();
         self.stop.send(true).expect("stop");
         tokio::time::timeout(Duration::from_secs(10), self.task)
@@ -120,7 +213,7 @@ impl Server {
 
 /// Accepts exactly one SPKI, like an Atrium client with a pin.
 #[derive(Debug)]
-struct PinVerifier(SpkiPin);
+pub(super) struct PinVerifier(pub(super) SpkiPin);
 
 impl ServerCertVerifier for PinVerifier {
     fn verify_server_cert(
@@ -175,11 +268,24 @@ impl ServerCertVerifier for PinVerifier {
     }
 }
 
-async fn try_connect(
+pub(super) async fn try_connect(
     port: u16,
     pin: SpkiPin,
     versions: &[&'static rustls::SupportedProtocolVersion],
 ) -> std::io::Result<TlsStream<TcpStream>> {
+    let tcp = TcpStream::connect(("127.0.0.1", port)).await?;
+    handshake(tcp, pin, versions).await
+}
+
+/// TLS over an already connected socket, pinning `pin`.
+pub(super) async fn handshake<S>(
+    tcp: S,
+    pin: SpkiPin,
+    versions: &[&'static rustls::SupportedProtocolVersion],
+) -> std::io::Result<TlsStream<S>>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let config = rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
@@ -189,13 +295,12 @@ async fn try_connect(
     .with_custom_certificate_verifier(Arc::new(PinVerifier(pin)))
     .with_no_client_auth();
     let connector = TlsConnector::from(Arc::new(config));
-    let tcp = TcpStream::connect(("127.0.0.1", port)).await?;
     connector
         .connect(ServerName::try_from("localhost").expect("name"), tcp)
         .await
 }
 
-async fn connect(
+pub(super) async fn connect(
     port: u16,
     pin: SpkiPin,
     versions: &[&'static rustls::SupportedProtocolVersion],
@@ -206,38 +311,44 @@ async fn connect(
 }
 
 #[derive(Debug)]
-struct Reply {
-    status: u16,
-    headers: Vec<(String, String)>,
-    body: String,
+pub(super) struct Reply {
+    pub(super) status: u16,
+    pub(super) headers: Vec<(String, String)>,
+    pub(super) body: String,
 }
 
 impl Reply {
-    fn header(&self, name: &str) -> Option<&str> {
+    pub(super) fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(n, _)| n.eq_ignore_ascii_case(name))
             .map(|(_, v)| v.as_str())
     }
 
-    fn json(&self) -> serde_json::Value {
+    pub(super) fn json(&self) -> serde_json::Value {
         serde_json::from_str(&self.body).expect("a JSON body")
     }
 
-    fn code(&self) -> String {
+    pub(super) fn code(&self) -> String {
         self.json()["code"].as_str().unwrap_or_default().to_owned()
     }
 }
 
 /// Sends raw bytes and reads one response (`Content-Length` bodies only,
 /// which is all Core sends).
-async fn exchange(stream: &mut TlsStream<TcpStream>, raw: &[u8]) -> Reply {
+pub(super) async fn exchange<S>(stream: &mut TlsStream<S>, raw: &[u8]) -> Reply
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     stream.write_all(raw).await.expect("write");
     stream.flush().await.expect("flush");
     read_reply(stream).await.expect("a response")
 }
 
-async fn read_reply(stream: &mut TlsStream<TcpStream>) -> Option<Reply> {
+pub(super) async fn read_reply<S>(stream: &mut TlsStream<S>) -> Option<Reply>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let mut buffer = Vec::new();
     let head_end = loop {
         if let Some(at) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
@@ -281,11 +392,11 @@ async fn read_reply(stream: &mut TlsStream<TcpStream>) -> Option<Reply> {
     })
 }
 
-fn get(path: &str, host: &str) -> Vec<u8> {
+pub(super) fn get(path: &str, host: &str) -> Vec<u8> {
     format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n").into_bytes()
 }
 
-async fn one(server: &Server, raw: &[u8]) -> Reply {
+pub(super) async fn one(server: &Server, raw: &[u8]) -> Reply {
     let mut stream = server.connect().await;
     exchange(&mut stream, raw).await
 }
@@ -303,7 +414,7 @@ const COMMON_HEADERS: [(&str, &str); 7] = [
     ),
 ];
 
-fn assert_common_headers(reply: &Reply) {
+pub(super) fn assert_common_headers(reply: &Reply) {
     for (name, value) in COMMON_HEADERS {
         assert_eq!(reply.header(name), Some(value), "{name} on {reply:?}");
     }
@@ -318,7 +429,7 @@ fn assert_common_headers(reply: &Reply) {
     );
 }
 
-fn assert_problem(reply: &Reply, status: u16, code: &str) {
+pub(super) fn assert_problem(reply: &Reply, status: u16, code: &str) {
     assert_eq!(reply.status, status, "{reply:?}");
     assert_eq!(
         reply.header("content-type"),
@@ -649,7 +760,12 @@ async fn routing_is_exact_and_fails_closed() {
         ("/api", 404, "request.unsupported_api_version"),
         ("/api/v1/system/diagnostics", 401, "auth.unauthorized"),
         ("/api/v1/devices", 401, "auth.unauthorized"),
-        ("/api/v1/pair/info", 401, "auth.unauthorized"),
+        ("/api/v1/pair/nothing", 401, "auth.unauthorized"),
+        (
+            "/api/v1/devices/00112233445566778899aabbccddeeff",
+            401,
+            "auth.unauthorized",
+        ),
         ("/api/v1/../../healthz", 401, "auth.unauthorized"),
         ("/api/v1", 401, "auth.unauthorized"),
         ("/nothing", 404, "request.not_found"),
@@ -677,7 +793,7 @@ async fn routing_is_exact_and_fails_closed() {
     assert_problem(&device, 401, "auth.unauthorized");
     assert_eq!(device.header("www-authenticate"), Some("Bearer"));
 
-    // A bearer token changes nothing in M1D: nothing is verified yet.
+    // A malformed bearer token is no token.
     let bearer = exchange(
         &mut stream,
         format!(
@@ -765,14 +881,58 @@ async fn bodies_are_refused_or_bounded_before_parsing() {
         400,
         "validation.invalid_body",
     );
+    assert_problem(
+        &one(&server, post(r#"{"name":"x","name":"y"}"#).as_bytes()).await,
+        400,
+        "validation.invalid_body",
+    );
+
+    // Anything but a JSON body is refused before it is read.
+    for content_type in [
+        None,
+        Some("text/plain"),
+        Some("application/x-www-form-urlencoded"),
+        Some("application/json; charset=latin1"),
+        Some("application/jsonx"),
+    ] {
+        let header = content_type
+            .map(|value| format!("Content-Type: {value}\r\n"))
+            .unwrap_or_default();
+        let raw = format!(
+            "POST /test/json HTTP/1.1\r\nHost: {host}\r\n{header}Content-Length: 12\r\n\r\n\
+             {{\"name\":\"x\"}}"
+        );
+        assert_problem(
+            &one(&server, raw.as_bytes()).await,
+            415,
+            "validation.unsupported_media_type",
+        );
+    }
+    let twice = format!(
+        "POST /test/json HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+         Content-Type: application/json\r\nContent-Length: 12\r\n\r\n{{\"name\":\"x\"}}"
+    );
+    assert_problem(
+        &one(&server, twice.as_bytes()).await,
+        415,
+        "validation.unsupported_media_type",
+    );
+    let charset = format!(
+        "POST /test/json HTTP/1.1\r\nHost: {host}\r\nContent-Type: Application/JSON; Charset=UTF-8\r\n\
+         Content-Length: 12\r\n\r\n{{\"name\":\"x\"}}"
+    );
+    assert_eq!(one(&server, charset.as_bytes()).await.status, 200);
 
     // Declared too large: refused on the header, without waiting for bytes
     // that are never sent.
     let started = Instant::now();
     let declared = one(
         &server,
-        format!("POST /test/json HTTP/1.1\r\nHost: {host}\r\nContent-Length: 100000000\r\n\r\n")
-            .as_bytes(),
+        format!(
+            "POST /test/json HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+             Content-Length: 100000000\r\n\r\n"
+        )
+        .as_bytes(),
     )
     .await;
     assert_problem(&declared, 413, "validation.too_large");
@@ -781,7 +941,8 @@ async fn bodies_are_refused_or_bounded_before_parsing() {
     // Chunked and too large: refused once the limit is crossed.
     let big = "a".repeat(200);
     let chunked = format!(
-        "POST /test/json HTTP/1.1\r\nHost: {host}\r\nTransfer-Encoding: chunked\r\n\r\n\
+        "POST /test/json HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+         Transfer-Encoding: chunked\r\n\r\n\
          {:x}\r\n{big}\r\n0\r\n\r\n",
         big.len()
     );
@@ -921,21 +1082,42 @@ async fn stalled_clients_do_not_delay_shutdown() {
     assert!(took < Duration::from_secs(4), "shutdown took {took:?}");
 }
 
+/// A TCP connection from a chosen loopback source address. Linux routes all
+/// of 127.0.0.0/8 to `lo`, so each is a distinct source to Core.
+pub(super) async fn tcp_from(source: [u8; 4], port: u16) -> TcpStream {
+    let socket = tokio::net::TcpSocket::new_v4().expect("socket");
+    socket
+        .bind(std::net::SocketAddr::from((source, 0)))
+        .expect("bind a loopback source");
+    socket
+        .connect(std::net::SocketAddr::from(([127, 0, 0, 1], port)))
+        .await
+        .expect("tcp")
+}
+
+pub(super) async fn assert_closed_without_a_byte(mut stream: TcpStream) {
+    let mut byte = [0_u8; 1];
+    let read = tokio::time::timeout(Duration::from_secs(3), stream.read(&mut byte))
+        .await
+        .expect("closed promptly, not left hanging");
+    assert!(matches!(read, Ok(0) | Err(_)), "closed without a byte");
+}
+
 #[tokio::test]
 async fn connections_over_the_cap_are_closed_before_tls() {
     let server = Server::normal().await;
     let port = server.port;
+    // Four sources at their full share fill the global cap exactly.
+    let sources = MAX_CONNECTIONS / MAX_CONNECTIONS_PER_SOURCE;
     let mut held = Vec::new();
-    for _ in 0..MAX_CONNECTIONS {
-        held.push(TcpStream::connect(("127.0.0.1", port)).await.expect("tcp"));
+    for n in 0..sources {
+        let source = [127, 0, 0, 10 + u8::try_from(n).expect("small")];
+        for _ in 0..MAX_CONNECTIONS_PER_SOURCE {
+            held.push(tcp_from(source, port).await);
+        }
     }
     tokio::time::sleep(Duration::from_millis(200)).await;
-    let mut extra = TcpStream::connect(("127.0.0.1", port)).await.expect("tcp");
-    let mut byte = [0_u8; 1];
-    let read = tokio::time::timeout(Duration::from_secs(3), extra.read(&mut byte))
-        .await
-        .expect("closed promptly, not left hanging");
-    assert!(matches!(read, Ok(0) | Err(_)), "closed without a byte");
+    assert_closed_without_a_byte(tcp_from([127, 0, 0, 99], port).await).await;
 
     drop(held);
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -943,6 +1125,32 @@ async fn connections_over_the_cap_are_closed_before_tls() {
         one(&server, &get("/healthz", &server.host())).await.status,
         200
     );
+    server.stop().await;
+}
+
+/// M1D's known risk, closed: one source can hold only its share, and a
+/// second source still gets in while the first is at its limit.
+#[tokio::test]
+async fn one_source_cannot_hold_every_connection_slot() {
+    let server = Server::normal().await;
+    let port = server.port;
+    let mut held = Vec::new();
+    for _ in 0..MAX_CONNECTIONS_PER_SOURCE {
+        held.push(tcp_from([127, 0, 0, 1], port).await);
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // The ninth from the same source is closed before TLS...
+    assert_closed_without_a_byte(tcp_from([127, 0, 0, 1], port).await).await;
+    // ...while another source is served.
+    let other = tcp_from([127, 0, 0, 2], port).await;
+    let mut stream = handshake(other, server.pin, &[&rustls::version::TLS13])
+        .await
+        .expect("another source completes TLS");
+    let reply = exchange(&mut stream, &get("/healthz", &server.host())).await;
+    assert_eq!(reply.status, 200);
+    assert_eq!(server.app.connections.tracked(), 2);
+    drop(held);
+    drop(stream);
     server.stop().await;
 }
 

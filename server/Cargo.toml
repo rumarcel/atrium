@@ -42,6 +42,15 @@ toml = { version = "1", default-features = false, features = ["std", "parse", "s
 x509-parser = { version = "0.18", default-features = false }
 zeroize = { version = "1", default-features = false, features = ["std"] }
 
+# M1E: pairing and devices. RustCrypto primitives only (plan section 18.1);
+# the pairing crate stays pure. The AEAD that seals an armed pairing secret
+# under secrets.key is ADR-019's, and lives in Core only.
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+hkdf = { version = "0.12", default-features = false }
+hmac = { version = "0.12", default-features = false }
+subtle = { version = "2", default-features = false, features = ["std"] }
+
 # M1D: the TLS listener. Plan section 18.1 names rustls and its exporter as
 # the one TLS stack; hyper is the HTTP/1.1 implementation. There is no web
 # framework: M1's routes are a fixed table dispatched by exact match (plan

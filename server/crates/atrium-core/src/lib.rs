@@ -26,8 +26,12 @@
 //!   is checked against the certificate's own names; cross-origin browser
 //!   requests are refused; errors are RFC 9457 problems from a closed set.
 //!
-//! What it deliberately does **not** do yet: it pairs no device,
-//! authenticates no request and reports no system metrics.
+//! - **pairing and devices** ([`pairing`], [`devices`]) — from M1E, a
+//!   console-armed secret pairs a device over TLS 1.3 bound to the
+//!   connection's exporter and the server's key; devices authenticate with a
+//!   256-bit bearer token of which Core keeps only `SHA-256`.
+//!
+//! What it deliberately does **not** do yet: report system metrics.
 //! Each of those arrives in its own pass with its own tests — see
 //! `docs/M1-IMPLEMENTATION-PLAN.md` section 17. There is no placeholder
 //! endpoint and no invented data anywhere in this crate.
@@ -42,6 +46,7 @@ pub mod capability;
 pub mod certificate;
 pub mod config;
 pub mod db;
+pub mod devices;
 pub mod fsio;
 pub mod guard;
 pub mod http;
@@ -50,6 +55,7 @@ pub mod init;
 pub mod layout;
 pub mod lock;
 pub mod notify;
+pub mod pairing;
 pub mod protect;
 pub mod recovery;
 pub mod redact;
@@ -219,7 +225,10 @@ pub async fn run(
                 .await
                 .map_err(|error| format!("could not listen on {}: {error}", config.listen))?;
             let address = listener.local_addr()?;
-            let app = http::App::normal(&served, address.port())?;
+            // The network services get their own connection to the database
+            // startup has just verified and migrated.
+            let services = services(&layout, &normal, &config.server_name)?;
+            let app = http::App::normal(&served, address.port(), services)?;
             let listening = Listening::start(listener, Arc::clone(&app), address);
             let notified = notify::ready_with_status("running")?;
             tracing::info!(
@@ -286,6 +295,32 @@ pub async fn run(
     );
 
     Ok(())
+}
+
+/// The pairing and device services, over a second connection to the state
+/// database.
+fn services(
+    layout: &Layout,
+    normal: &startup::Normal,
+    server_name: &str,
+) -> Result<Arc<http::Services>, Box<dyn Error + Send + Sync>> {
+    let database = db::attach(layout)
+        .map_err(|fault| format!("could not attach to the state database: {fault}"))?;
+    let database = Arc::new(std::sync::Mutex::new(database));
+    let clock = pairing::system_clock();
+    Ok(Arc::new(http::Services {
+        pairing: pairing::Pairing::new(
+            Arc::clone(&database),
+            Arc::clone(&normal.secrets),
+            pairing::ServerFacts {
+                server_id: normal.identity.server_id(),
+                spki: normal.identity.pin(),
+                name: server_name.to_owned(),
+            },
+            Arc::clone(&clock),
+        ),
+        devices: devices::Devices::new(database, normal.identity.server_id(), clock),
+    }))
 }
 
 /// The HTTPS listener task, and the switch that stops it.
@@ -360,8 +395,9 @@ async fn recovery_listener(
 }
 
 /// Normal mode until shutdown: re-checks the certificate against the current
-/// addresses every [`ADDRESS_POLL`], and refreshes the Agent-derived
-/// capabilities right away and then every [`agentmonitor::AGENT_REFRESH`].
+/// addresses every [`ADDRESS_POLL`], deletes an expired pairing secret on the
+/// same tick, and refreshes the Agent-derived capabilities right away and
+/// then every [`agentmonitor::AGENT_REFRESH`].
 async fn run_normal(
     layout: &Layout,
     normal: &mut startup::Normal,
@@ -407,6 +443,23 @@ async fn run_normal(
             }
             _ = ticker.tick() => {
                 let now = OffsetDateTime::now_utc();
+                // An expired secret's ciphertext goes even if nobody tries to
+                // pair again.
+                match normal.database.disarm_if_expired(now) {
+                    Ok(true) => tracing::info!(
+                        event = "pairing_expired",
+                        component = "atrium-core",
+                        "the armed pairing secret expired and was deleted"
+                    ),
+                    Ok(false) => {}
+                    Err(error) => tracing::warn!(
+                        event = "pairing_expiry_failed",
+                        component = "atrium-core",
+                        reason = %error,
+                        "could not delete an expired pairing secret; it is refused anyway \
+                         and the next check retries"
+                    ),
+                }
                 let addresses = current_addresses();
                 match certificate::ensure(layout, &normal.identity, &addresses, now) {
                     Ok(outcome) => {

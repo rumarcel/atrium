@@ -1,6 +1,7 @@
 //! The console commands, and what they share.
 
 pub mod diagnostics;
+pub mod pair;
 pub mod restore;
 pub mod rotate_identity;
 

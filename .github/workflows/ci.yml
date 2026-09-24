@@ -114,7 +114,8 @@ jobs:
       - name: Generate the Turkish locale
         # Criterion 12's decode test asserts that case conversion is ASCII-only.
         # It must not silently skip, so the locale is generated here rather than
-        # left to chance. The test itself arrives in M1E.
+        # left to chance. The test is atrium-pairing/tests/turkish_locale.rs, which
+        # fails rather than skips under CI when the locale is missing.
         run: |
           sudo locale-gen tr_TR.UTF-8
           sudo update-locale

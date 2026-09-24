@@ -20,6 +20,8 @@ serde_json.workspace = true
 time.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
+atrium-pairing = { path = "../atrium-pairing" }
+base64.workspace = true
 nix = { workspace = true, features = ["user", "signal", "process"] }
 rusqlite.workspace = true
 rustls.workspace = true
