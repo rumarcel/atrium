@@ -142,6 +142,10 @@ privilege boundary that can actually perform them:**
 | `NetworkProvider` | Core | netlink + sysfs | firewall rules, later |
 | `StorageProvider` (read) | Core | `statvfs` + mountinfo + sysfs | ZFS/btrfs reporting |
 | `StorageProvider` (privileged) | **Agent** | SMART reads, mount application | encryption status |
+
+*As built in M1F:* the three Core-side traits exist with one Linux adapter
+each; the network adapter reads `/sys/class/net` and `getifaddrs(3)` (plan
+§9.3) rather than netlink. See the plan's M1F *As built*.
 | `ContainerProvider` | **Agent** | Docker socket | Podman rootful, then rootless |
 | `ServiceProvider` | **Agent** | systemd, Atrium units only | OpenRC, Windows services |
 | `PackageProvider` | **Agent** | `apt`, compiled allowlist only | `dnf`, `pacman` |

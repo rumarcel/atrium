@@ -261,6 +261,16 @@ local users (T7), in container labels other than the owner token (which is only
 meaningful to Agent and is not a credential anywhere else), in logs, in
 diagnostics bundles, in configuration exports, or in the repository.
 
+The diagnostics route has two forms, deliberately different. In recovery
+it is unauthenticated (recovery cannot authenticate) and says only the
+failure code, versions, schema version and backup count. In normal mode it
+is device-only and adds provider names, one line per capability and a
+bounded list of recurring problem codes — still an allowlist, still no
+hostname, address, path, device, audit or log content (M1F). The system
+routes that do name the machine (`/system`'s hostname and boot id,
+interfaces' addresses and MAC addresses, mount points) are device-only and
+absent in recovery.
+
 Diagnostics bundles are redacted by construction — fields are allowlisted into the
 bundle rather than blocklisted out of it.
 

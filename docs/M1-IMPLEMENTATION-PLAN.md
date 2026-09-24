@@ -1038,7 +1038,12 @@ and no code path that takes `addresses[0]` (criterion 23).
 As built: M1C added `agent_journal_unavailable` and `agent_protocol_error`.
 The passive probe adds `runtime_liveness_not_probed_in_m1`, which the
 `container` capability lists as a missing `liveness` feature whenever a runtime
-socket is present.
+socket is present. M1F adds `source_malformed` (a source was read and its
+content is not the documented form — distinct from unreadable),
+`sample_stale` (the CPU sampler's last value is older than 10 s),
+`agent_check_pending` (Core has not heard from Agent since it started) and
+`not_yet_implemented` (discovery, until M1G); `mdns_bind_failed` belongs to
+M1G.
 
 ### 9.6 Capabilities — `GET /api/v1/system/capabilities`
 
@@ -2034,6 +2039,129 @@ the implementation is more specific than this plan, or departs from it:
 - **Security exercised:** none directly; this is where "honest unavailability"
   becomes code.
 - **Non-goals:** no metrics history, no SMART, no block devices.
+
+**Before M1F: [ADR-020](adr/0020-no-failed-proof-lock.md).** The
+five-failure pairing lock was removed (migration 3); see M1E above and
+criterion 13.
+
+**As built.** `atrium-core/src/providers/{mod,os,cpu,memory,load,thermal,net,fs}.rs`
+(the native reads), `atrium-core/src/system.rs` (the domain: responses,
+capabilities, diagnostics, recent issues), six routes in `http/routes.rs`,
+and the Agent monitor publishing to an `AgentStatus`. No new dependency: the
+reads use `std`, `nix` (`getifaddrs`, `statvfs`) and `serde`. No Agent
+operation was added. `metrics.db` is still not created: M1 keeps no history.
+Where the implementation is more specific than §9, or departs from it:
+
+0. **Provider layer (ADR-002).** `HardwareProvider`, `NetworkProvider` and
+   the read-only `StorageProvider` are traits in `providers/mod.rs`; the
+   system domain holds them as trait objects and never names a path, a file
+   format or a distribution. Each reports its features by trying them
+   (`probe()`), which is what capabilities serve. M1's only adapters are
+   `providers::linux` — selection is the build target, and the adapter names
+   (`linux-procfs`, `linux-sysfs+getifaddrs`, `linux-mountinfo+statvfs`)
+   appear in capabilities and diagnostics. The network adapter uses
+   `getifaddrs` as §9.3 says, not netlink as ARCHITECTURE.md's table
+   sketches.
+1. **Where sources are.** Every provider reads through a `HostRoot`: `/` in
+   the service, a fixture directory in tests, built only in code. Nothing a
+   request carries, and no environment variable, reaches a path. Reads are
+   bounded (64 KiB, or 1 MiB for `/proc/stat` and `mountinfo`), follow
+   symlinks (`/etc/os-release` is conventionally one) and refuse FIFOs and
+   devices without blocking. Lists are bounded: 1 024 interfaces, 128
+   addresses each, 4 096 mounts, 64 hwmon chips × 64 inputs.
+2. **Degraded, not failed.** A source that cannot be read makes its fields
+   `null` with a reason, and the route answers `200`. That includes the
+   whole interface list (`interfaces` unavailable, `sysfs_unreadable`) and
+   the whole mount list — §9.3's `provider.unavailable` is not used as an
+   HTTP error, because one failed source is not a failed request. A value
+   read but malformed is `source_malformed`, not `procfs_unreadable`.
+3. **CPU.** A background task samples `/proc/stat`'s aggregate line every
+   2 s (iowait counts as idle; guest time is not added twice). Requests read
+   the last value and never wait. First reading, counter regression (reset)
+   and busy-exceeds-total are `first_sample_pending` or `source_malformed`,
+   never 0 or a negative; no tick elapsed keeps the previous value; a value
+   older than 10 s is `sample_stale`. The task ends with normal mode and
+   never delays shutdown.
+4. **Memory.** Exactly the seven `meminfo` keys; `kB` × 1024 with overflow
+   checks; `MemAvailable` absent is `mem_available_unsupported` and is never
+   estimated. `SwapTotal: 0` is `null` + `swap_absent` for both swap fields,
+   as §9.2 says; unreadable swap is `procfs_unreadable`.
+5. **Temperatures.** Every readable hwmon input is a sensor `{chip, label,
+   celsius, cpu}`. §9.2's "prefer coretemp, k10temp, cpu_thermal" is
+   implemented as ordering those first and marking them `cpu: true`; no
+   other sensor is ever called a CPU sensor, and nothing is inferred from a
+   single thermal zone. Readings outside −100…250 °C are dropped as
+   malformed, not clamped. None readable → `[]` plus `no_hwmon_sensors`
+   (or `sysfs_unreadable` / `source_malformed` when inputs exist).
+6. **Network.** The list is sorted by name for a stable order and nothing
+   else; IPv4 addresses before IPv6 within an interface. `loopback`
+   (`IFF_LOOPBACK` from `flags`) is added to §9.3's fields so a client can
+   set `lo` aside without guessing from the name. `macAddress` is included
+   as §9.3 specifies, to authenticated devices only. `speed` of −1 or 0, or
+   unreadable (as on a down link), is `not_reported_by_driver`. Scope is the
+   kernel's: `host`, `link`, `global`. Counters are cumulative bytes; there
+   are no rates.
+7. **Storage.** `statvfs` runs per mount on the blocking pool with a 2 s
+   timeout; a mount whose previous call has not returned is reported
+   `metadata_unavailable` without being asked again, so a dead network mount
+   costs one blocked thread, not one per request. `usedBytes = total − free`;
+   `availableBytes` is `f_bavail`. The mount point is exposed as mounted; mount
+   ids and options are not. In a container whose `/` is an `overlay`, the
+   plan's denylist excludes it — correct for the prototype's machines, worth
+   knowing for container deployments.
+8. **Capabilities.** §9.6's shape. Native capabilities are probed by reading
+   (never by distribution name). `hardware.available` needs one of cpu,
+   memory, load, uptime; temperature alone does not count. `container` and
+   `privileged` are the Agent monitor's last refresh — at start, then every
+   5 minutes — with `checkedAt`; before the first, `agent_check_pending`.
+   `discovery` is `available: false` / `not_yet_implemented` until M1G.
+9. **Diagnostics (normal mode).** A field allowlist, device-only:
+   state, start time, versions (core, API, Agent, protocol), schema version,
+   backup count, provider names, one line per capability, and the last 32
+   recurring problems as `{code, subject, count, lastSeen}`. Subjects are
+   response field names or `agent`. States of the machine (no swap, no
+   sensor, a first sample, a virtual NIC without speed) are not problems and
+   are not recorded. Recovery's unauthenticated diagnostics are unchanged
+   and strictly smaller.
+10. **Routes.** `GET /api/v1/system`, `/system/metrics`,
+    `/system/capabilities`, `/system/diagnostics` (normal handler),
+    `/network/interfaces`, `/storage/filesystems`: `Policy::device()`, the
+    same central check as every device route, absent in recovery (the
+    diagnostics route keeps its recovery form). No query parameters.
+11. **Gates.** No monitoring library or HTTP client in Core's dependency
+    graph; no server source names Glances, Homarr, Cockpit or qBittorrent;
+    the providers and the system domain only read (no write, process,
+    socket or Agent client).
+12. **Criterion 22's tolerance** is 25 percentage points with every CPU
+    busy, over windows that are close but not identical; the test also
+    requires at least 50 %.
+
+**Known limitations, carried forward:**
+
+- The Agent-derived capabilities can be up to five minutes old
+  (`checkedAt` says how old). Refreshing on demand would put an audited
+  Agent call behind a read route; a faster cadence is M1I's to decide.
+- A bind mount of a directory on an excluded filesystem (an overlay root in
+  a container) is excluded with it, as §9.4's rule implies.
+- Hostname, boot id and MAC addresses are exposed to paired devices, as §9
+  specifies; they are machine identifiers, and they never appear in
+  recovery's unauthenticated diagnostics.
+
+**Security review (attacker-first, M1F).**
+
+| Question | Answer, and the evidence |
+| --- | --- |
+| Can an unauthenticated client make a provider run? | No. All six routes are `Policy::device()`; the central check runs before any handler. Over an empty host tree an unauthenticated sweep (no token, bad token, cross-origin) records no provider read. `no_provider_runs_before_the_device_check` |
+| Can a revoked or unknown token read system data? | No; the next request is `401`, identical to no token. `every_system_route_needs_a_device_and_revocation_is_immediate` |
+| Can a request choose a path a provider reads? | No. The routes take no parameters; every path is a literal joined to a `HostRoot` built in code; interface and hwmon names come from the kernel's own listings and are validated. |
+| Can a malformed or hostile source crash Core or hang a request? | No. Reads are size-bounded and refuse FIFOs without blocking; parsers return reasons (no `unwrap`/`expect` on source data); lists are bounded; `statvfs` has a 2 s timeout and one call in flight per mount. |
+| Can a dead network mount exhaust Core's threads? | At most one blocked thread per such mount, however often the route is called. |
+| Does any response invent a value? | No. `empty_fixture_tree_invents_nothing` walks every M1F response built from nothing; first CPU sample, no swap, no sensor, missing speed and failed `statvfs` are each `null` + reason in their own tests. |
+| Does M1F depend on third-party monitoring? | No. Dependency gate (no monitoring library, no HTTP client in Core) and source gate (no Glances, Homarr, Cockpit, qBittorrent). |
+| Did M1F add an Agent operation or parameter? | No. `AgentOp` is still two parameterless variants (gate); Core reads Agent's existing answers. |
+| Can diagnostics leak secrets or identify the machine to the LAN? | Normal diagnostics is a device-only allowlist with no hostname, address, path, device or log content, and the end-to-end secret scan now includes it; recovery's unauthenticated diagnostics is unchanged. |
+| Can the capability document claim a runtime works? | No. `container.available` means a socket is present; `liveness` is always missing in M1. |
+| Did adding routes weaken Host, Origin, TLS or body policy? | No. `system_routes_keep_the_host_origin_and_tls_policy` (421, 403, 400, 405 with `Allow`, the TLS 1.2 floor); recovery answers `503` for the five new routes. |
 
 ### M1G — discovery and desktop client
 - **Files:** `atrium-core/src/discovery.rs`, `atrium-client/*`,

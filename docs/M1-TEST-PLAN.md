@@ -531,6 +531,32 @@ sources fill the global cap exactly, the per-source and global buckets and
 the bounded source table, attempts bounded to four with one per source, and
 forwarding headers change nothing.
 
+**As built (M1F).** Fixture trees are written by each test into a private
+temporary directory (`providers/fixture.rs`) rather than kept as snapshot
+directories, so every file a test depends on is in the test. The providers
+read through a `HostRoot` that is `/` in the service and the fixture in
+tests. Real-kernel evidence is separate: `providers/tests.rs`'s
+`real_host_*` tests read this machine's `/proc`, `/sys`, `getifaddrs` and
+mounts, and the privileged suite runs the real Core binary as `atrium`.
+
+| Plan name | Where |
+| --- | --- |
+| `proc_stat_delta` | `providers/cpu.rs`: `the_first_sample_is_pending_never_zero`, `regressions_reseed_instead_of_producing_nonsense`, `failures_and_staleness_are_reported`, `stat_is_parsed_with_iowait_as_idle_and_guest_excluded` |
+| `meminfo_without_memavailable`, `meminfo_zero_swap` | `providers/memory.rs`: `no_mem_available_is_unsupported_and_never_estimated`, `no_swap_differs_from_unreadable_swap`, `a_genuine_zero_stays_zero`, `malformed_and_overflowing_values_are_refused` |
+| `loadavg_malformed` | `providers/load.rs` — the reason is `source_malformed` (the file was read; its content was wrong), not `procfs_unreadable` |
+| `mountinfo_bind_collapse`, `mountinfo_pseudo_excluded`, `statvfs_denied` | `providers/fs.rs`: `mountinfo_is_filtered_and_bind_mounts_collapse_without_hiding`, `every_listed_mount_has_usage_or_a_reason_and_none_is_dropped`, `malformed_lines_are_skipped_and_no_mountinfo_is_a_reason` |
+| `hwmon_absent`, `hwmon_label_missing` | `providers/thermal.rs`: `no_sensor_is_unavailable_never_a_temperature`, `sensors_are_read_labelled_and_cpu_chips_come_first` (an unlabelled input is `label: null`), `implausible_readings_are_dropped_not_clamped`; the capability half in `system/tests.rs` |
+| `sysfs_speed_minus_one` | `providers/net.rs`: `missing_speed_or_carrier_is_never_zero`, plus `two_nics_every_address_both_families_no_primary`, `hostile_names_and_malformed_values_are_refused`, `prefixes_are_exact_and_odd_masks_are_null` |
+| `os_release_missing` | `providers/os.rs`: `malformed_values_degrade_their_field_only`, `os_release_falls_back_to_usr_lib`, `os_release_is_followed_through_its_conventional_symlink`, `os_release_is_parsed_strictly` |
+| **`empty_fixture_tree_invents_nothing`** | `system/tests.rs` — every M1F response built from an empty tree is walked recursively; the only numbers allowed are the API and schema versions, the backup count and diagnostics' failure tallies, none of them a measurement |
+| Criterion 21 (`/system` native, no third-party dependency) | `http/system_tests.rs::real_host_responses_have_the_documented_shape`; the dependency gate (no monitoring library or HTTP client in Core) and the source gate (no Glances, Homarr, Cockpit or qBittorrent in any server source) |
+| Criterion 22 (metrics match `/proc` under load) | `atriumctl` privileged `metrics_match_proc_under_known_load_and_reads_survive_a_stopped_agent`: every CPU busy, Core's value within 25 points of `/proc/stat` read by the test over the same window; `memory.totalBytes` exactly `MemTotal × 1024` |
+| Criterion 23 (every interface and address, two NICs) | privileged `two_nics_every_interface_and_every_address_reach_the_api`: a real veth pair, both up, two IPv4 addresses and an IPv6 address on one end and a /16 on the other, through the API. IPv6 is required under CI (the runner has it; `sudo --preserve-env=CI`) and checked wherever the kernel has it |
+| Criterion 24 (real capacity; pseudo and bind excluded) | privileged `filesystems_report_real_capacity_and_collapse_bind_mounts`: a real tmpfs is absent, a real bind mount appears only as `alsoMountedAt` of its filesystem, and the capacity equals the test's own `statvfs` (no `df`, which would be a shell-out) |
+| Criteria 25, 29, 40 | the same privileged test: with no Agent, `privileged` and `container` are `agent_unreachable` and hardware, network and storage stay available; with a root Agent, both come through it and `container` is present only with `runtime_liveness_not_probed_in_m1`; `system/tests.rs::capabilities_follow_the_agent_and_never_claim_a_running_runtime` for every Agent state |
+| Criterion 32 (diagnostics names providers and versions; no secret) | `system/tests.rs::normal_diagnostics_is_an_allowlist`; privileged `pairing_end_to_end_…` now scans the device-only diagnostics response for every secret |
+| Auth and network policy on the new routes | `http/system_tests.rs`: `every_system_route_needs_a_device_and_revocation_is_immediate`, `no_provider_runs_before_the_device_check` (over an empty host, an unauthenticated sweep records no provider read), `system_routes_keep_the_host_origin_and_tls_policy`, `recovery_serves_none_of_the_system_domain_but_its_diagnostics` |
+
 ## 12. Coverage map — every criterion has a test
 
 | # | Owning layer | Named test or scenario |

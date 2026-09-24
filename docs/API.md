@@ -281,6 +281,88 @@ POST /api/v1/system/actions/shutdown             # destructive: requires confirm
 }
 ```
 
+**As built (M1F).** Six device-only routes, each through the same
+`Auth::Device` check, none in recovery except the redacted diagnostics:
+`GET /api/v1/system`, `/system/metrics`, `/system/capabilities`,
+`/system/diagnostics`, `/network/interfaces`, `/storage/filesystems`. The
+history, bundle, reboot and shutdown routes above are not M1. Every value
+is read natively (`/proc`, `/sys`, `/etc/os-release`, `getifaddrs`,
+`statvfs`); **a value that cannot be read is `null`**, never `0`, and every
+response carries `unavailable: [{field, reason}]` saying which and why.
+A source that fails degrades its fields; the route still answers `200`.
+
+```jsonc
+// GET /api/v1/system
+{ "serverId": "…", "coreVersion": "0.1.0", "arch": "x86_64",
+  "os": { "id": "debian", "versionId": "12", "prettyName": "Debian GNU/Linux 12 (bookworm)" },
+  "kernel": { "name": "Linux", "release": "6.1.0-25-amd64", "version": "#1 SMP …" },
+  "hostname": "atrium", "uptimeSeconds": 86400, "bootId": "3c9d2f4e-…",
+  "unavailable": [] }
+
+// GET /api/v1/system/metrics — usage is over Core's last 2 s sample
+{ "at": "2026-09-24T10:00:00Z",
+  "cpu": { "usagePercent": null, "cores": 4 },          // null until two samples exist
+  "load": { "one": 0.52, "five": 0.58, "fifteen": 0.59 },
+  "memory": { "totalBytes": …, "availableBytes": …, "freeBytes": …, "buffersBytes": …, "cachedBytes": … },
+  "swap": { "totalBytes": null, "freeBytes": null },     // no swap configured
+  "temperatures": [ { "chip": "coretemp", "label": "Package id 0", "celsius": 52.0, "cpu": true } ],
+  "unavailable": [ { "field": "cpu.usagePercent", "reason": "first_sample_pending" },
+                   { "field": "swap.totalBytes", "reason": "swap_absent" },
+                   { "field": "swap.freeBytes", "reason": "swap_absent" } ] }
+
+// GET /api/v1/network/interfaces — a list, sorted by name; no primary, no "the IP"
+{ "interfaces": [ { "name": "enp1s0", "operState": "up", "carrier": true, "speedMbps": 1000,
+                    "mtu": 1500, "macAddress": "52:54:00:ab:cd:01", "virtual": false, "loopback": false,
+                    "addresses": [ { "family": "ipv4", "address": "192.168.1.20", "prefixLength": 24, "scope": "global" },
+                                   { "family": "ipv6", "address": "fe80::5054:ff:feab:cd01", "prefixLength": 64, "scope": "link" } ],
+                    "statistics": { "rxBytes": 123456, "txBytes": 654321 },
+                    "unavailable": [] } ],
+  "unavailable": [] }
+
+// GET /api/v1/storage/filesystems — pseudo filesystems excluded, bind mounts collapsed
+{ "filesystems": [ { "mountPoint": "/", "alsoMountedAt": ["/srv/photos"], "fsType": "ext4",
+                     "source": "/dev/sda2", "readOnly": false,
+                     "usage": { "totalBytes": …, "usedBytes": …, "freeBytes": …, "availableBytes": … },
+                     "unavailable": [] },
+                   { "mountPoint": "/mnt/nas", "alsoMountedAt": [], "fsType": "nfs4", "source": "nas:/export",
+                     "readOnly": false, "usage": null,
+                     "unavailable": [ { "field": "usage", "reason": "metadata_unavailable" } ] } ],
+  "unavailable": [] }
+```
+
+Units: bytes for sizes (kernel kB × 1024), megabits per second for link
+speed, degrees Celsius to 0.1, percent 0–100 to 0.1, seconds for uptime,
+load averages as the kernel reports them. Interface counters are
+cumulative bytes since the interface was created; M1 reports no rates.
+`usedBytes` is `totalBytes − freeBytes`; `availableBytes` is what an
+unprivileged writer can use.
+
+Reason codes (closed): `procfs_unreadable`, `sysfs_unreadable`,
+`os_release_unreadable`, `first_sample_pending`, `mem_available_unsupported`,
+`swap_absent`, `no_hwmon_sensors`, `not_reported`, `not_reported_by_driver`,
+`metadata_unavailable`, `source_malformed`, `sample_stale`; in capabilities
+also `agent_unreachable`, `agent_protocol_mismatch`,
+`agent_journal_unavailable`, `agent_protocol_error`, `agent_check_pending`,
+`no_container_runtime`, `runtime_liveness_not_probed_in_m1`,
+`runtime_version_probe_not_in_m1`, `not_enabled_in_m1`,
+`not_enabled_in_alpha`, `not_yet_implemented`.
+
+`GET /api/v1/system/capabilities` has the shape of plan §9.6: `hardware`,
+`network`, `storage`, `container`, `services`, `packages`, `privileged`,
+`discovery`, each with `available` and `missing[{feature, reason}]`.
+`container.available` means a known runtime socket is **present** — seen by
+Agent's passive probe — never that the runtime is running (`liveness` is
+always missing in M1). `container` and `privileged` carry `checkedAt`: they
+are Agent's answer at Core's last refresh (every 5 minutes, and at start).
+
+`GET /api/v1/system/diagnostics` in normal mode is a field allowlist:
+`state`, `since`, `versions {core, api, agent, agentProtocol}`,
+`schemaVersion`, `backups {available, count}`, `providers`, one-line
+`capabilities {available, reasons}`, and `recentIssues [{code, subject,
+count, lastSeen}]` (at most 32; codes and field names only). No hostname,
+address, path, device, audit or log content. Recovery's diagnostics remain
+the smaller unauthenticated allowlist.
+
 ### Storage
 
 ```http
