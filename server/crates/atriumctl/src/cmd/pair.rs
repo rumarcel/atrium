@@ -89,7 +89,8 @@ pub fn arm_and_show(
     let minutes = SECRET_LIFETIME.whole_minutes();
     println!("Pairing is armed for Atrium's native clients.");
     println!();
-    println!("    Pairing code:  {}", &*armed.secret.display_form());
+    let code = armed.secret.display_form();
+    println!("    Pairing code:  {}", code.as_str());
     println!();
     println!(
         "It pairs one device, once, until {} ({minutes} minutes from now).",
