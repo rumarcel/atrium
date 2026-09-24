@@ -47,10 +47,11 @@ the three trust roots that the phrase "Agent's own key" had blurred together
 | [`M1-IMPLEMENTATION-PLAN.md`](M1-IMPLEMENTATION-PLAN.md) | How M1 gets built: layout, protocol, state, pairing, providers, units, installer, passes |
 | [`M1-TEST-PLAN.md`](M1-TEST-PLAN.md) | How M1 gets proved, and which tests need a real machine |
 | [`ASSUMPTIONS.md`](ASSUMPTIONS.md) | What the design believes but has not verified |
-| [`CHECKPOINT-M1A.md`](CHECKPOINT-M1A.md) | **Read this first if you are resuming.** Where the work stopped and what comes next |
+| [`CHECKPOINT-M1F.md`](CHECKPOINT-M1F.md) | **Read this first if you are resuming.** Where the work stopped (after M1F) and what comes next |
+| [`CHECKPOINT-M1A.md`](CHECKPOINT-M1A.md) | The earlier checkpoint, after M1A (historical) |
 | [`adr/`](adr/README.md) | The decisions that are frozen, and what they cost |
 
-Eighteen ADRs. [017](adr/0017-install-time-identity-and-root-owned-key-material.md)
+Twenty ADRs. [017](adr/0017-install-time-identity-and-root-owned-key-material.md)
 supersedes the identity-ownership sentences of 003, 012 and 016 to match what
 M1B built and proved. [018](adr/0018-privileged-mutation-audit-retention.md)
 sets the audit-retention rule the first mutating Agent operation must meet. The three added by the hardening review —
