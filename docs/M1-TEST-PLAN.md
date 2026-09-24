@@ -440,6 +440,34 @@ codec tests are in `atrium-protocol` under the names listed there.
 `core_cannot_open_runtime_socket` (criterion 35) stays with M1I, which owns
 it in the plan.
 
+**As built (M1D).** Section 4.1's tests are in `atrium-core/src/http/`. They
+run the real listener on loopback, with a generated identity, a certificate
+issued by M1B's code, and a client that pins the SPKI:
+
+| Plan name | Where |
+| --- | --- |
+| `route_table_matches_expected_literal_list` | `http/routes.rs` |
+| `every_response_carries_version_headers` | `assert_common_headers`, applied to every success and error in `http/tests.rs` |
+| `unauthenticated_routes_return_401_problem` | `routing_is_exact_and_fails_closed` |
+| `error_response_leaks_nothing` | `http/tests.rs` |
+| `unknown_body_field_rejected`, `body_over_limit_rejected_before_parse` | `bodies_are_refused_or_bounded_before_parsing` (test-only route until M1E's DTOs) |
+| `host_header_allowlist` | `http/tests.rs`, plus the parser tests in `http/host.rs` |
+| `origin_header_on_token_request_refused` | `cross_origin_browser_requests_are_refused_and_nothing_advertises_cors` |
+| `recovery_has_no_state_changing_route`, `recovery_has_no_pairing_route`, `recovery_router_is_a_strict_subset` | `http/routes.rs` and `recovery_serves_only_health_and_redacted_diagnostics` |
+
+These are added: TLS (identity key served, TLS 1.2 floor with EMS, no
+resumption, plaintext gets no HTTP), the exporter (it matches the client's,
+one context per connection, distinct across connections, TLS 1.3 only),
+certificate reissue (same pin, new `Host` set), malformed and oversized
+heads, the connection cap, the idle keep-alive bound and shutdown with
+stalled clients. `atriumctl`'s privileged suite adds four end-to-end tests
+with the real Core binary as `atrium`:
+`core_serves_tls_with_the_identity_key_and_a_restart_keeps_the_pin`,
+`the_exporter_never_reaches_the_log` (at debug level),
+`recovery_serves_health_over_tls_and_never_contacts_the_agent` and
+`core_stops_promptly_with_stalled_network_clients`. Each privileged
+installation now listens on its own free loopback port.
+
 ### 11.3 New workflow: `m1-acceptance` (manual dispatch)
 
 Builds the tarball, boots the distro VM matrix, runs §7. Not on every push —

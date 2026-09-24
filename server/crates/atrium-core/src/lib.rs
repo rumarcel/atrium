@@ -20,8 +20,14 @@
 //!   is unreachable they are unavailable, with a reason, and nothing else is
 //!   tried.
 //!
-//! What it deliberately does **not** do yet: it opens no TCP port, serves no
-//! HTTP, pairs no device and reports no system metrics.
+//! - **network** ([`http`]) — HTTPS on the configured port with the identity
+//!   key: `/healthz`, a placeholder page, and in recovery the redacted
+//!   diagnostics. Every route and its policy is in one literal table; `Host`
+//!   is checked against the certificate's own names; cross-origin browser
+//!   requests are refused; errors are RFC 9457 problems from a closed set.
+//!
+//! What it deliberately does **not** do yet: it pairs no device,
+//! authenticates no request and reports no system metrics.
 //! Each of those arrives in its own pass with its own tests — see
 //! `docs/M1-IMPLEMENTATION-PLAN.md` section 17. There is no placeholder
 //! endpoint and no invented data anywhere in this crate.
@@ -38,6 +44,7 @@ pub mod config;
 pub mod db;
 pub mod fsio;
 pub mod guard;
+pub mod http;
 pub mod identity;
 pub mod init;
 pub mod layout;
@@ -54,7 +61,13 @@ pub mod startup;
 mod testutil;
 
 use std::error::Error;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
+
+use tokio::net::TcpListener;
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
 
 use time::OffsetDateTime;
 
@@ -198,6 +211,16 @@ pub async fn run(
 
     let signal = match mode {
         Mode::Normal(mut normal) => {
+            // The listener is up before readiness is reported, and a failure
+            // to serve TLS stops startup: there is never a plaintext
+            // fallback and never another port (plan §16).
+            let served = http::tls::Served::load(&layout, &normal.identity)?;
+            let listener = TcpListener::bind(config.listen)
+                .await
+                .map_err(|error| format!("could not listen on {}: {error}", config.listen))?;
+            let address = listener.local_addr()?;
+            let app = http::App::normal(&served, address.port())?;
+            let listening = Listening::start(listener, Arc::clone(&app), address);
             let notified = notify::ready_with_status("running")?;
             tracing::info!(
                 event = "ready",
@@ -210,12 +233,16 @@ pub async fn run(
                 schema_version = normal.database.schema_version().unwrap_or(0),
                 certificate_serial = %normal.certificate.serial,
                 certificate_not_after = %identity::format_time(normal.certificate.not_after),
+                listen = %listening.address,
                 service_manager_notified = notified,
                 "atrium-core is ready"
             );
-            run_normal(&layout, &mut normal, &mut shutdown).await
+            let signal = run_normal(&layout, &mut normal, &mut shutdown, &app).await;
+            listening.close().await;
+            signal
         }
         Mode::Recovery(recovery) => {
+            let listening = recovery_listener(&layout, config.listen, &recovery).await;
             let health = recovery.health();
             let notified = notify::ready_with_status(&format!(
                 "recovery mode: {}; see `atriumctl diagnostics`",
@@ -228,12 +255,17 @@ pub async fn run(
                 mode = "recovery",
                 reason = health.reason,
                 diagnostics = %serde_json::to_string(&recovery.diagnostics()).unwrap_or_default(),
+                listen = listening.as_ref().map(|l| l.address.to_string()),
                 service_manager_notified = notified,
                 "atrium-core is ready in recovery mode"
             );
-            // Recovery does nothing but wait. It holds no database handle, no
-            // agent client and no timer; there is nothing here to act on.
-            shutdown.recv().await
+            // Recovery does nothing but wait and answer its two routes. It
+            // holds no database handle, no agent client and no timer.
+            let signal = shutdown.recv().await;
+            if let Some(listening) = listening {
+                listening.close().await;
+            }
+            signal
         }
     };
 
@@ -256,6 +288,77 @@ pub async fn run(
     Ok(())
 }
 
+/// The HTTPS listener task, and the switch that stops it.
+struct Listening {
+    stop: watch::Sender<bool>,
+    task: JoinHandle<()>,
+    address: SocketAddr,
+}
+
+impl Listening {
+    fn start(listener: TcpListener, app: Arc<http::App>, address: SocketAddr) -> Self {
+        let (stop, receiver) = watch::channel(false);
+        let task = tokio::spawn(http::serve(listener, app, receiver));
+        Self {
+            stop,
+            task,
+            address,
+        }
+    }
+
+    /// Stops accepting, gives in-flight requests [`http::SHUTDOWN_GRACE`],
+    /// and drops the rest.
+    async fn close(self) {
+        let _ = self.stop.send(true);
+        let _ = self.task.await;
+    }
+}
+
+/// Recovery's listener: `/healthz` and the redacted diagnostics, over TLS
+/// with the verified identity key. When there is no verified key or no
+/// certificate for it — which is often *why* Core is in recovery — there is
+/// nothing to serve TLS with, and recovery reports through the log and the
+/// service manager only. It never generates, repairs or writes anything to
+/// get a listener.
+async fn recovery_listener(
+    layout: &Layout,
+    address: SocketAddr,
+    recovery: &recovery::Recovery,
+) -> Option<Listening> {
+    let unavailable = |reason: &str| {
+        tracing::warn!(
+            event = "recovery_network_unavailable",
+            component = "atrium-core",
+            reason = reason,
+            "recovery mode is not serving over the network; see `atriumctl diagnostics`"
+        );
+    };
+    let identity = match identity::load(layout, identity::Protection::Required) {
+        Ok(identity) => identity,
+        Err(fault) => {
+            unavailable(recovery::RecoveryReason::from(&fault).code());
+            return None;
+        }
+    };
+    let served = match http::tls::Served::load(layout, &identity) {
+        Ok(served) => served,
+        Err(_) => {
+            unavailable("certificate.unavailable");
+            return None;
+        }
+    };
+    let listener = match TcpListener::bind(address).await {
+        Ok(listener) => listener,
+        Err(_) => {
+            unavailable("listen_failed");
+            return None;
+        }
+    };
+    let address = listener.local_addr().ok()?;
+    let app = http::App::recovery(&served, address.port(), recovery).ok()?;
+    Some(Listening::start(listener, app, address))
+}
+
 /// Normal mode until shutdown: re-checks the certificate against the current
 /// addresses every [`ADDRESS_POLL`], and refreshes the Agent-derived
 /// capabilities right away and then every [`agentmonitor::AGENT_REFRESH`].
@@ -263,6 +366,7 @@ async fn run_normal(
     layout: &Layout,
     normal: &mut startup::Normal,
     shutdown: &mut signals::ShutdownListener,
+    app: &http::App,
 ) -> signals::Shutdown {
     let mut ticker = tokio::time::interval(ADDRESS_POLL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -279,7 +383,8 @@ async fn run_normal(
                 event = "agent_client_unavailable",
                 component = "atrium-core",
                 reason = %error,
-                "no Agent client could be built; privileged and container capabilities                  stay unavailable"
+                "no Agent client could be built; privileged and container capabilities \
+                 stay unavailable"
             );
             None
         }
@@ -305,7 +410,23 @@ async fn run_normal(
                 let addresses = current_addresses();
                 match certificate::ensure(layout, &normal.identity, &addresses, now) {
                     Ok(outcome) => {
+                        let before = normal.certificate.serial.clone();
                         normal.certificate = startup::settle(&normal.database, outcome, now);
+                        if normal.certificate.serial != before {
+                            // Same key, new names: new connections get the
+                            // new certificate, and its names become the
+                            // accepted hosts.
+                            match http::tls::Served::load(layout, &normal.identity) {
+                                Ok(served) => app.replace_certificate(&served),
+                                Err(error) => tracing::warn!(
+                                    event = "certificate_swap_failed",
+                                    component = "atrium-core",
+                                    reason = %error,
+                                    "the reissued certificate could not be served; the \
+                                     previous one stays in service"
+                                ),
+                            }
+                        }
                     }
                     Err(error) => tracing::error!(
                         event = "certificate_reissue_failed",

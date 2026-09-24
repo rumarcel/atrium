@@ -42,6 +42,19 @@ toml = { version = "1", default-features = false, features = ["std", "parse", "s
 x509-parser = { version = "0.18", default-features = false }
 zeroize = { version = "1", default-features = false, features = ["std"] }
 
+# M1D: the TLS listener. Plan section 18.1 names rustls and its exporter as
+# the one TLS stack; hyper is the HTTP/1.1 implementation. There is no web
+# framework: M1's routes are a fixed table dispatched by exact match (plan
+# section 17, M1D as built). Core only; the gates keep all of these out of
+# Agent and the shared crates.
+bytes = { version = "1", default-features = false, features = ["std"] }
+http = { version = "1", default-features = false, features = ["std"] }
+http-body-util = { version = "0.1", default-features = false }
+hyper = { version = "1", default-features = false, features = ["server", "http1"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+
 atrium-api-types = { path = "crates/atrium-api-types" }
 atrium-pairing = { path = "crates/atrium-pairing" }
 atrium-protocol = { path = "crates/atrium-protocol" }

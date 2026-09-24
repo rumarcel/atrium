@@ -71,8 +71,16 @@ normal mode, audits every call as `agent.call`, and derives the `privileged`
 and `container` capabilities, or reports `agent_unreachable` and tries nothing
 else.
 
-Still absent, each in its own pass: HTTP and TLS serving, pairing, discovery
-and system providers. The order and the acceptance
+**M1D** — the HTTPS listener. TLS with the identity key (1.3, and 1.2 with
+extended master secret; no resumption; HTTP/1.1 only), a literal route table
+with per-mode policies (`/healthz`, a placeholder `/`, and in recovery the
+redacted diagnostics), a `Host` allowlist taken from the certificate's own
+names, deny-by-default browser policy with no CORS headers, RFC 9457 errors
+from a closed set, and a per-connection context holding the TLS exporter for
+M1E's pairing. No route authenticates yet: device routes answer 401.
+
+Still absent, each in its own pass: pairing and device authentication,
+discovery and system providers. The order and the acceptance
 criteria are in [`../docs/M1-IMPLEMENTATION-PLAN.md`](../docs/M1-IMPLEMENTATION-PLAN.md).
 
 `ATRIUM_ROOT=<dir>` relocates the whole file tree (`<dir>/etc/atrium`,

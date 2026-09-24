@@ -148,7 +148,12 @@ Rules:
 
 Reserved code families: `auth.*`, `pairing.*`, `capability.*`, `provider.*`,
 `app.*`, `container.*`, `agent.*`, `storage.*`, `network.*`, `operation.*`,
-`validation.*`, `internal.*`.
+`validation.*`, `internal.*`, and, from M1D, `request.*`: problems with the
+request itself before any domain logic runs (`request.host_rejected`,
+`request.origin_rejected`, `request.not_found`,
+`request.unsupported_api_version`, `request.method_not_allowed`,
+`request.tls_version_required`, `request.timeout`). `network.*` stays
+reserved for the network *domain*: interfaces and addresses.
 
 Three codes exist specifically for the container boundary and are never merged
 into a generic failure:

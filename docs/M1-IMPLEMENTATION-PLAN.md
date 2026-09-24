@@ -1716,6 +1716,123 @@ recorded here rather than silently.
   representable.
 - **Non-goals:** no pairing routes yet, no providers.
 
+**As built.** The listener, the route table, the error model and the
+recovery network behaviour are in `atrium-core/src/http/`. Where the
+implementation is more specific than this entry, or departs from it, it is
+recorded here.
+
+1. **No web framework.** §18.1a lists axum and tower-http. M1D uses hyper 1
+   (HTTP/1.1 server) and hyper-util, with rustls through tokio-rustls, and
+   nothing above them. M1's routes are a fixed list of literal paths, so
+   dispatch is an exact lookup in one table (`http/routes.rs`), and every
+   cross-cutting check is applied by one function in one written order
+   (`http/dispatch.rs`) instead of by layered middleware whose order is easy
+   to get wrong. `CatchPanic` has no effect under the release profile's
+   `panic = "abort"`, so `internal.panic` is not representable. Handlers are
+   written not to panic, and a panic restarts the process.
+2. **Authentication is a policy with no implementation yet.** This entry asks
+   for "device authentication middleware against an empty device table". By
+   decision for this pass, M1D implements **no** token parsing or
+   verification. The route policy carries `Auth::Device`, and M1D enforces it
+   fail-closed: every request to a device route gets `401 auth.unauthorized`
+   with `WWW-Authenticate: Bearer`, whatever it sends. M1E adds verification
+   at that one point in dispatch.
+3. **Routes.** `GET /healthz`, which is public, returns
+   `{status, state, api, version}` in normal mode and the M1B recovery
+   payload in recovery. `GET /` is public and same-origin-only for browsers;
+   it is a static page with no script and nothing identifying, and is absent
+   in recovery. `GET /api/v1/system/diagnostics` is a device route in normal
+   mode (its handler arrives in M1F, so today it answers 401) and the
+   allowlisted recovery payload in recovery. That route is declared now so
+   that the recovery routes stay a subset of the normal ones. Nothing else
+   exists. Everything under `/api/v1` that is not in the table answers 401,
+   because the namespace outside the pairing surface needs a device
+   (criterion 26) and existence must not leak before authentication.
+   `/api/<anything else>` is `404 request.unsupported_api_version`. Other
+   paths are `404 request.not_found`. The wrong method on a public route is
+   `405` with `Allow`, and on a device route it is 401. In recovery, anything
+   not in the recovery table is `503 internal.recovery_mode`. Paths are never
+   decoded or normalised.
+4. **Order of checks.** Request id, `Host`, lookup, browser policy,
+   absent/method, TLS version, auth, body, handler, then the common headers.
+   Nothing before the handler reads the body.
+5. **`Host`.** The allowlist is the current certificate's own names and
+   addresses (`atrium-<short_id>.local`, `localhost`, the loopbacks and
+   every current address) plus the listening port, which must be present. It
+   is replaced when the certificate is reissued. Parsing is strict: one
+   `Host` header only; the absolute-form request target must agree with it;
+   no trailing dot; no zone id; canonical IPv4 only; bracketed IPv6; no
+   userinfo; no IDNA. A rejection is `421 request.host_rejected`, and the
+   value is never reflected.
+6. **Browsers.** Deny by default. Any `Origin`, or `Sec-Fetch-Site:
+   cross-site`/`same-site`, is refused (`403 request.origin_rejected`) unless
+   the route's policy is `SameOrigin` and the origin is exactly
+   `https://<the validated Host>`. No response ever carries an
+   `Access-Control-*` header, so a preflight grants nothing. Every response
+   carries `Cache-Control: no-store`, `nosniff`, `X-Frame-Options: DENY`,
+   `Referrer-Policy: no-referrer`, a `default-src 'none'` CSP with
+   `frame-ancestors 'none'`, and `Cross-Origin-Resource-Policy: same-origin`.
+7. **Errors.** A closed enum of 14 variants; each has one status, one code
+   and fixed text. The only dynamic value is the request id, which is echoed
+   only if it is 1–64 lowercase hex. The table adds a `request.*` family for
+   `host_rejected`, `origin_rejected`, `not_found`,
+   `unsupported_api_version`, `method_not_allowed`, `tls_version_required`
+   and `timeout`, and `validation.body_not_accepted` and `internal.server`.
+   `API.md` §4 lists the new family.
+8. **TLS.** The identity key and the certificate on disk are paired only if
+   the certificate's SPKI is the key's pin; otherwise nothing is served. The
+   certificate resolver ignores SNI. TLS 1.3 and 1.2, with 1.2 only with
+   extended master secret. ALPN is `http/1.1` only. **Resumption is
+   disabled** (no tickets, no session cache), so every connection runs a full
+   handshake, carries the certificate a client pins, and has its own
+   exporter. A reissue swaps the certificate for new connections and replaces
+   the `Host` allowlist; the key never changes.
+9. **Connection context and the exporter.** Right after each handshake,
+   Core captures a random connection id, the TLS version and, on TLS 1.3
+   only, `TLS-Exporter("EXPORTER-Atrium-Pairing-v1", "", 32)`. The exporter
+   is held in a `ChannelBinding` that is crate-private, zeroed on drop,
+   printed as `<redacted>` and never serialized. Every request on the
+   connection gets the context by reference. Since Core speaks HTTP/1.1 only,
+   "the same connection" is one TLS session carrying sequential keep-alive
+   requests, which is what §6.4 needs for `begin` and `complete`. A route can
+   require TLS 1.3 (`Tls::Tls13`), which the pairing routes will.
+10. **Limits.** 32 concurrent connections, the rest closed on accept before
+    any TLS work. 10 s to complete the handshake. 10 s to send a request head,
+    which is also the idle keep-alive bound. A 16 KiB request head. A 300 s
+    connection lifetime. A route with no body refuses one unread; a JSON route
+    checks the declared length before reading and caps the read. On shutdown,
+    2 s of grace, then every connection is dropped. The per-IP pairing rate
+    limit belongs to M1E, with the pairing routes.
+11. **Recovery.** Recovery serves over TLS only when the identity verifies
+    and a certificate for its key is on disk. It writes nothing to get
+    there: no key, no certificate, no reissue. When either is missing (often
+    the very reason for recovery), it logs `recovery_network_unavailable`
+    and serves nothing. It never constructs an Agent client.
+12. **Startup.** In normal mode the listener is bound before `READY=1`. A
+    failure to load the certificate or to bind stops startup with a non-zero
+    exit; there is never a plaintext or alternative-port fallback (§16). The
+    default `listen = "[::]:7443"` is one dual-stack socket. On a host booted
+    with IPv6 disabled that bind fails, and `core.toml` must name
+    `0.0.0.0:7443`. The installer (M1H) should detect this.
+13. **Gates.** `src/http` may not name the Agent client, the database,
+    rotation, restore, init, a file write or process execution. A TCP
+    listener may be bound only where the TLS listener is set up.
+14. **Dependencies.** `hyper` (server, http1), `hyper-util` (tokio), `http`,
+    `http-body-util`, `bytes`, `rustls` (ring, tls12) and `tokio-rustls` are
+    added to Core only. `rustls` and `x509-parser` are added as `atriumctl`
+    dev-dependencies for the end-to-end TLS client.
+
+**Known limitations, carried forward:**
+
+- **A LAN client can occupy the 32 connection slots.** With a live session
+  every ten seconds, each slot lasts up to the 300 s lifetime. The global cap
+  is the plan's (§8.2). Per-address limits arrive with the pairing surface
+  in M1E and should cover connections as well as pairing attempts.
+- Criteria 26, 27 and 28 are proven for the routes that exist. 28's per-DTO
+  tests arrive with the first POST routes in M1E; the mechanism (declared
+  length, capped read, `deny_unknown_fields` mapped to
+  `validation.unknown_field`) is tested now on a test-only route.
+
 ### M1E — pairing and devices
 - **Files:** `atrium-pairing/*`, `atrium-core/src/{pairing,devices}.rs`,
   `atriumctl/src/cmd/pair.rs`.

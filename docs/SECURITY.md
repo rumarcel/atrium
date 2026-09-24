@@ -393,7 +393,11 @@ destructive confirmation produces an audit record:
 - **DNS rebinding** (T2): Core validates the `Host` header against an allowlist of
   its own addresses, `atrium-<id>.local` and `localhost`. A request arriving with
   an attacker-controlled hostname is rejected before routing — the prototype agent
-  already does exactly this and it is kept.
+  already does exactly this and it is kept. As built in M1D, the allowlist is
+  exactly the names and addresses in the certificate Core is serving, plus its
+  listening port, which must be present. It is parsed strictly (one header;
+  canonical IPv4; bracketed IPv6 without a zone; no trailing dot) and it follows
+  the certificate when that is reissued.
 - **Clickjacking**: `X-Frame-Options: DENY` / `frame-ancestors 'none'` on the
   management UI. App web interfaces are separate origins and are not framed by the
   management UI without explicit configuration.

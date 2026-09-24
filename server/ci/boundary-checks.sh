@@ -163,6 +163,35 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section "The network boundary cannot reach privilege or state (M1D)"
+
+# Core's HTTP module answers from values fixed at startup. Its production
+# code must not name the Agent client, the state database, identity rotation,
+# restore, init, a raw file write or process execution: unauthenticated
+# network input must have no path to any of them. The module's own test file
+# is excluded; everything else under src/http is checked.
+HTTP_DIR="${CRATES}/atrium-core/src/http"
+http_hits="$(grep -rnE 'agentclient|agentmonitor|AgentClient|crate::db|rusqlite|crate::rotate|restore::|crate::init|fs::write|OpenOptions|Command::' \
+    "${HTTP_DIR}" --include='*.rs' 2>/dev/null | grep -v "^${HTTP_DIR}/tests.rs:" || true)"
+if [ -n "${http_hits}" ]; then
+    fail "the HTTP module reaches something network input must never reach:"
+    printf '%s\n' "${http_hits}" >&2
+else
+    pass "src/http names no Agent client, database, rotation, restore, file write or process"
+fi
+
+# There is one listener and it is TLS: no plaintext bind anywhere else in
+# Core's production code.
+bind_hits="$(grep -rnE 'TcpListener::bind' "${CRATES}/atrium-core/src" --include='*.rs' 2>/dev/null |
+    grep -vE '^[^:]*/src/lib\.rs:|/src/http/tests\.rs:' || true)"
+if [ -n "${bind_hits}" ]; then
+    fail "a TCP listener is bound outside Core's one TLS listener setup:"
+    printf '%s\n' "${bind_hits}" >&2
+else
+    pass "Core binds TCP only where the TLS listener is set up"
+fi
+
+# ---------------------------------------------------------------------------
 section "Unsafe code is confined to one audited site"
 
 unsafe_files="$(grep -rlE '(^|[^_[:alnum:]])unsafe[[:space:]]*\{' "${CRATES}" --include='*.rs' \

@@ -76,6 +76,8 @@ struct Installation {
     atrium: Atrium,
     core: PathBuf,
     ctl: PathBuf,
+    /// Core's listening port, on 127.0.0.1.
+    port: u16,
 }
 
 impl Installation {
@@ -110,11 +112,18 @@ impl Installation {
         chmod(&core, 0o755);
         chmod(&ctl, 0o755);
 
+        // A free loopback port per installation, so no test ever binds the
+        // production port or another test's.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .expect("a free port")
+            .port();
         let installation = Self {
             root,
             atrium,
             core,
             ctl,
+            port,
         };
 
         // install.sh step 4 and 7: directories, and core.toml as root:atrium 0640.
@@ -125,7 +134,12 @@ impl Installation {
         chown(&state, atrium.uid, atrium.gid);
         chmod(&state, 0o700);
         let config = etc.join("core.toml");
-        std::fs::write(&config, format!("server_name = \"{SERVER_NAME}\"\n")).expect("config");
+        let port = installation.port;
+        std::fs::write(
+            &config,
+            format!("server_name = \"{SERVER_NAME}\"\nlisten = \"127.0.0.1:{port}\"\n"),
+        )
+        .expect("config");
         chown(&config, 0, atrium.gid);
         chmod(&config, 0o640);
 
@@ -203,7 +217,13 @@ impl Installation {
 
     /// Starts Core as `atrium`.
     fn start_core(&self) -> Core {
+        self.start_core_with_log("info")
+    }
+
+    /// Starts Core as `atrium` with a given log level.
+    fn start_core_with_log(&self, level: &str) -> Core {
         let mut command = self.command(&self.core, &[]);
+        command.env("ATRIUM_CORE_LOG", level);
         command
             .uid(self.atrium.uid)
             .gid(self.atrium.gid)
@@ -1258,6 +1278,304 @@ fn core_stops_promptly_while_agent_stalls() {
     assert!(
         started.elapsed() < Duration::from_secs(3),
         "Core took {:?} to stop behind a stalled Agent call",
+        started.elapsed()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// M1D: the network boundary, with the real Core binary as `atrium`.
+
+mod https {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use atrium_core::identity::SpkiPin;
+    use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+    use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+    use rustls::{ClientConnection, DigitallySignedStruct, SignatureScheme, StreamOwned};
+
+    /// Accepts exactly one SPKI, as an Atrium client with a pin does.
+    #[derive(Debug)]
+    struct Pin(SpkiPin);
+
+    impl ServerCertVerifier for Pin {
+        fn verify_server_cert(
+            &self,
+            end_entity: &CertificateDer<'_>,
+            _: &[CertificateDer<'_>],
+            _: &ServerName<'_>,
+            _: &[u8],
+            _: UnixTime,
+        ) -> Result<ServerCertVerified, rustls::Error> {
+            let (_, certificate) = x509_parser::parse_x509_certificate(end_entity)
+                .map_err(|_| rustls::Error::General("unparseable".into()))?;
+            if SpkiPin::of(certificate.public_key().raw) == self.0 {
+                Ok(ServerCertVerified::assertion())
+            } else {
+                Err(rustls::Error::General("wrong key".into()))
+            }
+        }
+
+        fn verify_tls12_signature(
+            &self,
+            m: &[u8],
+            c: &CertificateDer<'_>,
+            d: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls12_signature(
+                m,
+                c,
+                d,
+                &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+            )
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            m: &[u8],
+            c: &CertificateDer<'_>,
+            d: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls13_signature(
+                m,
+                c,
+                d,
+                &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+            )
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+            rustls::crypto::ring::default_provider()
+                .signature_verification_algorithms
+                .supported_schemes()
+        }
+    }
+
+    pub type Stream = StreamOwned<ClientConnection, TcpStream>;
+
+    /// A TLS 1.3 connection that accepts only `pin`.
+    pub fn connect(port: u16, pin: &str) -> Stream {
+        let pin = SpkiPin::parse(pin).expect("the ready line's pin parses");
+        let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .expect("versions")
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(Pin(pin)))
+        .with_no_client_auth();
+        let connection = ClientConnection::new(
+            Arc::new(config),
+            ServerName::try_from("localhost").expect("name"),
+        )
+        .expect("client");
+        let tcp = TcpStream::connect(("127.0.0.1", port)).expect("tcp");
+        tcp.set_read_timeout(Some(Duration::from_secs(10)))
+            .expect("timeout");
+        let mut stream = StreamOwned::new(connection, tcp);
+        stream.flush().expect("handshake");
+        while stream.conn.is_handshaking() {
+            stream
+                .conn
+                .complete_io(&mut stream.sock)
+                .expect("TLS handshake with the pinned key");
+        }
+        stream
+    }
+
+    /// One GET on `stream`; returns the status and the body.
+    pub fn get(stream: &mut Stream, port: u16, path: &str) -> (u16, String) {
+        write!(
+            stream,
+            "GET {path} HTTP/1.1\r\nHost: localhost:{port}\r\n\r\n"
+        )
+        .expect("write");
+        let mut buffer = Vec::new();
+        let mut chunk = [0_u8; 4096];
+        loop {
+            if let Some(end) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&buffer[..end]).into_owned();
+                let length: usize = head
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse().unwrap_or(0))
+                    })
+                    .unwrap_or(0);
+                while buffer.len() < end + 4 + length {
+                    let read = stream.read(&mut chunk).expect("body");
+                    assert!(read > 0, "connection closed mid-body");
+                    buffer.extend_from_slice(&chunk[..read]);
+                }
+                let status = head
+                    .split(' ')
+                    .nth(1)
+                    .and_then(|s| s.parse().ok())
+                    .expect("status");
+                let body = String::from_utf8_lossy(&buffer[end + 4..end + 4 + length]).into_owned();
+                return (status, body);
+            }
+            let read = stream.read(&mut chunk).expect("head");
+            assert!(read > 0, "connection closed before a response");
+            buffer.extend_from_slice(&chunk[..read]);
+        }
+    }
+
+    /// This connection's exporter, as the client computes it.
+    pub fn exporter(stream: &Stream) -> [u8; 32] {
+        stream
+            .conn
+            .export_keying_material([0_u8; 32], b"EXPORTER-Atrium-Pairing-v1", Some(b""))
+            .expect("exporter")
+    }
+}
+
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn core_serves_tls_with_the_identity_key_and_a_restart_keeps_the_pin() {
+    let installation = Installation::new("tls");
+    let port = installation.port;
+
+    let mut first = installation.start_core();
+    let ready = first.ready();
+    assert_eq!(field(&ready, "mode").as_deref(), Some("normal"), "{ready}");
+    assert_eq!(
+        field(&ready, "listen").as_deref(),
+        Some(format!("127.0.0.1:{port}").as_str())
+    );
+    let pin = field(&ready, "spki_sha256").expect("pin");
+    let mut stream = https::connect(port, &pin);
+    let (status, body) = https::get(&mut stream, port, "/healthz");
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"state\":\"normal\""), "{body}");
+    drop(stream);
+    first.stop();
+
+    let mut second = installation.start_core();
+    let ready = second.ready();
+    assert_eq!(field(&ready, "spki_sha256"), Some(pin.clone()));
+    // The pinned client connects again: same key, same pin.
+    let mut stream = https::connect(port, &pin);
+    assert_eq!(https::get(&mut stream, port, "/healthz").0, 200);
+    drop(stream);
+    second.stop();
+}
+
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn the_exporter_never_reaches_the_log() {
+    let installation = Installation::new("exporter");
+    let port = installation.port;
+    let mut core = installation.start_core_with_log("debug");
+    let pin = field(&core.ready(), "spki_sha256").expect("pin");
+    let mut exporters = Vec::new();
+    for _ in 0..3 {
+        let mut stream = https::connect(port, &pin);
+        exporters.push(https::exporter(&stream));
+        for path in ["/healthz", "/api/v1/system/diagnostics", "/nothing"] {
+            https::get(&mut stream, port, path);
+        }
+    }
+    core.stop();
+    let log = core.lines().join("\n").to_lowercase();
+    assert!(log.contains("http_request"), "debug request logging ran");
+    for exporter in exporters {
+        let hex = hex(&exporter);
+        for start in (0..=hex.len() - 16).step_by(2) {
+            assert!(
+                !log.contains(&hex[start..start + 16]),
+                "exporter bytes in the log"
+            );
+        }
+        let decimal = format!("{}, {}, {}", exporter[0], exporter[1], exporter[2]);
+        assert!(!log.contains(&decimal), "exporter bytes in the log");
+    }
+}
+
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn recovery_serves_health_over_tls_and_never_contacts_the_agent() {
+    let installation = Installation::new("recnet");
+    let port = installation.port;
+    // A listener where Agent's socket belongs: recovery must never connect.
+    for dir in ["run", "run/atrium"] {
+        std::fs::create_dir_all(installation.root.join(dir)).expect("run");
+        chmod(&installation.root.join(dir), 0o755);
+    }
+    let socket = installation.root.join("run/atrium/agent.sock");
+    let agent = std::os::unix::net::UnixListener::bind(&socket).expect("bind");
+    agent.set_nonblocking(true).expect("nonblocking");
+    chown(&socket, 0, installation.atrium.gid);
+    chmod(&socket, 0o660);
+
+    let path = installation.state().join("atrium.db");
+    let mut bytes = installation.read(&path);
+    bytes.truncate(4096 + 100);
+    std::fs::write(&path, &bytes).expect("damage");
+
+    let mut core = installation.start_core();
+    let ready = core.ready();
+    assert_eq!(
+        field(&ready, "mode").as_deref(),
+        Some("recovery"),
+        "{ready}"
+    );
+    // The pin is the identity's, read without the database.
+    let pin = atrium_core::identity::load(
+        &atrium_core::layout::Layout::under(&installation.root).expect("layout"),
+        atrium_core::identity::Protection::NotChecked,
+    )
+    .expect("identity")
+    .pin()
+    .to_string();
+
+    let mut stream = https::connect(port, &pin);
+    let (status, health) = https::get(&mut stream, port, "/healthz");
+    assert_eq!(status, 200);
+    assert!(health.contains("\"state\":\"recovery\""), "{health}");
+    let (status, diagnostics) = https::get(&mut stream, port, "/api/v1/system/diagnostics");
+    assert_eq!(status, 200);
+    for leak in ["127.0.0.1", "localhost", "atrium-", "/var", "/etc"] {
+        assert!(!diagnostics.contains(leak), "{leak} in {diagnostics}");
+    }
+    for path in ["/", "/api/v1/pair/info", "/api/v1/devices"] {
+        let (status, body) = https::get(&mut stream, port, path);
+        assert_eq!(status, 503, "{path}: {body}");
+        assert!(body.contains("internal.recovery_mode"), "{body}");
+    }
+    drop(stream);
+    std::thread::sleep(Duration::from_millis(500));
+    core.stop();
+
+    match agent.accept() {
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+        other => panic!("recovery contacted the Agent socket: {other:?}"),
+    }
+    assert_eq!(installation.read(&path), bytes, "recovery wrote nothing");
+}
+
+#[test]
+#[ignore = "requires root and the atrium user"]
+fn core_stops_promptly_with_stalled_network_clients() {
+    let installation = Installation::new("netstall");
+    let port = installation.port;
+    let mut core = installation.start_core();
+    let pin = field(&core.ready(), "spki_sha256").expect("pin");
+    // One silent TCP connection, one TLS connection mid-request.
+    let _silent = std::net::TcpStream::connect(("127.0.0.1", port)).expect("tcp");
+    let mut half = https::connect(port, &pin);
+    half.write_all(b"GET /healthz HTTP/1.1\r\nHost: ")
+        .expect("partial");
+    half.flush().expect("flush");
+    std::thread::sleep(Duration::from_millis(300));
+    let started = Instant::now();
+    core.stop();
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "Core took {:?} to stop behind stalled clients",
         started.elapsed()
     );
 }

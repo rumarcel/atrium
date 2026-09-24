@@ -22,3 +22,5 @@ time.workspace = true
 [target.'cfg(unix)'.dev-dependencies]
 nix = { workspace = true, features = ["user", "signal", "process"] }
 rusqlite.workspace = true
+rustls.workspace = true
+x509-parser.workspace = true
